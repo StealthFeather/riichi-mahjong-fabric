@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "DGD",
+    "GTG",
+    "DGD"
+  ],
+  "key": {
+    "D": "minecraft:diamond",
+    "G": "minecraft:gold_ingot",
+    "T": "riichi_mahjong:discard_clicker_tier_2"
+  },
+  "result": {
+    "id": "riichi_mahjong:discard_clicker_tier_3"
+  }
+}

@@ -1,0 +1,1 @@
+{"required":true,"package":"com.riichimahjong.mixin","compatibilityLevel":"JAVA_25","mixins":["DisplayArmorStandAccessor","DisplayMobAccessor","DisplayShulkerAccessor","TableEntityCollisionMixin"],"injectors":{"defaultRequire":1}}

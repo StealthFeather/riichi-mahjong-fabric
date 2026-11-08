@@ -1,0 +1,11 @@
+{
+  "type": "riichi_mahjong:mahjong_altar",
+  "min_han": 13,
+  "ingredients": [
+    "minecraft:black_wool"
+  ],
+  "result": {
+    "id": "minecraft:dragon_egg",
+    "count": 1
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "type": "riichi_mahjong:mahjong_altar",
+  "min_han": 1,
+  "ingredients": [
+    "minecraft:iron_ingot",
+    "minecraft:iron_ingot",
+    "minecraft:iron_ingot",
+    "minecraft:iron_ingot",
+    "minecraft:iron_ingot",
+    "minecraft:iron_ingot",
+    "minecraft:iron_ingot",
+    "minecraft:iron_ingot"
+  ],
+  "result": {
+    "id": "minecraft:diamond",
+    "count": 1
+  }
+}

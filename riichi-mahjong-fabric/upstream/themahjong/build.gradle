@@ -1,0 +1,54 @@
+base {
+    archivesName = "$rootProject.archives_name-themahjong"
+}
+
+dependencies {
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+def themahjongTestLogging = {
+    events 'failed'
+    exceptionFormat 'full'
+    showExceptions true
+    showCauses true
+    showStackTraces false
+    showStandardStreams false
+}
+
+tasks.named('test') {
+    enabled = false
+}
+
+tasks.register('testTheMahjong', Test) {
+    group = 'verification'
+    description = 'Runs unit tests for the themahjong library.'
+
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        excludeTags 'full-replay'
+    }
+    testLogging themahjongTestLogging
+}
+
+tasks.register('testTheMahjongFull', Test) {
+    group = 'verification'
+    description = 'Runs full replay tests against the downloaded 2019 Tenhou dataset (requires scripts/download-tenhou-2019.ps1). Run ONLY when explicitly asked to.'
+
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'full-replay'
+    }
+    testLogging themahjongTestLogging
+}
+
+tasks.register('runTheMahjongCli', JavaExec) {
+    group = 'application'
+    description = 'Runs the themahjong CLI smoke execution.'
+
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.themahjong.TheMahjongCli'
+}

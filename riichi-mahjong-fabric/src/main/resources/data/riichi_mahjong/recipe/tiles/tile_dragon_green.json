@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    "riichi_mahjong:tile_dragon_white",
+    "minecraft:emerald_block"
+  ],
+  "result": {
+    "id": "riichi_mahjong:tile_dragon_green",
+    "count": 1
+  }
+}

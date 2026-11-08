@@ -1,0 +1,15 @@
+{
+  "type": "riichi_mahjong:mahjong_altar",
+  "min_han": 6,
+  "ingredients": [
+    "minecraft:ancient_debris",
+    "minecraft:gold_ingot",
+    "minecraft:gold_ingot",
+    "minecraft:gold_ingot",
+    "minecraft:gold_ingot"
+  ],
+  "result": {
+    "id": "minecraft:netherite_ingot",
+    "count": 1
+  }
+}

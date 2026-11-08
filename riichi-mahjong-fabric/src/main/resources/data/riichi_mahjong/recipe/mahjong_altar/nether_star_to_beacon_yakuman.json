@@ -1,0 +1,16 @@
+{
+  "type": "riichi_mahjong:mahjong_altar",
+  "min_han": 13,
+  "ingredients": [
+    "minecraft:nether_star",
+    "minecraft:obsidian",
+    "minecraft:obsidian",
+    "minecraft:obsidian",
+    "minecraft:obsidian",
+    "minecraft:glass"
+  ],
+  "result": {
+    "id": "minecraft:beacon",
+    "count": 2
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "GGG",
+    "RDR",
+    "GGG"
+  ],
+  "key": {
+    "G": "minecraft:gold_block",
+    "R": "minecraft:redstone_block",
+    "D": "minecraft:dispenser"
+  },
+  "result": {
+    "id": "riichi_mahjong:tsumo_clicker"
+  }
+}

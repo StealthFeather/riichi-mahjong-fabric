@@ -1,0 +1,14 @@
+{
+  "type": "riichi_mahjong:mahjong_altar",
+  "min_han": 3,
+  "ingredients": [
+    "riichi_mahjong:tile_wind_east",
+    "riichi_mahjong:tile_wind_south",
+    "riichi_mahjong:tile_wind_west",
+    "riichi_mahjong:tile_wind_north"
+  ],
+  "result": {
+    "id": "riichi_mahjong:mahjong_riichi_stick",
+    "count": 4
+  }
+}

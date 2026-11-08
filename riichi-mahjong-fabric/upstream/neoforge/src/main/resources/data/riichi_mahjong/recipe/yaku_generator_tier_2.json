@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "III",
+    "IYI",
+    "III"
+  ],
+  "key": {
+    "I": "minecraft:iron_block",
+    "Y": "riichi_mahjong:yaku_generator_tier_1"
+  },
+  "result": {
+    "id": "riichi_mahjong:yaku_generator_tier_2"
+  }
+}

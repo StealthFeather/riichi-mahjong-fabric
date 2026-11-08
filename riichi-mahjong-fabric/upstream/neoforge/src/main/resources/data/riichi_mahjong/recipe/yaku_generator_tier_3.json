@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "DDD",
+    "DYD",
+    "DDD"
+  ],
+  "key": {
+    "D": "minecraft:diamond_block",
+    "Y": "riichi_mahjong:yaku_generator_tier_2"
+  },
+  "result": {
+    "id": "riichi_mahjong:yaku_generator_tier_3"
+  }
+}

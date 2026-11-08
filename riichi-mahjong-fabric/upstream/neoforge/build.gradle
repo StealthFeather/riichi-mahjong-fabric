@@ -1,0 +1,125 @@
+plugins {
+    id 'net.neoforged.moddev'
+}
+
+version = "${rootProject.mod_version}+${stonecutter.current.version}"
+
+base {
+    archivesName = "$rootProject.archives_name"
+}
+
+def gameDir = rootProject.file("neoforge/run/${stonecutter.current.project}")
+
+repositories {
+    maven {
+        name = 'NeoForged'
+        url = 'https://maven.neoforged.net/releases'
+    }
+}
+
+neoForge {
+    version = project.property('neoforge_version')
+
+    runs {
+        client {
+            client()
+            gameDirectory = gameDir
+        }
+        server {
+            server()
+            gameDirectory = gameDir
+        }
+        configureEach {
+            systemProperty 'terminal.jline', 'true'
+            ideName = "Riichi Mahjong ${stonecutter.current.project} - ${it.ideName.get()}"
+        }
+    }
+
+    mods {
+        riichi_mahjong {
+            sourceSet sourceSets.main
+            sourceSet project(':themahjong').sourceSets.main
+        }
+    }
+
+    unitTest {
+        enable()
+        testedMod = mods.riichi_mahjong
+    }
+}
+
+tasks.named('createMinecraftArtifacts') {
+    dependsOn 'stonecutterGenerate'
+}
+
+sourceSets {
+    main {
+        java {
+            exclude '**/MahjongAltarEmiPlugin.java'
+            exclude '**/MahjongAltarEmiRecipe.java'
+        }
+    }
+}
+
+configurations {
+    runtimeClasspath.extendsFrom localRuntime
+}
+
+dependencies {
+    implementation project(':themahjong')
+
+    compileOnly "mezz.jei:jei-${project.property('jei_minecraft_version')}-neoforge:${project.property('jei_version')}"
+    localRuntime "mezz.jei:jei-${project.property('jei_minecraft_version')}-neoforge:${project.property('jei_version')}"
+
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('jar') {
+    from project(':themahjong').sourceSets.main.output
+}
+
+processResources {
+    inputs.property 'version', project.version
+    inputs.property 'minecraft_version_range', project.property('minecraft_version_range')
+
+    filesMatching('META-INF/neoforge.mods.toml') {
+        expand version: inputs.properties.version,
+                minecraft_version_range: inputs.properties.minecraft_version_range
+    }
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    testLogging {
+        events 'failed'
+        exceptionFormat 'full'
+        showStackTraces false
+    }
+}
+
+tasks.register('testCompat') {
+    group = 'verification'
+    description = 'Runs unit tests for the themahjongcompat NBT bridge layer (Minecraft NBT API).'
+    dependsOn tasks.named('test')
+}
+
+tasks.named('runServer').configure {
+    doFirst {
+        def pwFile = rootProject.file('.rcon-password')
+        if (!pwFile.exists()) {
+            pwFile.text = UUID.randomUUID().toString().replace('-', '')
+        }
+        def password = pwFile.text.trim()
+
+        def f = new File(gameDir, 'server.properties')
+        f.parentFile.mkdirs()
+        def p = new Properties()
+        if (f.exists()) f.withInputStream { p.load(it) }
+        p['enable-rcon'] = 'true'
+        p['rcon.port'] = '25575'
+        p['rcon.password'] = password
+        f.withOutputStream { p.store(it, 'dev RCON config from build.gradle') }
+    }
+}

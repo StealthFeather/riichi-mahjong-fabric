@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "DDD",
+    "DPD",
+    "DDD"
+  ],
+  "key": {
+    "D": "minecraft:diamond",
+    "P": "minecraft:painting"
+  },
+  "result": {
+    "id": "riichi_mahjong:zundamon_happy_painting",
+    "count": 1
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    "riichi_mahjong:tile_dragon_white",
+    "minecraft:lapis_lazuli",
+    "minecraft:lapis_lazuli",
+    "minecraft:lapis_lazuli",
+    "minecraft:lapis_lazuli",
+    "minecraft:lapis_lazuli"
+  ],
+  "result": {
+    "id": "riichi_mahjong:tile_sou_5",
+    "count": 1
+  }
+}

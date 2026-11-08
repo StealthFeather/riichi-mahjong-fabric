@@ -1,0 +1,15 @@
+const fs=require('node:fs'),p=require('node:path'),{execFileSync:exec}=require('node:child_process');
+const project=__dirname,root=p.resolve(project,'..'),java=p.join(root,'build/tools/jdk-25.0.4.1+1/bin'),server=p.join(root,'run/crop-26.3');
+const files=(d,ext)=>fs.readdirSync(d,{withFileTypes:true}).flatMap(e=>e.isDirectory()?files(p.join(d,e.name),ext):e.name.endsWith(ext)?[p.join(d,e.name)]:[]);
+const build=p.join(project,'build'),classes=p.join(build,'classes'),rules=p.join(build,'rules');
+fs.mkdirSync(build,{recursive:true});fs.mkdirSync(p.join(build,'libs'),{recursive:true});fs.rmSync(classes,{recursive:true,force:true});fs.mkdirSync(classes,{recursive:true});fs.mkdirSync(rules,{recursive:true});
+const compile=(name,args)=>{const f=p.join(build,name+'.args');fs.writeFileSync(f,args.map(s=>'"'+s.replaceAll('\\','/')+'"').join('\n'));exec(p.join(java,'javac.exe'),['-J-Duser.language=en','-J-Duser.country=US','@'+f],{stdio:'inherit',windowsHide:true});};
+compile('rules',['--release','25','-encoding','UTF-8','-proc:none','-d',rules,...files(p.join(project,'upstream/themahjong/src/main/java'),'.java')]);
+const cp=[rules,p.join(server,'versions/26.3/server-26.3.jar'),...files(p.join(server,'libraries'),'.jar'),...files(p.join(server,'.fabric/processedMods'),'.jar'),...JSON.parse(fs.readFileSync(p.join(root,'build/kaleidoscope/classpath.json'))).filter(f=>f.includes('polymer-'))].join(p.delimiter);
+compile('main',['--release','25','-encoding','UTF-8','-proc:none','-Xmaxerrs','200','-cp',cp,'-d',classes,...files(p.join(project,'src/main/java'),'.java')]);
+fs.cpSync(rules,classes,{recursive:true});fs.cpSync(p.join(project,'src/main/resources'),classes,{recursive:true});
+fs.mkdirSync(p.join(classes,'META-INF/jars'),{recursive:true});fs.copyFileSync(p.join(root,'build/kaleidoscope/runtime/polymer-bundled-0.18.7+26.3.jar'),p.join(classes,'META-INF/jars/polymer-bundled.jar'));
+for(const file of ['LICENSE.txt'])fs.copyFileSync(p.join(project,'upstream',file),p.join(classes,file));
+fs.copyFileSync(p.join(project,'upstream/neoforge/src/main/resources/LICENSE_mahjong4j.txt'),p.join(classes,'LICENSE_mahjong4j.txt'));
+exec(p.join(java,'jar.exe'),['--create','--file',p.join(build,'libs/riichi-mahjong-0.4.2+fabric.26.3.6.jar'),'-C',classes,'.'],{windowsHide:true});
+fs.writeFileSync(p.join(build,'classpath.txt'),cp);console.log('Built upstream Fabric server port. No tests run.');

@@ -1,0 +1,20 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "LGL",
+    "LDL",
+    "IRI"
+  ],
+  "key": {
+    "L": "#minecraft:logs",
+    "G": "#minecraft:wool",
+    "D": "minecraft:diamond_block",
+    "I": "minecraft:iron_block",
+    "R": "minecraft:redstone_block"
+  },
+  "result": {
+    "id": "riichi_mahjong:mahjong_table_new",
+    "count": 1
+  }
+}
