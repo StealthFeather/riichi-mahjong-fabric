@@ -8,10 +8,10 @@ import com.themahjong.driver.MatchPhase;
 
 /** The sole allowlist passed to the public tile renderer. No round, wall tiles, seed or legal actions. */
 public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<Integer> dora,List<Integer> ura,
-                          String label,MatchPhase.Stage stage,double progress) {
-    public record Tile(int code,boolean sideways){}
+                          String label,String roundLabel,int turnSeat,int riichiSticks,MatchPhase.Stage stage,double progress) {
+    public record Tile(int code,boolean sideways,boolean stacked){Tile(int code,boolean sideways){this(code,sideways,false);}}
     public record Meld(List<Tile> tiles){}
-    public record Seat(UUID owner,String name,int points,int handCount,List<Integer> revealed,List<Tile> river,List<Meld> melds,int kita,boolean riichi){}
+    public record Seat(UUID owner,String name,int wind,int points,int handCount,List<Integer> revealed,List<Tile> river,List<Meld> melds,int kita,boolean riichi,boolean riichiStick){}
     static int code(TheMahjongTile tile){return MahjongTileItems.codeForTile(tile);}
     static Set<Integer> claimed(List<TheMahjongPlayer> players,int seat){
         Set<Integer> out=new HashSet<>();
@@ -37,21 +37,20 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
         for(int i=0;i<infos.size();i++){
             var info=infos.get(i);UUID owner=info.occupant().orElse(null);var player=owner==null?null:table.getLevel().getPlayerByUUID(owner);
             String name=player==null?(owner==null?(round==null?"空位":"BOT"):"离线玩家"):player.getName().getString();
-            if(round==null||i>=round.players().size()){out.add(new Seat(owner,info.enabled()?name:"关闭",0,0,List.of(),List.of(),List.of(),0,false));continue;}
+            if(round==null||i>=round.players().size()){out.add(new Seat(owner,info.enabled()?name:"关闭",i,0,0,List.of(),List.of(),List.of(),0,false,false));continue;}
             var p=round.players().get(i);var river=new ArrayList<Tile>();Set<Integer> claimed=claimed(round.players(),i);
             for(int d=0;d<p.discards().size();d++)if(!claimed.contains(d)){var tile=p.discards().get(d);river.add(new Tile(code(tile.tile()),tile.riichiDeclared()));}
             var melds=new ArrayList<Meld>();for(var meld:p.melds()){
-                var tiles=new ArrayList<Tile>();for(int t=0;t<meld.tiles().size();t++)tiles.add(new Tile(code(meld.tiles().get(t)),meld.sidewaysTileIndex().orElse(-1)==t));
+                var tiles=new ArrayList<Tile>();for(var t:MeldLayout.arrange(meld,i,round.players().size()))tiles.add(new Tile(t.concealed()?-1:code(t.tile()),t.sideways(),t.stacked()));
                 melds.add(new Meld(List.copyOf(tiles)));
             }
             // Read a concealed identity only for a winner whose result has already been accepted.
             List<Integer> revealed=winners.contains(i)?round.handDisplayOrder(i).stream().map(PublicTable::code).toList():List.of();
             int count=p.currentHand().size(); // The public value is only the count.
-            out.add(new Seat(owner,name,p.points(),count,revealed,List.copyOf(river),List.copyOf(melds),p.kitaCount(),p.riichi()));
+            boolean deposited=p.riichi()&&driver.snapshot().pendingRiichiCommit().orElse(-1)!=i;
+            out.add(new Seat(owner,name,Math.floorMod(i-round.dealerSeat(),round.players().size()),p.points(),count,revealed,List.copyOf(river),List.copyOf(melds),p.kitaCount(),p.riichi(),deposited));
         }
-        String label=round==null?"立直麻将 · 右键桌边或座位文字入座\n潜行右键中央开局 · /mahjong join 入座\n扳手右键中央设置":round.roundWind()+" "+round.handNumber()+"局  "+round.honba()+"本场  供托 "+round.riichiSticks()+"  余牌 "+round.liveWall().size();
-        if(round==null)for(int i=0;i<out.size();i++)label+="\n"+TableSeating.wind(i)+"家 · "+out.get(i).name();
-        if(round!=null){for(int i=0;i<out.size();i++){var p=out.get(i);label+="\n"+(round.currentTurnSeat()==i?"▶ ":"  ")+p.name()+" "+p.points()+(p.riichi()?" 立直":"");}}
+        String label="";
         if(phase instanceof MatchPhase.RoundEnded ended){
             if(ended.winResults().isEmpty())label+="\n流局";
             for(var w:ended.winResults()){
@@ -65,6 +64,11 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
         var dora=round==null?List.<Integer>of():round.doraIndicators().stream().limit(round.revealedDoraCount()).map(PublicTable::code).toList();
         var uras=round!=null&&ura?round.uraDoraIndicators().stream().limit(round.revealedDoraCount()).map(PublicTable::code).toList():List.<Integer>of();
         var stage=phase instanceof MatchPhase.Dealing d?d.stage():null;double progress=phase instanceof MatchPhase.Dealing d?Math.min(1,d.elapsed()/d.stage().buildDuration()):1;
-        return new PublicTable(List.copyOf(out),round==null?0:round.liveWall().size(),round==null?0:Math.max(0,4-round.rinshanTiles().size()),dora,uras,label,stage,progress);
+        String roundLabel=round==null?"立直麻将 · 右键桌边入座 · 潜行右键中央开局":TableSeating.wind(round.roundWind().ordinal())+round.handNumber()+"局 · "+round.honba()+"本场 · 供托 "+round.riichiSticks()+" · 余牌 "+round.liveWall().size();
+        if(phase instanceof MatchPhase.AwaitingClaims)roundLabel+=" · 等待鸣牌响应";
+        if(phase instanceof MatchPhase.Dealing)roundLabel+=" · 配牌中";
+        if(phase instanceof MatchPhase.MatchEnded)roundLabel+=" · 对局结束";
+        int turn=phase instanceof MatchPhase.AwaitingDiscard d?d.seat():phase instanceof MatchPhase.AwaitingDraw d?d.seat():-1;
+        return new PublicTable(List.copyOf(out),round==null?0:round.liveWall().size(),round==null?0:Math.max(0,4-round.rinshanTiles().size()),dora,uras,label,roundLabel,turn,round==null?0:round.riichiSticks(),stage,progress);
     }
 }

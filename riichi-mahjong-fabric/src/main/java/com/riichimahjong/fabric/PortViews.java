@@ -86,6 +86,7 @@ public final class PortViews {
         final Map<String,InteractionElement> hits=new HashMap<>();PublicTable previous;
         final Map<Integer,TextDisplayElement> seatLabels=new HashMap<>();
         final Map<Integer,InteractionElement> seatHits=new HashMap<>();
+        final TableHud hud;
         final TableCollision.Registration collision;
         View(ServerLevel level,BlockPos pos,BlockState state){
             this.level=level;this.pos=pos;this.state=state;String id=BuiltInRegistries.BLOCK.getKey(state.getBlock()).getPath();
@@ -94,7 +95,8 @@ public final class PortViews {
                 if(state.getBlock() instanceof MahjongTableBlock)base.setScale(new Vector3f(TableLayout.TABLE_HORIZONTAL_SCALE,1,TableLayout.TABLE_HORIZONTAL_SCALE));
             }
             collision=state.getBlock() instanceof BaseMultipartBlock?TableCollision.add(holder,level,pos,state):null;
-            label.setOverridePos(Vec3.atCenterOf(pos).add(0,1.5,0));label.setScale(new Vector3f(.2f));label.setBillboardMode(Display.BillboardConstraints.CENTER);label.setLineWidth(500);label.setDisplaySize(4,4);holder.addElement(label);
+            hud=state.getBlock() instanceof MahjongTableBlock?new TableHud():null;
+            label.setOverridePos(Vec3.atCenterOf(pos).add(0,1.5,0));label.setScale(new Vector3f(.2f));label.setBillboardMode(Display.BillboardConstraints.CENTER);label.setLineWidth(500);label.setDisplaySize(4,4);if(hud==null)holder.addElement(label);
             ChunkAttachment.of(holder,level,pos);update();
         }
         Quaternionf blockRotation(BlockState state){
@@ -110,39 +112,41 @@ public final class PortViews {
         void cleanup(){for(var it=tiles.entrySet().iterator();it.hasNext();){var e=it.next();if(!used.contains(e.getKey())){holder.removeElement(e.getValue());sent.remove(e.getKey());it.remove();}}}
         void update(){
             var be=level.getBlockEntity(pos);
-            if(be instanceof MahjongTableBlockEntity table){var board=PublicTable.capture(table);if(!board.equals(previous)){renderTable(board);previous=board;}updateLobby(table,board);updatePrivate(table);}
+            if(be instanceof MahjongTableBlockEntity table){var board=PublicTable.capture(table);if(!board.equals(previous)){renderTable(board);previous=board;}updateLobby(table,board);updatePrivate(table);hud.update(table,board);}
             else if(be instanceof MahjongSolitaireBlockEntity solitaire)renderSolitaire(solitaire);
             else if(be instanceof MahjongAltarBlockEntity altar)renderAltar(altar);holder.tick();
         }
         void updateLobby(MahjongTableBlockEntity table,PublicTable board){
-            if(table.hasActiveMatch()){
-                seatLabels.values().forEach(holder::removeElement);seatLabels.clear();
-                seatHits.values().forEach(holder::removeElement);seatHits.clear();return;
-            }
+            boolean active=table.hasActiveMatch();
+            if(active){seatHits.values().forEach(holder::removeElement);seatHits.clear();}
             for(int seat=0;seat<board.seats().size();seat++){
                 final int index=seat;var info=table.seats().get(seat);var s=board.seats().get(seat);
                 var dir=outward(seat,state);
-                var text=Component.literal(TableSeating.wind(seat)+"家 · "+s.name()+(info.enabled()&&s.owner()==null?"\n右键入座":""));
+                boolean turn=board.turnSeat()==seat;
+                var text=Component.literal(TableSeating.wind(s.wind())+(active?(turn?"\n▶ 出牌":""):("家 · "+s.name()+(info.enabled()&&s.owner()==null?"\n右键入座":"")))).withStyle(turn?net.minecraft.ChatFormatting.GOLD:net.minecraft.ChatFormatting.WHITE);
                 var name=seatLabels.get(seat);
                 if(name==null){
-                    name=new TextDisplayElement();name.setOverridePos(anchor(pos,dir,0,1.15,1.65));
-                    name.setScale(new Vector3f(.2f));name.setBillboardMode(Display.BillboardConstraints.CENTER);
+                    name=new TextDisplayElement();
                     name.setLineWidth(250);name.setDisplaySize(2,2);holder.addElement(name);seatLabels.put(seat,name);
                 }
+                name.setOverridePos(active?TableLayout.anchor(pos,dir,0,.585,.16):anchor(pos,dir,0,1.0,1.25));
+                name.setScale(new Vector3f(active?.14f:.2f));name.setBackground(active?0x00000000:0x80333333);
+                name.setBillboardMode(active?Display.BillboardConstraints.FIXED:Display.BillboardConstraints.CENTER);
+                name.setLeftRotation(active?TableLayout.textRotation(dir):new Quaternionf());
                 if(!text.equals(name.getText()))name.setText(text);
-                if(!seatHits.containsKey(seat)){
+                if(!active&&!seatHits.containsKey(seat)){
                     var hit=new InteractionElement(new VirtualElement.InteractionHandler(){
                         @Override public void interact(ServerPlayer p,InteractionHand hand,Vec3 loc,boolean sneak){
-                            if(hand==InteractionHand.MAIN_HAND)TableSeating.join(p,table,index);
+                            if(hand==InteractionHand.MAIN_HAND){if(sneak&&table.seatOfPlayer(p.getUUID()).isPresent())TableSeating.leave(p,table);else TableSeating.join(p,table,index);}
                         }
                     });
-                    hit.setOverridePos(anchor(pos,dir,0,.4,1.65));hit.setSize(.72f,1.05f);
+                    hit.setOverridePos(anchor(pos,dir,0,.4,1.25));hit.setSize(.72f,.85f);
                     holder.addElement(hit);seatHits.put(seat,hit);
                 }
             }
         }
         void renderTable(PublicTable board){
-            used.clear();label.setText(Component.literal(board.label()));boolean active=board.seats().stream().anyMatch(s->s.handCount()>0);
+            used.clear();boolean active=board.seats().stream().anyMatch(s->s.handCount()>0);
             if(active){
                 int dealt=122-board.liveWall();
                 if(board.stage()==com.themahjong.driver.MatchPhase.Stage.WALL_BUILDING)dealt=0;
@@ -168,8 +172,26 @@ public final class PortViews {
                 var s=board.seats().get(seat);Direction dir=outward(seat,state);double fraction=board.stage()==com.themahjong.driver.MatchPhase.Stage.WALL_BUILDING?0:board.stage()==com.themahjong.driver.MatchPhase.Stage.DEALING_HANDS?board.progress():1;int count=(int)Math.round(s.handCount()*fraction);
                 for(int i=0;i<count;i++)tile("hand/"+seat+"/"+i,s.revealed().isEmpty()?-1:s.revealed().get(i),dir,-.44+i*.073,.65,.85,!s.revealed().isEmpty(),false,false,s.revealed().isEmpty()?s.owner():null);
                 for(int i=0;i<s.river().size();i++){var t=s.river().get(i);tile("river/"+seat+"/"+i,t.code(),dir,(i%6-2.5)*.073,.59,.26+(i/6)*.09,true,false,t.sideways(),null);}
-                double cursor=0;for(int m=0;m<s.melds().size();m++){var meld=s.melds().get(m);for(int i=0;i<meld.tiles().size();i++){var t=meld.tiles().get(i);tile("meld/"+seat+"/"+m+"/"+i,t.code(),dir,.90-cursor-i*.073,.59,.89,true,false,t.sideways(),null);}cursor+=meld.tiles().size()*.073+.020;}
+                double cursor=0;for(int m=0;m<s.melds().size();m++){
+                    var meld=s.melds().get(m);double width=meld.tiles().stream().filter(t->!t.stacked()).mapToDouble(t->t.sideways()?.090:.073).sum();
+                    double offset=0,last=0;
+                    for(int i=0;i<meld.tiles().size();i++){
+                        var t=meld.tiles().get(i);double step=t.sideways()?.090:.073;
+                        double x=t.stacked()?last:.90-cursor-width+offset+step/2;
+                        tile("meld/"+seat+"/"+m+"/"+i,t.code(),dir,x,.59+(t.stacked()?.058:0),.89,true,false,t.sideways(),null);
+                        if(!t.stacked()){last=x;offset+=step;}
+                    }cursor+=width+.020;
+                }
                 for(int i=0;i<s.kita();i++)tile("kita/"+seat+"/"+i,30,dir,-.53+i*.073,.59,.57,true,false,false,null);
+                if(s.riichiStick()){
+                    String key="riichi/"+seat;used.add(key);var stick=tiles.get(key);
+                    if(stick==null){stick=display(holder,"bridge/table_riichi_stick",TableLayout.anchor(pos,dir,0,.585,.60),.5f,rotation(dir,false,false));tiles.put(key,stick);}
+                }
+            }
+            // Deposits carried from a drawn hand stay visible in the centre.
+            int carried=Math.max(0,board.riichiSticks()-(int)board.seats().stream().filter(PublicTable.Seat::riichiStick).count());
+            for(int i=0;i<carried;i++){
+                String key="carried-riichi/"+i;used.add(key);if(!tiles.containsKey(key))tiles.put(key,display(holder,"bridge/table_riichi_stick",anchor(pos,Direction.NORTH,0,.59+(i/4)*.025,(i%4-1.5)*.045),.3f,new Quaternionf()));
             }cleanup();
         }
         void updatePrivate(MahjongTableBlockEntity table){
@@ -177,7 +199,7 @@ public final class PortViews {
             if(round!=null)for(int seat=0;seat<table.seats().size();seat++){
                 UUID uuid=table.seats().get(seat).occupant().orElse(null);if(uuid==null||seat>=round.players().size())continue;ServerPlayer player=level.getServer().getPlayerList().getPlayer(uuid);if(player==null||!near(player,level,pos))continue;
                 var old=hands.get(uuid);var snapshot=PrivateHand.snapshot(table,seat);keep.add(uuid);
-                if(old==null||old.owner!=player||!old.sameVisuals(snapshot)){if(old!=null)old.destroy();hands.put(uuid,new PrivateHand(table,player,seat,snapshot));}else old.snapshot=snapshot;hands.get(uuid).holder.tick();
+                if(old==null||old.owner!=player||!old.sameVisuals(snapshot)){if(old!=null)old.destroy();hands.put(uuid,new PrivateHand(table,player,seat,snapshot));}else old.snapshot=snapshot;hands.get(uuid).tick();
             }
             for(var it=hands.entrySet().iterator();it.hasNext();){var e=it.next();if(!keep.contains(e.getKey())){e.getValue().destroy();it.remove();}}
         }
@@ -190,6 +212,6 @@ public final class PortViews {
             for(var it=hits.entrySet().iterator();it.hasNext();){var e=it.next();if(!liveHits.contains(e.getKey())){holder.removeElement(e.getValue());it.remove();}}label.setText(Component.literal(board.name()+" · 剩余 "+be.remainingTiles()+"张\n右键单张牌配对 · 右键底座获取提示"));cleanup();
         }
         void renderAltar(MahjongAltarBlockEntity altar){used.clear();for(int i=0;i<altar.getContainerSize();i++){var stack=altar.getItem(i);if(stack.isEmpty())continue;String key="altar/"+i;used.add(key);var d=tiles.get(key);var at=new Vec3(pos.getX()+.25+(i%3)*.25,pos.getY()+.85,pos.getZ()+.25+(i/3)*.25);if(d==null){d=new ItemDisplayElement(stack);d.setOverridePos(at);d.setScale(new Vector3f(.25f));holder.addElement(d);tiles.put(key,d);}else d.setItem(stack);}cleanup();}
-        void destroy(){hands.values().forEach(PrivateHand::destroy);hands.clear();if(collision!=null)collision.destroy();holder.destroy();}
+        void destroy(){hands.values().forEach(PrivateHand::destroy);hands.clear();if(hud!=null)hud.destroy();if(collision!=null)collision.destroy();holder.destroy();}
     }
 }

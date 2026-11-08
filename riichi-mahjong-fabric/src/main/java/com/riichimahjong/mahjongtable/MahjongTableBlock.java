@@ -62,10 +62,8 @@ public class MahjongTableBlock extends BaseMultipartBlock {
 
 
     public MahjongTableBlock(Properties properties) {
-        // Expand the original model's horizontal 2 x 2 footprint to exactly 3 x 3.
-        super(properties, MODEL_BOXES.stream().map(b->new double[]{
-                8+(b[0]-8)*1.5,b[1],8+(b[2]-8)*1.5,
-                8+(b[3]-8)*1.5,b[4],8+(b[5]-8)*1.5}).toList());
+        // The model spans -0.5 .. 1.5 around the centre block on both axes.
+        super(properties, MODEL_BOXES);
     }
 
 
@@ -131,6 +129,12 @@ public class MahjongTableBlock extends BaseMultipartBlock {
             return InteractionResult.PASS;
         }
 
+        if (player.isShiftKeyDown() && player instanceof ServerPlayer sp
+                && table.seatOfPlayer(sp.getUUID()).isPresent()
+                && table.hasActiveMatch()) {
+            com.riichimahjong.fabric.TableSeating.leave(sp, table);
+            return InteractionResult.CONSUME;
+        }
         ItemStack held = player.getItemInHand(hand);
         if (held.getItem() instanceof MahjongTableRecordItem record && player instanceof ServerPlayer sp) {
             if (table.state() != MahjongTableBlockEntity.State.IDLE) {

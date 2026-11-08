@@ -6,6 +6,15 @@ import net.minecraft.server.level.ServerPlayer;
 
 /** A shared, authenticated seating path for block clicks, virtual seats, menus and commands. */
 public final class TableSeating {
+    public static boolean leave(ServerPlayer player,MahjongTableBlockEntity table){
+        if(!available(player,table))return false;
+        int seat=table.seatOfPlayer(player.getUUID()).orElse(-1);
+        if(seat<0)return message(player,"你没有在这张牌桌入座。");
+        boolean active=table.hasActiveMatch();table.releaseSeat(seat);
+        player.sendSystemMessage(Component.empty(),true);
+        player.sendSystemMessage(Component.literal(active?"已退出当前牌局，座位由 BOT 接管。":"已离座。"));
+        return true;
+    }
     public static String wind(int seat){return switch(seat){case 0->"东";case 1->"南";case 2->"西";case 3->"北";default->"未知";};}
     public static boolean join(ServerPlayer player,MahjongTableBlockEntity table,int seat){
         if(!available(player,table))return false;
@@ -29,7 +38,7 @@ public final class TableSeating {
         int chosen=-1;double best=Double.MAX_VALUE;var seats=table.seats();
         for(int seat=0;seat<seats.size();seat++){
             var info=seats.get(seat);if(!info.enabled()||info.occupant().isPresent())continue;
-            double distance=PortViews.anchor(table.getBlockPos(),PortViews.outward(seat,table.getBlockState()),0,.5,1.52).distanceToSqr(player.position());
+            double distance=PortViews.anchor(table.getBlockPos(),PortViews.outward(seat,table.getBlockState()),0,.5,1.25).distanceToSqr(player.position());
             if(distance<best){best=distance;chosen=seat;}
         }
         return chosen<0?message(player,"没有可用空位，请在牌桌设置中查看座位。"):join(player,table,chosen);
@@ -37,7 +46,7 @@ public final class TableSeating {
     public static int sideOfPlayer(ServerPlayer player,MahjongTableBlockEntity table){
         int chosen=0;double best=Double.MAX_VALUE;
         for(int seat=0;seat<table.seats().size();seat++){
-            double distance=PortViews.anchor(table.getBlockPos(),PortViews.outward(seat,table.getBlockState()),0,.5,1.52).distanceToSqr(player.position());
+            double distance=PortViews.anchor(table.getBlockPos(),PortViews.outward(seat,table.getBlockState()),0,.5,1.25).distanceToSqr(player.position());
             if(distance<best){best=distance;chosen=seat;}
         }return chosen;
     }

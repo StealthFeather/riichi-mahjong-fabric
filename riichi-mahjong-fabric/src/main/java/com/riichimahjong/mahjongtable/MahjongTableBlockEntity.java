@@ -200,10 +200,12 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     public void releaseSeat(int seat) {
-        if (driver != null) return;
         if (seat < 0 || seat >= seats.size()) return;
         SeatInfo info = seats.get(seat);
         if (info.occupant().isPresent()) {
+            if (driver != null && seat < driver.match().playerCount()) {
+                driver.replacePlayer(seat, StupidActiveBot.humanLike());
+            }
             seats.set(seat, SeatInfo.open());
             markChangedAndSynced();
         }

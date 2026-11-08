@@ -73,6 +73,7 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
         boolean ownTurn=phase instanceof MatchPhase.AwaitingDiscard d&&d.seat()==seatIndex;
         boolean changed=false;if(!ownTurn&&riichiPending){riichiPending=false;changed=true;}
         if(ownTurn)maybeAutoQueueRiichiDiscard(level,table,seatIndex);
+        else riichiAutoDiscardElapsed=0;
         return changed;
     }
 
@@ -240,7 +241,7 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
             if (a instanceof PlayerAction.DiscardWithRiichi) { riichiAvailable = true; break; }
         }
         List<TableButton> out = new ArrayList<>();
-        if (riichiAvailable || riichiPending) {
+        if (riichiAvailable) {
             out.add(new TableButton.RiichiToggle(riichiPending));
         }
         for (PlayerAction a : buttonEligibleActions(legal)) {

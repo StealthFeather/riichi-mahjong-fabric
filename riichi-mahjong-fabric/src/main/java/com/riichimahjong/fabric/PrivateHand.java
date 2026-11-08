@@ -19,15 +19,15 @@ import org.joml.Vector3f;
 
 /** A manual attachment has no chunk audience: exactly one watcher and a predicate per element. */
 final class PrivateHand {
-    record Snapshot(Object driver,Object round,Object phase,List<Integer> hand,List<MahjongTableHumanPlayer.TableButton> buttons){}
+    record Snapshot(Object driver,Object round,Object phase,List<Integer> hand,List<MahjongTableHumanPlayer.TableButton> buttons,List<Integer> riichiDiscards,boolean queued){}
     final ServerPlayer owner;Snapshot snapshot;final ElementHolder holder=new ElementHolder();
-    final MahjongTableBlockEntity table;final int seat;final List<UUID> tokens=new ArrayList<>();
-    static final Map<UUID,RunnableAction> ACTIONS=new HashMap<>();
-    record RunnableAction(PrivateHand view,Runnable action){}
+    final MahjongTableBlockEntity table;final int seat;long nextPrompt;String lastPrompt="";
     static Snapshot snapshot(MahjongTableBlockEntity table,int seat){
         var d=table.driver();var r=d.match().currentRound().orElseThrow();
         int count=r.handDisplayOrder(seat).size();if(d.currentPhase() instanceof MatchPhase.Dealing dealing){double fraction=switch(dealing.stage()){case WALL_BUILDING->0;case DEALING_HANDS->Math.min(1,dealing.elapsed()/dealing.stage().buildDuration());case DORA_FLIP->1;};count=(int)Math.round(count*fraction);}
-        return new Snapshot(d,r,d.currentPhase(),r.handDisplayOrder(seat).stream().limit(count).map(PublicTable::code).toList(),List.copyOf(MahjongTableHumanPlayer.tableButtons(d,seat,table.riichiPendingForSeat(seat))));
+        boolean queued=d.playerAt(seat) instanceof MahjongTableHumanPlayer h&&h.hasQueued();
+        var discards=d.legalActions(seat).stream().filter(a->a instanceof PlayerAction.DiscardWithRiichi).map(a->PublicTable.code(((PlayerAction.DiscardWithRiichi)a).tile())).toList();
+        return new Snapshot(d,r,d.currentPhase(),r.handDisplayOrder(seat).stream().limit(count).map(PublicTable::code).toList(),queued?List.of():List.copyOf(MahjongTableHumanPlayer.tableButtons(d,seat,table.riichiPendingForSeat(seat))),discards,queued);
     }
     PrivateHand(MahjongTableBlockEntity table,ServerPlayer owner,int seat,Snapshot snapshot){
         this.table=table;this.owner=owner;this.seat=seat;this.snapshot=snapshot;
@@ -39,31 +39,47 @@ final class PrivateHand {
         if(!winner)for(int i=0;i<snapshot.hand.size();i++){
             final int index=i;Vec3 at=TableLayout.anchor(pos,dir,-.44+i*.073,.65,.85);
             var tile=PortViews.display(holder,PortViews.tileModel(snapshot.hand.get(i)),at,TableLayout.TILE_SCALE,PortViews.rotation(dir,false,false));tile.setVisibilityPredicate(p->p==owner);
-            var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer player,InteractionHand hand,Vec3 loc,boolean sneaking){if(hand==InteractionHand.MAIN_HAND&&valid(player))click(InteractKey.SeatSlot.AREA_HAND,index);}});
+            if(snapshot.buttons.stream().anyMatch(b->b instanceof MahjongTableHumanPlayer.TableButton.RiichiToggle r&&r.active())&&snapshot.riichiDiscards.contains(snapshot.hand.get(i))){
+                var mark=new TextDisplayElement(Component.literal("▼").withStyle(ChatFormatting.GREEN));mark.setOverridePos(at.add(0,.15,0));mark.setScale(new Vector3f(.18f));mark.setBillboardMode(Display.BillboardConstraints.CENTER);mark.setVisibilityPredicate(p->p==owner);holder.addElement(mark);
+            }
+            var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer player,InteractionHand hand,Vec3 loc,boolean sneaking){if(hand==InteractionHand.MAIN_HAND&&valid(player))click(InteractKey.SeatSlot.AREA_HAND,index,sneaking);}});
             hit.setOverridePos(at.add(0,-.05*TableLayout.TILE_ENLARGEMENT,0));hit.setSize(.071f*TableLayout.TILE_ENLARGEMENT,.12f*TableLayout.TILE_ENLARGEMENT);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
         }
-        MutableComponent message=Component.literal("麻将操作 ").withStyle(ChatFormatting.GOLD);
         for(int i=0;i<snapshot.buttons.size();i++){
-            final int index=i;var button=snapshot.buttons.get(i);String text=label(button);UUID token=UUID.randomUUID();tokens.add(token);ACTIONS.put(token,new RunnableAction(this,()->click(InteractKey.SeatSlot.AREA_BUTTON,index)));
-            message.append(Component.literal("["+text+"] ").withStyle(s->s.withColor(ChatFormatting.YELLOW).withClickEvent(new ClickEvent.RunCommand("/riichi_action "+token))));
-            int cols=Math.min(4,snapshot.buttons.size()),row=i/4,col=i%4,count=Math.min(4,snapshot.buttons.size()-row*4);
-            Vec3 at=TableLayout.anchor(pos,dir,(col-(count-1)/2.0)*.37,.71,.70+(row-.5)*.10);
-            var display=new TextDisplayElement(Component.literal(text));display.setOverridePos(at);display.setScale(new Vector3f(.28f*TableLayout.TILE_ENLARGEMENT));display.setLeftRotation(PortViews.rotation(dir,true,false).rotateZ((float)Math.PI));display.setLineWidth(200);display.setBackground(0xC0333333);display.setDisplaySize(2,2);display.setVisibilityPredicate(p->p==owner);holder.addElement(display);
-            var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer p,InteractionHand h,Vec3 loc,boolean sneak){if(h==InteractionHand.MAIN_HAND&&valid(p))click(InteractKey.SeatSlot.AREA_BUTTON,index);}});hit.setOverridePos(at.add(0,-.02*TableLayout.TILE_ENLARGEMENT,0));hit.setSize(.30f*TableLayout.TILE_ENLARGEMENT,.04f*TableLayout.TILE_ENLARGEMENT);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
+            final int index=i;var button=snapshot.buttons.get(i);String text=label(button);
+            int row=i/3,col=i%3,count=Math.min(3,snapshot.buttons.size()-row*3);
+            Vec3 at=TableLayout.anchor(pos,dir,(col-(count-1)/2.0)*.48,.87+row*.14,1.12);
+            var display=new TextDisplayElement(Component.literal(text).withStyle(ChatFormatting.YELLOW));display.setOverridePos(at);display.setScale(new Vector3f(.20f));display.setBillboardMode(Display.BillboardConstraints.CENTER);display.setLineWidth(250);display.setBackground(0xD0333333);display.setDisplaySize(2,2);display.setVisibilityPredicate(p->p==owner);holder.addElement(display);
+            var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer p,InteractionHand h,Vec3 loc,boolean sneak){if(h==InteractionHand.MAIN_HAND&&valid(p))click(InteractKey.SeatSlot.AREA_BUTTON,index,sneak);}});hit.setOverridePos(at.add(0,-.025,0));hit.setSize(.43f,.12f);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
         }
         holder.startWatching(owner);
-        if(!snapshot.buttons.isEmpty())owner.sendSystemMessage(message);
     }
     boolean valid(ServerPlayer player){
         if(player!=owner||!PortViews.near(player,owner.level(),table.getBlockPos())||table.isRemoved()||table.getLevel()!=owner.level())return false;
         if(table.seatOfPlayer(owner.getUUID()).orElse(-1)!=seat||table.driver()!=snapshot.driver)return false;
-        return snapshot.equals(snapshot(table,seat));
+        return table.driver().match().currentRound().isPresent()&&snapshot.equals(snapshot(table,seat));
     }
-    boolean sameVisuals(Snapshot other){return snapshot.driver==other.driver&&snapshot.hand.equals(other.hand)&&snapshot.buttons.equals(other.buttons)&&winner(snapshot.phase)==winner(other.phase);}
+    boolean sameVisuals(Snapshot other){return snapshot.driver==other.driver&&snapshot.hand.equals(other.hand)&&snapshot.buttons.equals(other.buttons)&&snapshot.riichiDiscards.equals(other.riichiDiscards)&&winner(snapshot.phase)==winner(other.phase);}
     boolean winner(Object phase){if(phase instanceof MatchPhase.RoundEnded ended)for(var win:ended.winResults())if(seat<win.pointDeltas().size()&&win.pointDeltas().get(seat)>0)return true;return false;}
-    void click(byte area,int index){if(valid(owner))table.onCuteClick(owner,new InteractKey.SeatSlot((byte)seat,area,(short)index));}
-    static void run(ServerPlayer p,UUID token){var action=ACTIONS.get(token);if(action!=null&&action.view.valid(p))action.action.run();else p.sendSystemMessage(Component.literal("操作已过期，请点击当前手牌或最新按钮。"),true);}
-    void destroy(){tokens.forEach(ACTIONS::remove);holder.destroy();}
+    void click(byte area,int index,boolean sneak){if(valid(owner)){if(sneak)TableSeating.leave(owner,table);else table.onCuteClick(owner,new InteractKey.SeatSlot((byte)seat,area,(short)index));}}
+    static void run(ServerPlayer p,UUID token){p.sendSystemMessage(Component.literal("操作已过期，请点击当前手牌或本人面前的按钮。"),true);}
+    void tick(){
+        String prompt="";
+        if(snapshot.queued)prompt="已选择操作，等待处理";
+        else if(snapshot.phase instanceof MatchPhase.AwaitingDiscard d&&d.seat()==seat){
+            boolean pending=snapshot.buttons.stream().anyMatch(b->b instanceof MahjongTableHumanPlayer.TableButton.RiichiToggle r&&r.active());
+            prompt=pending?"立直已选 · 请打出绿色箭头标记的牌":"轮到你出牌 · 右键选择手牌";
+        }
+        if(!snapshot.buttons.isEmpty()){
+            String actions=snapshot.buttons.stream().map(PrivateHand::shortLabel).distinct().reduce((a,b)->a+" / "+b).orElse("");
+            prompt+=(prompt.isEmpty()?"可操作：":" · ")+actions+"（右键本人按钮）";
+        }
+        long now=owner.level().getGameTime();
+        if(!prompt.equals(lastPrompt)||!prompt.isEmpty()&&now>=nextPrompt){owner.sendSystemMessage(Component.literal(prompt).withStyle(ChatFormatting.YELLOW),true);lastPrompt=prompt;nextPrompt=now+20;}
+        holder.tick();
+    }
+    void destroy(){if(!lastPrompt.isEmpty())owner.sendSystemMessage(Component.empty(),true);holder.destroy();}
+    static String shortLabel(MahjongTableHumanPlayer.TableButton button){String text=label(button);int space=text.indexOf(' ');return space<0?text:text.substring(0,space);}
     static String label(MahjongTableHumanPlayer.TableButton button){
         if(button instanceof MahjongTableHumanPlayer.TableButton.RiichiToggle r)return r.active()?"立直：已选":"立直";
         var action=((MahjongTableHumanPlayer.TableButton.SubmitAction)button).action();
