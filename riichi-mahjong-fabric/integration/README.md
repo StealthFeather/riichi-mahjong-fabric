@@ -30,3 +30,11 @@ riichi_test fixture riichi
 The player is teleported to the appropriate side and put into creative mode. `draw` has a riichi button and a separated drawn tile; `claims` gives the player chi, pon and daiminkan candidates. `all_tenpai` reveals all four hands, while `mixed` reveals only seats zero and two. `riichi` shows four current declarations and two deposits carried from previous hands.
 
 `riichi_test state` prints the current phase, owner seat, queued action flag, riichi toggle and button indices to the server log. `riichi_test aim <index>` turns the connected owner's camera precisely toward that button's hit-plane centre; it only changes the view direction and does not execute an action. The normal vanilla use-item action can then test the real raycast and interaction packet path.
+
+For the overlapping public/private hand regression, the test-only `ClientProbe` accepts `entities 30 200 <label>` and writes thirty client entity snapshots at 5 Hz. Once a fixture has settled, check its capture with:
+
+```text
+node riichi-mahjong-fabric/integration/check-hand-entities.cjs <capture.jsonl> 14 owner
+```
+
+Check `draw` on a fresh table, `all_tenpai` followed by `draw`, and `draw_observer` followed by `draw`. The observer fixture keeps all four controllers inert and removes the connected player's seat, so its own capture must pass with `14 observer`. Each hand position must have one display, the owner must see faces and the observer backs, and IDs/transforms must stay stable for all samples. This checks the real client entity set; counting private-holder elements alone misses public back entities already sent to that client. Test fixtures are not saved-game compatibility tests; use a fresh disposable world after restarting a fixture server.

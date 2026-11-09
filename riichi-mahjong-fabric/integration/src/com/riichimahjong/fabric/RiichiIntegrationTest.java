@@ -237,7 +237,7 @@ public final class RiichiIntegrationTest implements ModInitializer {
             }
             table=(MahjongTableBlockEntity)level.getBlockEntity(POS);
             require(table!=null,"real MahjongTableBlockEntity not created");
-            int ownerSeat=scenario.equals("claims")?1:0;
+            int ownerSeat=scenario.equals("draw_observer")?-1:scenario.equals("claims")?1:0;
             owner=server.getPlayerList().getPlayers().stream().findFirst().orElse(null);
             var seats=new ArrayList<MahjongTableBlockEntity.SeatInfo>();
             var controllers=new ArrayList<MahjongPlayerInterface>();
@@ -252,7 +252,7 @@ public final class RiichiIntegrationTest implements ModInitializer {
             TheMahjongRound.ActiveTile active=TheMahjongRound.ActiveTile.drawn(tile(0,2));
             MatchPhase phase=new MatchPhase.AwaitingDiscard(0);int sticks=0;
             switch(scenario){
-                case "draw"->{var hand=new ArrayList<>(waiting(2));hand.add(tile(0,2));players.set(0,player(hand,false));}
+                case "draw","draw_observer"->{var hand=new ArrayList<>(waiting(2));hand.add(tile(0,2));players.set(0,player(hand,false));}
                 case "tsumo"->{var hand=new ArrayList<>(waiting(0));hand.add(tile(4,1));players.set(0,player(hand,false));active=TheMahjongRound.ActiveTile.drawn(tile(4,1));}
                 case "claims"->{
                     var source=new ArrayList<>(waiting(2));source.add(tile(0,3));players.set(0,player(source,false));
@@ -264,7 +264,7 @@ public final class RiichiIntegrationTest implements ModInitializer {
                     if(scenario.equals("mixed"))for(int seat:new int[]{1,3})players.set(seat,player(List.of(tile(0,1),tile(0,2),tile(0,4),tile(0,5),tile(0,7),tile(0,8),tile(1,1),tile(1,4),tile(1,7),tile(2,2),tile(2,5),tile(2,8),tile(4,2)),false));
                 }
                 case "riichi"->{for(int seat=0;seat<4;seat++)players.set(seat,player(waiting(seat%3),true));active=TheMahjongRound.ActiveTile.none();phase=new MatchPhase.AwaitingDraw(0,false);sticks=6;}
-                default->throw new IllegalArgumentException("scenario must be draw, tsumo, claims, all_tenpai, mixed, or riichi");
+                default->throw new IllegalArgumentException("scenario must be draw, draw_observer, tsumo, claims, all_tenpai, mixed, or riichi");
             }
             var indicators=Collections.nCopies(5,tile(4,3));
             var round=new TheMahjongRound(TheMahjongTile.Wind.EAST,1,0,sticks,0,roundState,0,-1,active,

@@ -2,13 +2,13 @@
 
 基于 [caxapexac/MinecraftRiichiMahjong](https://github.com/caxapexac/MinecraftRiichiMahjong) 的独立 Fabric 服务端移植，保留原项目麻将规则、3D 模型、材质和音效。仅服务端安装 Mod，玩家使用原版客户端并接受资源包。
 
-当前版本：`0.4.2+fabric.26.3.9`。适用于 Minecraft **26.3**、Fabric Loader **0.19.5**、Fabric API **0.163.0**、Java **25**。
+当前版本：`0.4.2+fabric.26.3.10`。适用于 Minecraft **26.3**、Fabric Loader **0.19.5**、Fabric API **0.163.0**、Java **25**。
 
 ## 下载与安装
 
-前往 [Releases](https://github.com/StealthFeather/riichi-mahjong-fabric/releases) 下载：
+前往 [最新版 Release](https://github.com/StealthFeather/riichi-mahjong-fabric/releases/tag/v0.4.2%2Bfabric.26.3.10) 下载：
 
-- `riichi-mahjong-0.4.2+fabric.26.3.9.jar`：放入服务端 `mods/`，同时安装对应 Fabric API。Polymer 已内嵌。
+- `riichi-mahjong-0.4.2+fabric.26.3.10.jar`：放入服务端 `mods/`，同时安装对应 Fabric API。Polymer 已内嵌。
 - `TimoryResource-26.3.zip`：包含本版全部麻将模型和中文进度的服务器资源包。已有包含 `26.3.8` 麻将资产的自定义资源包可继续使用；从 `26.3.6` 升级时须补充立直棒模型，或使用本版附件。
 - Release 下方的 `Source code (zip/tar.gz)`：GitHub 按发布标签生成的完整仓库源码，含移植代码及固定版本的上游快照。
 - `verification.json`：本版构建哈希、回归、服务器集成及原版客户端测试结果。
@@ -23,6 +23,8 @@
 右键自己的单张手牌出牌。吃、碰、杠、立直、荣和、自摸等通过经验条上方提示和本人面前的按钮执行；过期操作自动移除，不再写入聊天历史。立直选中后绿色箭头标记合法弃牌。对局中只有 Shift 右键命中桌子才退出，命中牌或本人按钮不离座；也可 `/mahjong leave`。离开后 BOT 暂代，普通右键桌子或 `/mahjong join` 可接回原座位，保留当前手牌、分数与轮次，原座位不会被其他玩家占用。扳手右键中央或 `/mahjong menu` 打开设置，支持雀魂、天凤、WRC 四麻及三麻预设。
 
 牌桌显示与碰撞为以中心方块正中为中心的 2×2（0.5+1+0.5）。本人操作按钮平放在桌沿，点击范围与字体背景一致。缩小后的立直棒位于中央风盘上方。摸牌放在右手边，与其他牌空出 1/3 牌宽；出牌后 20 tick（正常 20 TPS 下为 1 秒）再理牌。流局结算公开所有听牌玩家的手牌，未听牌玩家仍保持暗牌。
+
+`26.3.10` 修复本人手牌与公共牌背重叠造成的闪烁，包含最右侧普通手牌。手牌所属玩家变化或流局公开时，显示实体也会按新的可见范围重建。
 
 桌上显示随庄家轮转的门风、当前出牌者；场次、分数、余牌及结算移至本人 BossBar。鸣牌按出牌者相对方位横放，加杠叠放。每桌一个隐身、NoAI 的虚拟潜影贝承担原版客户端碰撞；服务端玩家使用相同包围盒。完整牌局留在服务端，对局中的暗牌牌面只发送给所属玩家。
 
@@ -41,4 +43,4 @@
 
 原版客户端界面由显示实体、interaction、ActionBar 提示和原版容器替代。客户端 FOV 调整、渲染编辑器等不能直接移植；自定义流体以水投影，单个潜影贝的桌下碰撞为近似。
 
-此版本通过编译、规则与几何回归，并在本机 Minecraft 26.3 / Fabric 0.19.5 隔离服务器和原版客户端进行固定场景集成与显示测试。测试覆盖本次五项改动，未覆盖整场联机对局的所有规则分支。详见 [本版变更与验证](riichi-mahjong-fabric/docs/26.3.9.md)。
+`26.3.10` 通过 6 组回归和 9 项真实服务器集成检查。在本机 Minecraft 26.3 / Fabric 0.19.5 隔离服务器及原版客户端中，对固定北侧手牌区域的 4 种场景各采样 30 次，共 120 次，确认每张牌仅有一个显示实体、可见范围正确且实体与变换稳定，并复核对应截图。测试覆盖固定场景，未遍历整场多人牌局。详见 [本版变更与验证](riichi-mahjong-fabric/docs/26.3.10.md)。
