@@ -14,6 +14,8 @@ import com.themahjong.driver.bots.StupidActiveBot;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -108,6 +110,8 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
 
     private boolean lastPowered;
     private List<SeatInfo> seats = defaultSeats();
+    private final ReturningSeats returningSeats = new ReturningSeats();
+    private final Map<UUID,Long> privateClicks = new HashMap<>();
     private RuleSetPreset preset = RuleSetPreset.MAHJONG_SOUL_4P;
     private long randomSeed;
 
@@ -186,11 +190,27 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         return preset;
     }
 
-    public boolean claimSeat(int seat, UUID uuid) {
-        if (driver != null) return false;
+    public OptionalInt returningSeat(UUID uuid) { return returningSeats.seat(uuid); }
+
+    public boolean canClaimSeat(int seat, UUID uuid) {
         if (seat < 0 || seat >= seats.size()) return false;
         if (!seats.get(seat).enabled()) return false;
         if (seats.get(seat).occupant().filter(id->!id.equals(uuid)).isPresent()) return false;
+        if (driver != null) {
+            int current=seatOfPlayer(uuid).orElse(-1);
+            if (seat>=driver.match().playerCount() || current>=0 && current!=seat
+                    || !returningSeats.allows(uuid,seat)) return false;
+        }
+        return true;
+    }
+
+    public boolean claimSeat(int seat, UUID uuid) {
+        if (!canClaimSeat(seat,uuid)) return false;
+        if (seats.get(seat).occupant().filter(uuid::equals).isPresent()) return true;
+        if (driver != null) {
+            returningSeats.remember(uuid,seat);
+            driver.replacePlayer(seat,buildPlayer(SeatInfo.claimed(uuid)));
+        }
         seatOfPlayer(uuid).ifPresent(prev -> {
             if (prev != seat) seats.set(prev, SeatInfo.open());
         });
@@ -204,6 +224,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         SeatInfo info = seats.get(seat);
         if (info.occupant().isPresent()) {
             if (driver != null && seat < driver.match().playerCount()) {
+                returningSeats.remember(info.occupant().orElseThrow(),seat);
                 driver.replacePlayer(seat, StupidActiveBot.humanLike());
             }
             seats.set(seat, SeatInfo.open());
@@ -270,6 +291,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         List<SeatInfo> activeSeats = new ArrayList<>(match.playerCount());
         for (int i = 0; i < match.playerCount(); i++) activeSeats.add(seats.get(i));
 
+        resetReturningSeats();
         this.randomSeed = seed;
         this.driver = new TheMahjongDriver(match, buildPlayersFromSeats(activeSeats), new java.security.SecureRandom());
         this.driver.setAnimationsEnabled(true);
@@ -325,6 +347,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
                 new MatchPhase.AwaitingDiscard(0),
                  false,
                 java.util.OptionalInt.empty());
+        resetReturningSeats();
         this.randomSeed = seed;
         this.driver = new TheMahjongDriver(
                 fixedMatch, buildPlayersFromSeats(activeSeats), new Random(seed), snap);
@@ -358,6 +381,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         }
 
         loadAdditional(TagValueInput.create(ProblemReporter.DISCARDING, level.registryAccess(), patched));
+        resetReturningSeats();
         markChangedAndSynced();
         return StartMatchResult.STARTED;
     }
@@ -397,6 +421,8 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         }
         if (driver == null) return;
         this.driver = null;
+        returningSeats.clear();
+        privateClicks.clear();
         this.randomSeed = 0L;
         markChangedAndSynced();
     }
@@ -413,6 +439,25 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         human.onCuteClick(key, driver, seat, player);
 
         markChangedAndSynced();
+    }
+
+    public void recordPrivateClick(ServerPlayer player) {
+        if (level != null) privateClicks.put(player.getUUID(),level.getGameTime());
+    }
+
+    public boolean recentPrivateClick(ServerPlayer player) {
+        if (level == null) return false;
+        long now=level.getGameTime();
+        privateClicks.values().removeIf(tick->now-tick>1);
+        return privateClicks.containsKey(player.getUUID());
+    }
+
+    private void resetReturningSeats() {
+        returningSeats.clear();privateClicks.clear();
+        for (int seat=0;seat<seats.size();seat++) {
+            var info=seats.get(seat);
+            if (info.enabled()&&info.occupant().isPresent()) returningSeats.remember(info.occupant().orElseThrow(),seat);
+        }
     }
 
     public void onTableRightClick(ServerPlayer player) {
@@ -836,6 +881,10 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         if (driver != null) {
             DriverNbt.writeDriver(out.child(NBT_DRIVER), driver);
             out.putLong(NBT_RANDOM_SEED, randomSeed);
+            var reservations=out.childrenList("ReturningSeats");
+            returningSeats.snapshot().forEach((uuid,seat)->{
+                var entry=reservations.addChild();entry.store("uuid",UUIDUtil.CODEC,uuid);entry.putInt("Seat",seat);
+            });
 
             ValueOutput.ValueOutputList humans = out.childrenList(NBT_HUMAN_PLAYERS);
             for (int i = 0; i < driver.match().playerCount(); i++) {
@@ -896,6 +945,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
 
         this.driver = null;
         this.randomSeed = 0L;
+        returningSeats.clear();privateClicks.clear();
         Optional<ValueInput> driverIn = in.child(NBT_DRIVER);
         if (driverIn.isPresent()) {
             this.randomSeed = in.getLongOr(NBT_RANDOM_SEED, 0L);
@@ -913,6 +963,17 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
                     buildPlayersFromSeats(activeSeats),
                     new java.security.SecureRandom());
             this.driver.setAnimationsEnabled(true);
+
+            for (var entry:in.childrenListOrEmpty("ReturningSeats")) {
+                int seat=entry.getIntOr("Seat",-1);var uuid=entry.read("uuid",UUIDUtil.CODEC).orElse(null);
+                if (uuid!=null&&seat>=0&&seat<driver.match().playerCount()&&seats.get(seat).enabled()
+                        &&seats.get(seat).occupant().filter(id->!id.equals(uuid)).isEmpty()
+                        &&returningSeats.allows(uuid,seat)) returningSeats.remember(uuid,seat);
+            }
+            for (int seat=0;seat<driver.match().playerCount();seat++) {
+                var uuid=seats.get(seat).occupant().orElse(null);
+                if (uuid!=null&&returningSeats.allows(uuid,seat)) returningSeats.remember(uuid,seat);
+            }
 
             for (ValueInput entry : in.childrenListOrEmpty(NBT_HUMAN_PLAYERS)) {
                 int seat = entry.getIntOr("Seat", 0);

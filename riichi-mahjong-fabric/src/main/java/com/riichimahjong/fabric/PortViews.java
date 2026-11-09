@@ -23,6 +23,7 @@ import net.minecraft.world.item.*;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.AABB;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
@@ -77,6 +78,29 @@ public final class PortViews {
         var d=new ItemDisplayElement(model(model));d.setItemDisplayContext(ItemDisplayContext.NONE);d.setOverridePos(pos);d.setScale(new Vector3f(scale));d.setLeftRotation(rotation);d.setRightRotation(new Quaternionf().rotationY((float)Math.PI));d.setDisplaySize(3,3);holder.addElement(d);return d;
     }
     static boolean near(ServerPlayer p,ServerLevel level,BlockPos pos){return !p.isSpectator()&&p.level()==level&&p.distanceToSqr(pos.getX()+.5,pos.getY()+.5,pos.getZ()+.5)<=64;}
+    public static boolean handleTileHit(ServerPlayer player,MahjongTableBlockEntity table){
+        if(table.recentPrivateClick(player))return true;
+        var view=VIEWS.get(new Key(player.level(),table.getBlockPos()));
+        if(view==null)return false;
+        Vec3 start=player.getEyePosition(),end=start.add(player.getLookAngle().scale(8));
+        var pos=table.getBlockPos();
+        var surface=new AABB(pos.getX()-.5,pos.getY()+TableLayout.TABLE_TOP-2,pos.getZ()-.5,pos.getX()+1.5,pos.getY()+TableLayout.TABLE_TOP,pos.getZ()+1.5);
+        end=surface.clip(start,end).orElse(end);
+        String chosen=null;double nearest=Double.MAX_VALUE;
+        for(var entry:view.sent.entrySet()){
+            var visual=entry.getValue();var hit=TableHitTest.tile(start,end,visual.position(),visual.scale(),visual.rotation());
+            if(hit.isPresent()){double distance=start.distanceToSqr(hit.get());if(distance<nearest){nearest=distance;chosen=entry.getKey();}}
+        }
+        if(chosen==null)return false;
+        table.recordPrivateClick(player);
+        if(chosen.startsWith("hand/")){
+            var parts=chosen.split("/");int seat=Integer.parseInt(parts[1]),index=Integer.parseInt(parts[2]);
+            var hand=view.hands.get(player.getUUID());
+            if(table.seatOfPlayer(player.getUUID()).orElse(-1)==seat&&hand!=null&&hand.valid(player))
+                table.onCuteClick(player,new InteractKey.SeatSlot((byte)seat,InteractKey.SeatSlot.AREA_HAND,(short)index));
+        }
+        return true;
+    }
     private static final class View {
         final ServerLevel level;final BlockPos pos;final BlockState state;final ElementHolder holder=new ElementHolder();
         final Map<String,ItemDisplayElement> tiles=new HashMap<>();final Set<String> used=new HashSet<>();

@@ -17,5 +17,5 @@ fs.cpSync(rules,classes,{recursive:true});fs.cpSync(p.join(project,'src/main/res
 fs.mkdirSync(p.join(classes,'META-INF/jars'),{recursive:true});fs.copyFileSync(p.join(root,'build/kaleidoscope/runtime/polymer-bundled-0.18.7+26.3.jar'),p.join(classes,'META-INF/jars/polymer-bundled.jar'));
 for(const file of ['LICENSE.txt'])fs.copyFileSync(p.join(project,'upstream',file),p.join(classes,file));
 fs.copyFileSync(p.join(project,'upstream/neoforge/src/main/resources/LICENSE_mahjong4j.txt'),p.join(classes,'LICENSE_mahjong4j.txt'));
-exec(p.join(java,'jar.exe'),['--create','--file',p.join(build,'libs/riichi-mahjong-0.4.2+fabric.26.3.7.jar'),'-C',classes,'.'],{windowsHide:true});
+exec(p.join(java,'jar.exe'),['--create','--file',p.join(build,'libs/riichi-mahjong-0.4.2+fabric.26.3.8.jar'),'-C',classes,'.'],{windowsHide:true});
 fs.writeFileSync(p.join(build,'classpath.txt'),cp);console.log('Built upstream Fabric server port. No tests run.');

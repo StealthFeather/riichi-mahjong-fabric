@@ -26,7 +26,7 @@ import net.minecraft.world.item.*;
 public final class PortMenus {
     public static void register(){
         CommandRegistrationCallback.EVENT.register((d,access,env)->{
-            var root=Commands.literal("mahjong").executes(c->{c.getSource().sendSuccess(()->Component.literal("立直麻将：右键桌边或座位文字入座，也可 /mahjong join；潜行右键中央开局。右键自己的单张手牌出牌；吃碰杠、立直、胡牌看经验条上方提示并点击本人按钮。对局中 Shift 右键牌桌退出，BOT 接管。/mahjong menu 打开设置。管理员 /mahjong give 获得原版物品。"),false);return 1;});
+            var root=Commands.literal("mahjong").executes(c->{c.getSource().sendSuccess(()->Component.literal("立直麻将：右键桌边或座位文字入座，也可 /mahjong join；潜行右键中央开局。右键自己的单张手牌出牌；吃碰杠、立直、胡牌看经验条上方提示并点击本人按钮。对局中 Shift 右键命中桌子退出，命中牌不离座；普通右键桌子或 /mahjong join 接回原座位。/mahjong menu 打开设置。管理员 /mahjong give 获得原版物品。"),false);return 1;});
             root.then(Commands.literal("join").executes(c->{var p=c.getSource().getPlayerOrException();return TableSeating.joinNearest(p,nearest(p))?1:0;}).then(Commands.argument("seat",IntegerArgumentType.integer(1,4)).executes(c->{var p=c.getSource().getPlayerOrException();return TableSeating.join(p,nearest(p),IntegerArgumentType.getInteger(c,"seat")-1)?1:0;})));
             root.then(Commands.literal("menu").executes(c->{var p=c.getSource().getPlayerOrException();settings(p,nearest(p));return 1;}));
             root.then(Commands.literal("start").executes(c->{var p=c.getSource().getPlayerOrException();var t=nearest(p);if(host(p,t))t.tryStartMatchWithAutoSeating(new java.security.SecureRandom().nextLong());return 1;}));

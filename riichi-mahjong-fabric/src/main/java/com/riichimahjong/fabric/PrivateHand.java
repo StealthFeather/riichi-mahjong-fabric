@@ -61,7 +61,10 @@ final class PrivateHand {
     }
     boolean sameVisuals(Snapshot other){return snapshot.driver==other.driver&&snapshot.hand.equals(other.hand)&&snapshot.buttons.equals(other.buttons)&&snapshot.riichiDiscards.equals(other.riichiDiscards)&&winner(snapshot.phase)==winner(other.phase);}
     boolean winner(Object phase){if(phase instanceof MatchPhase.RoundEnded ended)for(var win:ended.winResults())if(seat<win.pointDeltas().size()&&win.pointDeltas().get(seat)>0)return true;return false;}
-    void click(byte area,int index,boolean sneak){if(valid(owner)){if(sneak)TableSeating.leave(owner,table);else table.onCuteClick(owner,new InteractKey.SeatSlot((byte)seat,area,(short)index));}}
+    void click(byte area,int index,boolean sneak){
+        table.recordPrivateClick(owner);
+        if(valid(owner))table.onCuteClick(owner,new InteractKey.SeatSlot((byte)seat,area,(short)index));
+    }
     static void run(ServerPlayer p,UUID token){p.sendSystemMessage(Component.literal("操作已过期，请点击当前手牌或本人面前的按钮。"),true);}
     void tick(){
         String prompt="";

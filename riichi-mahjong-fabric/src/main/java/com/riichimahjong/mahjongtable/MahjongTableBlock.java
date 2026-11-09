@@ -129,6 +129,10 @@ public class MahjongTableBlock extends BaseMultipartBlock {
             return InteractionResult.PASS;
         }
 
+        if (table.hasActiveMatch() && player instanceof ServerPlayer sp
+                && com.riichimahjong.fabric.PortViews.handleTileHit(sp, table)) {
+            return InteractionResult.CONSUME;
+        }
         if (player.isShiftKeyDown() && player instanceof ServerPlayer sp
                 && table.seatOfPlayer(sp.getUUID()).isPresent()
                 && table.hasActiveMatch()) {
@@ -153,6 +157,11 @@ public class MahjongTableBlock extends BaseMultipartBlock {
         }
 
         if (table.state() == MahjongTableBlockEntity.State.GAME) {
+            if (!holdsWrench(player) && player instanceof ServerPlayer sp
+                    && table.seatOfPlayer(sp.getUUID()).isEmpty()) {
+                com.riichimahjong.fabric.TableSeating.joinNearest(sp,table);
+                return InteractionResult.CONSUME;
+            }
             if (holdsWrench(player) && isMaster(state)) {
                 table.endGame();
                 return InteractionResult.CONSUME;

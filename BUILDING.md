@@ -26,6 +26,6 @@ node riichi-mahjong-fabric/test.cjs
 node riichi-mahjong-fabric/package.cjs
 ```
 
-`resources.cjs` 从固定上游复制资源，应用简体中文覆盖及 26.3 进度背景路径修正，并生成原版显示入口；`build.cjs` 编译移植和原规则库（通过 `rules-patches.cjs` 应用带匹配校验的小范围驱动器修复，保持上游快照不变）；`test.cjs` 检查多家立直、供托、响应失效、BOT 接管、鸣牌方位和桌面坐标/门风朝向，并将结果绑定到本版 JAR 哈希；`package.cjs` 合并 TimoryResource 并生成附件及校验值。
+`resources.cjs` 从固定上游复制资源，应用简体中文覆盖及 26.3 进度背景路径修正，并生成原版显示入口；`build.cjs` 编译移植和原规则库（通过 `rules-patches.cjs` 应用带匹配校验的小范围驱动器修复，保持上游快照不变）；`test.cjs` 检查多家立直、供托、响应失效、BOT 接管、鸣牌方位、桌面坐标/门风朝向、四向牌模型命中和原座位重返，并将结果绑定到本版 JAR 哈希；`package.cjs` 合并 TimoryResource 并生成附件及校验值。
 
 资源包基准只影响合并打包，麻将模型和材质本身也保存在 `src/main/resources/assets/riichi_mahjong/`。`install-local.cjs` 面向原工作区的本地测试服管理器，一般服务器请直接按 README 安装 Release 附件。
