@@ -35,6 +35,21 @@ public final class GeometryRegression {
         System.out.println("PASS: tile rays, empty table space and occlusion in all standing/flat rotations");
         close(TableButtonLayout.textWidth("立直"),18);close(TableButtonLayout.textWidth("吃 1万 2万"),42);
         var buttons=TableButtonLayout.arrange(List.of("吃 1万 2万","吃 2万 4万","碰 3万 3万","大明杠 3万 3万 3万","荣和","跳过"));
+        for(var labels:List.of(List.of("自摸","跳过"),List.of("确认跳过","返回"),List.of("吃 1万 2万","吃 2万 4万","碰 3万 3万","大明杠 3万 3万 3万","荣和","跳过"))){
+            var row=TableButtonLayout.arrange(labels);var first=row.getFirst();var last=row.getLast();
+            if(last.along()+last.width()/2-first.along()+first.width()/2>TableButtonLayout.MAX_WIDTH+1e-6)throw new AssertionError("button row exceeds maximum width after spacing");
+            for(int index=1;index<row.size();index++){
+                var before=row.get(index-1);var after=row.get(index);close(after.scale(),first.scale());
+                double gap=after.along()-after.width()/2-before.along()-before.width()/2;
+                close(gap/first.pixelSize(),27); // Three fullwidth character advances, including after row compression.
+                for(var direction:new Direction[]{Direction.NORTH,Direction.EAST,Direction.SOUTH,Direction.WEST}){
+                    double middle=before.along()+before.width()/2+gap/2;
+                    var at=TableLayout.anchor(pos,direction,middle,TableButtonLayout.HEIGHT,TableButtonLayout.EDGE_DISTANCE);
+                    if(row.stream().anyMatch(button->button.hit(pos,direction,at.add(0,1,0),at.add(0,-1,0)).isPresent()))throw new AssertionError("three-character button gap accepts a click in "+direction);
+                }
+            }
+        }
+        System.out.println("PASS: button gaps remain three fullwidth glyphs under shared scaling and cannot be clicked");
         for(var dir:new Direction[]{Direction.NORTH,Direction.EAST,Direction.SOUTH,Direction.WEST}){
             var line=dir.getCounterClockWise();
             for(var button:buttons){

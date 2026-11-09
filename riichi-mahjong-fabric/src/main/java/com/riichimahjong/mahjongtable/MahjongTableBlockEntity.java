@@ -563,6 +563,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         boolean animating = resultAnimStage != ResultAnimStage.NONE;
         if (!animating) {
             driver.advance(SECONDS_PER_TICK);
+            playAcceptedDiscardSound(sl, prevMatch);
         }
         MatchPhase nextPhase = driver.currentPhase();
         updateHandDisplay();
@@ -591,6 +592,20 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
 
     private static final long RESULT_ANIM_HEADER_TICKS = 20L;
     private static final long RESULT_ANIM_YAKU_TICKS   = 10L;
+
+    private void playAcceptedDiscardSound(ServerLevel level, TheMahjongMatch previous) {
+        var before = previous.currentRound().orElse(null);
+        var after = driver.match().currentRound().orElse(null);
+        if (before == null || after == null || before.players().size() != after.players().size()) return;
+        // Only an accepted discard adds to a river; clicks, rejected actions and
+        // subsequent claims must not emit a second placement sound.
+        for (int seat = 0; seat < before.players().size(); seat++) {
+            if (after.players().get(seat).discards().size() > before.players().get(seat).discards().size()) {
+                level.playSound(null, getBlockPos(), net.minecraft.sounds.SoundEvents.STONE_PLACE,
+                        net.minecraft.sounds.SoundSource.AMBIENT, 1.0f, 2.0f);
+            }
+        }
+    }
 
     private void startResultAnimation(ServerLevel sl, MatchPhase.RoundEnded phase) {
         resultAnimStage = ResultAnimStage.SHOW_HEADER;

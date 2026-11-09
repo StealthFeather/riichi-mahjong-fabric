@@ -133,12 +133,6 @@ public class MahjongTableBlock extends BaseMultipartBlock {
                 && com.riichimahjong.fabric.PortViews.handleTileHit(sp, table)) {
             return InteractionResult.CONSUME;
         }
-        if (player.isShiftKeyDown() && player instanceof ServerPlayer sp
-                && table.seatOfPlayer(sp.getUUID()).isPresent()
-                && table.hasActiveMatch()) {
-            com.riichimahjong.fabric.TableSeating.leave(sp, table);
-            return InteractionResult.CONSUME;
-        }
         ItemStack held = player.getItemInHand(hand);
         if (held.getItem() instanceof MahjongTableRecordItem record && player instanceof ServerPlayer sp) {
             if (table.state() != MahjongTableBlockEntity.State.IDLE) {

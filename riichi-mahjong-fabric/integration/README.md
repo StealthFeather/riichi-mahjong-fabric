@@ -58,3 +58,23 @@ node riichi-mahjong-fabric/integration/check-presentation.cjs <server/riichi-pre
 ```
 
 The checker confirms all sixteen actual entity models and quaternions: both outer tiles use concealed models and flip 180 degrees from the face-up middle pair. The server report records actual payment phases and points; it does not inject an already-ended draw result.
+
+`riichi_test interaction` runs the `.13` controls regression with a connected vanilla player. It uses the actual `PrivateHand` button ray handler and table click path for ron, chankan and tsumo: the first skip opens confirmation without queueing, return restores the win, a wrong token and old private holder cannot submit, and only explicit confirmation queues a claim pass. A confirmed tsumo skip remains local and ordinary discards remain available. It also waits eight real server ticks to verify that a riichi player's confirmed tsumo skip resumes the existing automatic drawn-tile discard.
+
+The same run calls the real block-use path while sneaking, the settings menu's own-seat slot and the lobby virtual seat's interaction handler, asserting that all retain the seat. It executes registered `mahjong leave` and `mahjong join` commands as the connected player and checks BOT takeover, unchanged hand/scores and original-seat recovery. These are server handler tests; they do not manufacture client mouse packets.
+
+Wait for `RIICHI_INTERACTION_PASS`. Results are written to `riichi-interaction-results.json`, including `checks`, `buttonDisplays` and `denseButtonDisplays`. Every expected display records its text, position, scale, left quaternion, index, along coordinate, hit-plane centre, width/depth and expected 27-font-pixel edge gap. The final fixture is `dragon_buttons`, with real white/green/red concealed-kan choices labelled 白/发/中. Capture its actual client `textDisplays`; then run `riichi_test fixture dense_buttons` and capture the reduced-scale claim buttons against `denseButtonDisplays`. Both fixtures can also be selected independently, as can `ron`, `chankan` and `riichi_tsumo`.
+
+For placement-sound packets, run each case with the test-only client's sound probe already recording:
+
+```text
+riichi_test sound_case normal
+riichi_test sound_case riichi
+riichi_test sound_case bot
+riichi_test sound_case invalid
+riichi_test sound_case duplicate
+riichi_test sound_case claim
+riichi_test sound_case final
+```
+
+Run cases serially, waiting for `RIICHI_SOUND_CASE_PASS <name>` before the next. Each resets the fixture and uses subsequent real table ticks rather than calling the sound helper directly. The report appends `soundCases` with `startEpochMillis`, `endEpochMillis`, accepted-discard count, expected packet count and the sound signature: `minecraft:block.stone.place`, ambient source, volume 1, pitch 2, table-centre position `[0.5,-59.5,0.5]`. Normal, riichi, BOT, duplicate clicks and final discard each expect one packet; an invalid hand index and an accepted pon expect zero. The BOT window lasts 32 ticks to include its normal riichi thinking delay; other windows last six ticks. Compare actual client SoundPackets within these windows, allowing only a small delivery margin outside the server timestamps. The server report alone cannot prove that a client received the sound.

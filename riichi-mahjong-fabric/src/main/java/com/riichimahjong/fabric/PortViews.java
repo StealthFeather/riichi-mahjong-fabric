@@ -187,7 +187,7 @@ public final class PortViews {
                 if(!active&&!seatHits.containsKey(seat)){
                     var hit=new InteractionElement(new VirtualElement.InteractionHandler(){
                         @Override public void interact(ServerPlayer p,InteractionHand hand,Vec3 loc,boolean sneak){
-                            if(hand==InteractionHand.MAIN_HAND){if(sneak&&table.seatOfPlayer(p.getUUID()).isPresent())TableSeating.leave(p,table);else TableSeating.join(p,table,index);}
+                            if(hand==InteractionHand.MAIN_HAND)TableSeating.join(p,table,index);
                         }
                     });
                     hit.setOverridePos(anchor(pos,dir,0,.4,1.25));hit.setSize(.72f,.85f);

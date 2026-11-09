@@ -9,6 +9,8 @@ public final class ClientProbe {
     static Path root;
     static Object minecraft;
     static int consumed;
+    static Path soundOutput;
+    static Object soundPipeline;
     public static void premain(String args,Instrumentation instrumentation){start(args,instrumentation);}
     public static void agentmain(String args,Instrumentation instrumentation){start(args,instrumentation);}
     static void start(String args,Instrumentation instrumentation){
@@ -53,6 +55,7 @@ public final class ClientProbe {
         var snapshot=new LinkedHashMap<String,Object>();
         snapshot.put("time",java.time.Instant.now().toString());snapshot.put("sample",sample);snapshot.put("total",total);
         var displays=new ArrayList<Map<String,Object>>();
+        var texts=new ArrayList<Map<String,Object>>();
         if(level!=null){
             Class<?> type=Class.forName("net.minecraft.world.entity.Display$ItemDisplay");
             var getter=type.getDeclaredMethod("getItemStack");getter.setAccessible(true);
@@ -69,12 +72,54 @@ public final class ClientProbe {
                 displays.add(item);
             }
             snapshot.put("gameTime",call(level,"getGameTime"));
+            Class<?> textType=Class.forName("net.minecraft.world.entity.Display$TextDisplay");
+            var textGetter=textType.getDeclaredMethod("getText");textGetter.setAccessible(true);
+            for(Object entity:(Iterable<?>)call(level,"entitiesForRendering"))if(textType.isInstance(entity)){
+                var item=new LinkedHashMap<String,Object>();item.put("id",call(entity,"getId"));item.put("text",call(textGetter.invoke(entity),"getString"));
+                item.put("position",List.of(call(entity,"getX"),call(entity,"getY"),call(entity,"getZ")));item.put("scale",vector(displayData(entity,"DATA_SCALE_ID")));
+                item.put("leftRotation",displayData(entity,"DATA_LEFT_ROTATION_ID").toString());texts.add(item);
+            }
         }
         displays.sort(Comparator.comparingInt(item->((Number)item.get("id")).intValue()));
         snapshot.put("playerPosition",player==null?null:List.of(call(player,"getX"),call(player,"getY"),call(player,"getZ")));
         snapshot.put("itemDisplays",displays);
+        snapshot.put("textDisplays",texts);
         Files.writeString(output,json(snapshot)+"\n",StandardOpenOption.CREATE,StandardOpenOption.APPEND);
         if(sample==total-1)log("entities complete samples="+total+" count="+displays.size()+" file="+output);
+    }
+    static Object deepField(Object value,String name)throws Exception{
+        for(Class<?> type=value.getClass();type!=null;type=type.getSuperclass())try{var field=type.getDeclaredField(name);field.setAccessible(true);return field.get(value);}catch(NoSuchFieldException ignored){}
+        throw new NoSuchFieldException(name);
+    }
+    static void recordSoundPacket(Object packet){
+        try{
+            if(packet.getClass().getSimpleName().equals("ClientboundBundlePacket")){for(Object child:(Iterable<?>)call(packet,"subPackets"))recordSoundPacket(child);return;}
+            if(!packet.getClass().getSimpleName().equals("ClientboundSoundPacket"))return;
+            var sound=new LinkedHashMap<String,Object>();Object event=call(call(packet,"getSound"),"value");
+            sound.put("time",java.time.Instant.now().toString());sound.put("epochMillis",System.currentTimeMillis());sound.put("id",call(event,"location").toString());
+            sound.put("source",call(packet,"getSource").toString());sound.put("volume",call(packet,"getVolume"));sound.put("pitch",call(packet,"getPitch"));
+            sound.put("position",List.of(call(packet,"getX"),call(packet,"getY"),call(packet,"getZ")));
+            synchronized(ClientProbe.class){Files.writeString(soundOutput,json(sound)+"\n",StandardOpenOption.CREATE,StandardOpenOption.APPEND);}
+        }catch(Throwable failure){log("sound probe read failed: "+failure);}
+    }
+    static void startSoundProbe(String label)throws Exception{
+        if(soundPipeline!=null)throw new IllegalStateException("sound probe already installed");
+        Object connection=call(call(minecraft,"getConnection"),"getConnection"),channel=deepField(connection,"channel");
+        Object pipeline=Class.forName("io.netty.channel.Channel").getMethod("pipeline").invoke(channel);
+        Class<?> inbound=Class.forName("io.netty.channel.ChannelInboundHandler"),handlerType=Class.forName("io.netty.channel.ChannelHandler"),contextType=Class.forName("io.netty.channel.ChannelHandlerContext");
+        soundOutput=root.resolve("client-probe-sounds-"+label.replaceAll("[^a-zA-Z0-9_-]","_")+"-"+System.currentTimeMillis()+".jsonl");Files.writeString(soundOutput,"");
+        Object handler=Proxy.newProxyInstance(inbound.getClassLoader(),new Class<?>[]{inbound},(proxy,method,args)->{
+            String name=method.getName();
+            if(name.equals("toString"))return "RiichiIsolatedSoundProbe";if(name.equals("hashCode"))return System.identityHashCode(proxy);if(name.equals("equals"))return proxy==args[0];
+            if(name.equals("handlerAdded")||name.equals("handlerRemoved"))return null;
+            if(name.equals("channelRead"))recordSoundPacket(args[1]);
+            String fire="fire"+Character.toUpperCase(name.charAt(0))+name.substring(1);
+            Object[] forwarded=Arrays.copyOfRange(args,1,args.length);
+            for(var callback:contextType.getMethods())if(callback.getName().equals(fire)&&callback.getParameterCount()==forwarded.length){callback.invoke(args[0],forwarded);return null;}
+            throw new IllegalStateException("Unhandled transparent Netty event "+name);
+        });
+        Class.forName("io.netty.channel.ChannelPipeline").getMethod("addBefore",String.class,String.class,handlerType).invoke(pipeline,"packet_handler","riichi_sound_probe",handler);
+        soundPipeline=pipeline;log("sound probe installed file="+soundOutput);
     }
     static void sampleEntities(String command){
         String[] words=command.trim().split("\\s+");
@@ -94,6 +139,8 @@ public final class ClientProbe {
         },"riichi-client-entity-sample");worker.setDaemon(true);worker.start();
     }
     static void run(String command)throws Exception{
+        if(command.startsWith("sound-probe-start ")){startSoundProbe(command.substring(18));return;}
+        if(command.equals("sound-probe-stop")){if(soundPipeline!=null)Class.forName("io.netty.channel.ChannelPipeline").getMethod("remove",String.class).invoke(soundPipeline,"riichi_sound_probe");soundPipeline=null;log("sound probe stopped file="+soundOutput);return;}
         if(command.equals("entities")||command.startsWith("entities ")||command.equals("entities-sample")||command.startsWith("entities-sample ")){sampleEntities(command);return;}
         Object gui=field(minecraft,"gui"),screen=call(gui,"screen");
         if(command.equals("status")){

@@ -37,9 +37,27 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
 
     private transient double riichiAutoDiscardElapsed;
 
+    private transient SkipConfirmation skipConfirmation;
+    private transient WinOpportunity skippedTsumo;
+
+    private record WinOpportunity(TheMahjongDriver driver, TheMahjongRound round,
+                                  MatchPhase phase, int seat, UUID occupant,
+                                  List<PlayerAction> wins) {
+        boolean matches(WinOpportunity other) {
+            return other != null && driver == other.driver && round == other.round
+                    && phase == other.phase && seat == other.seat
+                    && java.util.Objects.equals(occupant, other.occupant) && wins.equals(other.wins);
+        }
+    }
+
+    private record SkipConfirmation(UUID token, WinOpportunity opportunity, boolean tsumo) {}
+
     public sealed interface TableButton {
         record SubmitAction(PlayerAction action) implements TableButton {}
         record RiichiToggle(boolean active) implements TableButton {}
+        record SkipTsumo() implements TableButton {}
+        record ConfirmSkip(UUID token) implements TableButton {}
+        record CancelSkip(UUID token) implements TableButton {}
     }
 
     public Optional<UUID> occupant() {
@@ -47,10 +65,12 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
     }
 
     public void setOccupant(UUID uuid) {
+        if (!java.util.Objects.equals(occupant, uuid)) clearWinSkipState();
         this.occupant = uuid;
     }
 
     public void clearOccupant() {
+        clearWinSkipState();
         this.occupant = null;
     }
 
@@ -71,7 +91,9 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
         // The vanilla-client bridge displays it only in this player's private virtual hand.
         drawnTileDeliveryAttempted=false;drawnTileDelivered=false;pendingConsume=null;
         boolean ownTurn=phase instanceof MatchPhase.AwaitingDiscard d&&d.seat()==seatIndex;
-        boolean changed=false;if(!ownTurn&&riichiPending){riichiPending=false;changed=true;}
+        var driver=table.driver();
+        boolean changed=driver!=null&&refreshWinSkipState(driver,seatIndex,driver.legalActions(seatIndex));
+        if(!ownTurn&&riichiPending){riichiPending=false;changed=true;}
         if(ownTurn)maybeAutoQueueRiichiDiscard(level,table,seatIndex);
         else riichiAutoDiscardElapsed=0;
         return changed;
@@ -100,6 +122,9 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
         java.util.List<PlayerAction> legal = driver.legalActions(seatIndex);
         if (legal.isEmpty()) return;
         for (PlayerAction a : legal) {
+            // A confirmed skipped tsumo no longer blocks the usual riichi
+            // auto-discard. An unconfirmed or cancelled win still pauses it.
+            if (a instanceof PlayerAction.DeclareTsumo && skippedTsumo != null) continue;
             if (!(a instanceof PlayerAction.Discard)) return;
         }
         riichiAutoDiscardElapsed += SECONDS_PER_TICK;
@@ -143,6 +168,8 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
     }
 
     public void readNbt(ValueInput in) {
+        // Confirmation belongs to a live opportunity, never to persisted seat state.
+        clearWinSkipState();
         drawnTileDeliveryAttempted = in.getBooleanOr("DeliveryAttempted", false);
         drawnTileDelivered = in.getBooleanOr("Delivered", false);
         riichiPending = in.getBooleanOr("RiichiPending", false);
@@ -200,22 +227,49 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
             List<TableButton> buttons = tableButtons(driver, seatIndex, riichiPending);
             int idx = ss.index();
             if (idx < 0 || idx >= buttons.size()) return;
-            TableButton chosen = buttons.get(idx);
-            if (chosen instanceof TableButton.RiichiToggle) {
-                riichiPending = !riichiPending;
-            } else if (chosen instanceof TableButton.SubmitAction sa) {
-                tryQueueButtonAction(sender, sa.action(), driver, seatIndex);
-            }
+            selectTableButton(buttons.get(idx), driver, seatIndex, sender);
         }
     }
 
-    private void tryQueueButtonAction(ServerPlayer sender, PlayerAction action,
-                                      TheMahjongDriver driver, int seatIndex) {
-        TheMahjongRound round = driver.match().currentRound().orElse(null);
-        if (round == null) {
-            queue(action);
-            return;
+    /** Select a concrete, current button; token-bearing confirmation buttons expire safely. */
+    public boolean selectTableButton(TableButton button, TheMahjongDriver driver,
+                                     int seatIndex, ServerPlayer sender) {
+        if (hasQueued() || !tableButtons(driver, seatIndex, riichiPending).contains(button)) return false;
+        if (button instanceof TableButton.ConfirmSkip confirm) {
+            var pending=skipConfirmation;
+            if(pending==null||!pending.token().equals(confirm.token()))return false;
+            skipConfirmation=null;
+            if(pending.tsumo()){
+                // Tsumo is offered in the discard phase, which has no legal Pass.
+                // Hide this opportunity and leave every ordinary discard available.
+                skippedTsumo=pending.opportunity();
+                return true;
+            }
+            return tryQueueButtonAction(sender,PlayerAction.Pass.INSTANCE,driver,seatIndex);
         }
+        if (button instanceof TableButton.CancelSkip cancel) {
+            if(skipConfirmation==null||!skipConfirmation.token().equals(cancel.token()))return false;
+            skipConfirmation=null;
+            return true;
+        }
+        if (button instanceof TableButton.SkipTsumo) {
+            return requestWinSkip(driver,seatIndex,true);
+        }
+        if (button instanceof TableButton.RiichiToggle) {
+            riichiPending=!riichiPending;
+            return true;
+        }
+        var action=((TableButton.SubmitAction)button).action();
+        if(action instanceof PlayerAction.Pass && hasClaimWin(driver.legalActions(seatIndex)))
+            return requestWinSkip(driver,seatIndex,false);
+        return tryQueueButtonAction(sender,action,driver,seatIndex);
+    }
+
+    private boolean tryQueueButtonAction(ServerPlayer sender, PlayerAction action,
+                                         TheMahjongDriver driver, int seatIndex) {
+        if(hasQueued()||!driver.legalActions(seatIndex).contains(action))return false;
+        TheMahjongRound round = driver.match().currentRound().orElse(null);
+        if (round == null) return false;
         boolean ourDiscardTurn =
                 driver.currentPhase() instanceof MatchPhase.AwaitingDiscard ad
                         && ad.seat() == seatIndex;
@@ -225,17 +279,67 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
             Item drawnItem = MahjongTileItems.itemForCode(MahjongTileItems.codeForTile(drawn.tile()));
             if (drawnItem != null && !inventoryContains(sender.getInventory(), drawnItem)) {
                 hint(sender, "riichi_mahjong.hint.player.retrieve_drawn_first");
-                return;
+                return false;
             }
             pendingConsume = drawn.tile();
         }
+        clearWinSkipState();
         queue(action);
+        return true;
     }
 
     public boolean riichiPending() { return riichiPending; }
 
+    private static boolean hasClaimWin(List<PlayerAction> legal) {
+        return legal.stream().anyMatch(a->a instanceof PlayerAction.DeclareRon
+                ||a instanceof PlayerAction.DeclareChankan);
+    }
+
+    private WinOpportunity winOpportunity(TheMahjongDriver driver,int seat,List<PlayerAction> legal) {
+        if(seat<0||seat>=driver.match().playerCount()||driver.playerAt(seat)!=this)return null;
+        var round=driver.match().currentRound().orElse(null);
+        var wins=legal.stream().filter(a->a instanceof PlayerAction.DeclareRon
+                ||a instanceof PlayerAction.DeclareTsumo||a instanceof PlayerAction.DeclareChankan).toList();
+        return round==null||wins.isEmpty()?null:new WinOpportunity(driver,round,driver.currentPhase(),seat,occupant,wins);
+    }
+
+    private boolean refreshWinSkipState(TheMahjongDriver driver,int seat,List<PlayerAction> legal) {
+        var current=winOpportunity(driver,seat,legal);
+        boolean changed=false;
+        if(skipConfirmation!=null&&!skipConfirmation.opportunity().matches(current)){skipConfirmation=null;changed=true;}
+        if(skippedTsumo!=null&&!skippedTsumo.matches(current)){skippedTsumo=null;changed=true;}
+        return changed;
+    }
+
+    private void clearWinSkipState() {
+        skipConfirmation=null;
+        skippedTsumo=null;
+    }
+
+    private boolean requestWinSkip(TheMahjongDriver driver,int seat,boolean tsumo) {
+        var legal=driver.legalActions(seat);
+        refreshWinSkipState(driver,seat,legal);
+        var opportunity=winOpportunity(driver,seat,legal);
+        boolean available=tsumo?legal.stream().anyMatch(a->a instanceof PlayerAction.DeclareTsumo):
+                legal.contains(PlayerAction.Pass.INSTANCE)&&hasClaimWin(legal);
+        if(opportunity==null||!available)return false;
+        if(skipConfirmation==null)skipConfirmation=new SkipConfirmation(UUID.randomUUID(),opportunity,tsumo);
+        return true;
+    }
+
     public static List<TableButton> tableButtons(TheMahjongDriver driver, int seat, boolean riichiPending) {
         List<PlayerAction> legal = driver.legalActions(seat);
+        var human=driver.playerAt(seat) instanceof MahjongTableHumanPlayer h?h:null;
+        boolean hideTsumo=false;
+        if(human!=null){
+            human.refreshWinSkipState(driver,seat,legal);
+            if(human.hasQueued())return List.of();
+            if(human.skipConfirmation!=null){
+                var token=human.skipConfirmation.token();
+                return List.of(new TableButton.ConfirmSkip(token),new TableButton.CancelSkip(token));
+            }
+            hideTsumo=human.skippedTsumo!=null;
+        }
         boolean riichiAvailable = false;
         for (PlayerAction a : legal) {
             if (a instanceof PlayerAction.DiscardWithRiichi) { riichiAvailable = true; break; }
@@ -245,8 +349,10 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
             out.add(new TableButton.RiichiToggle(riichiPending));
         }
         for (PlayerAction a : buttonEligibleActions(legal)) {
+            if(hideTsumo&&a instanceof PlayerAction.DeclareTsumo)continue;
             out.add(new TableButton.SubmitAction(a));
         }
+        if(!hideTsumo&&legal.stream().anyMatch(a->a instanceof PlayerAction.DeclareTsumo))out.add(new TableButton.SkipTsumo());
         return out;
     }
 
@@ -277,7 +383,9 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
                 hint(sender, "riichi_mahjong.hint.player.choose_discard");
             }
         } else if (phase instanceof MatchPhase.AwaitingClaims) {
-            queue(PlayerAction.Pass.INSTANCE);
+            // A table/block fallback may open the prompt, but only its explicit
+            // token-bearing confirmation button may ever accept a skipped win.
+            selectTableButton(new TableButton.SubmitAction(PlayerAction.Pass.INSTANCE),driver,seatIndex,sender);
         } else if (phase instanceof MatchPhase.AwaitingDiscard
                 || phase instanceof MatchPhase.AwaitingDraw) {
             hint(sender, "riichi_mahjong.hint.player.wait_turn");
@@ -286,6 +394,7 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
 
     private void tryDiscard(ServerPlayer sender, TheMahjongTile tile,
                             TheMahjongDriver driver, int seatIndex) {
+        if(hasQueued())return;
         TheMahjongRound round = driver.match().currentRound().orElse(null);
         if (round == null) {
             hint(sender, "riichi_mahjong.hint.player.wait_next_round");
@@ -327,6 +436,7 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
             }
             pendingConsume = d.tile();
         }
+        clearWinSkipState();
         queue(action);
     }
 

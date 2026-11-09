@@ -10,7 +10,7 @@ final class TableButtonLayout {
     static final double HEIGHT=10.0/16+.006; // Above the raised table rim, not the felt.
     static final double EDGE_DISTANCE=.965;
     static final double MAX_WIDTH=1.76;
-    static final double GAP=.025;
+    static final int GAP_PIXELS=3*9; // Three fullwidth glyph advances in minecraft:uniform.
     record Button(int index,String text,int pixels,float scale,double along){
         double pixelSize(){return .025*scale;}
         double width(){return (pixels+1)*pixelSize();}
@@ -35,12 +35,13 @@ final class TableButtonLayout {
     static List<Button> arrange(List<String> labels){
         if(labels.isEmpty())return List.of();
         int pixels=labels.stream().mapToInt(s->textWidth(s)+1).sum();
-        float scale=(float)Math.min(.20,(MAX_WIDTH-GAP*(labels.size()-1))/(pixels*.025));
-        double total=pixels*.025*scale+GAP*(labels.size()-1),cursor=-total/2;
+        float scale=(float)Math.min(.20,MAX_WIDTH/((pixels+GAP_PIXELS*(labels.size()-1))*.025));
+        double gap=GAP_PIXELS*.025*scale;
+        double total=pixels*.025*scale+gap*(labels.size()-1),cursor=-total/2;
         var out=new ArrayList<Button>();
         for(int i=0;i<labels.size();i++){
             int width=textWidth(labels.get(i));double size=(width+1)*.025*scale;
-            out.add(new Button(i,labels.get(i),width,scale,cursor+size/2));cursor+=size+GAP;
+            out.add(new Button(i,labels.get(i),width,scale,cursor+size/2));cursor+=size+gap;
         }
         return List.copyOf(out);
     }

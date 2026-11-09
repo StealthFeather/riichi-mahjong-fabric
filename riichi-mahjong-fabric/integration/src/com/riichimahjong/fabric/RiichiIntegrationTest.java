@@ -6,6 +6,7 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.riichimahjong.common.BaseMultipartBlock;
 import com.riichimahjong.cuterenderer.InteractKey;
 import com.riichimahjong.mahjongtable.MahjongTableBlockEntity;
+import com.riichimahjong.mahjongtable.MahjongTableBlock;
 import com.riichimahjong.mahjongtable.MahjongTableHumanPlayer;
 import com.riichimahjong.registry.ModBlocks;
 import com.themahjong.*;
@@ -23,7 +24,11 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Display;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.inventory.ContainerInput;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
@@ -53,6 +58,13 @@ public final class RiichiIntegrationTest implements ModInitializer {
     private static int presentationStage=-1;
     private static long presentationDue;
     private static final List<Map<String,Object>> paymentChecks=new ArrayList<>();
+    private static int interactionStage=-1;
+    private static long interactionDue,soundStartEpoch,soundStartTick;
+    private static String soundCase;
+    private static int soundExpected,soundInitialRiver;
+    private static final List<String> interactionChecks=new ArrayList<>();
+    private static final List<Map<String,Object>> interactionButtons=new ArrayList<>(),denseInteractionButtons=new ArrayList<>(),soundCases=new ArrayList<>();
+    private static boolean interactionPassed;
 
     @Override public void onInitialize(){
         if(!Files.exists(Path.of("riichi-integration-enabled")))throw new IllegalStateException("Test addon requires isolated-server marker riichi-integration-enabled");
@@ -67,20 +79,24 @@ public final class RiichiIntegrationTest implements ModInitializer {
                 .then(Commands.literal("gap_state").executes(context->{System.out.println("RIICHI_GAP_STATE "+new GsonBuilder().create().toJson(gapSnapshot()));return 1;}))
                 .then(Commands.literal("gap_finish").executes(context->{finishGap();return 1;}))
                 .then(Commands.literal("presentation").executes(context->{beginPresentation(context.getSource().getServer());return 1;}))
+                .then(Commands.literal("interaction").executes(context->{beginInteraction(context.getSource().getServer());return 1;}))
+                .then(Commands.literal("sound_case").then(Commands.argument("scenario",StringArgumentType.word()).executes(context->{beginSoundCase(context.getSource().getServer(),StringArgumentType.getString(context,"scenario"));return 1;})))
                 .then(Commands.literal("fixture").then(Commands.argument("scenario",StringArgumentType.word()).executes(context->{
                     String scenario=StringArgumentType.getString(context,"scenario");
                     if(scenario.equals("discard_gap")){prepareGap(context.getSource().getServer());return 1;}
-                    stage=-1;gapStage=-1;presentationStage=-1;context.getSource().getServer().tickRateManager().setFrozen(false);
+                    stage=-1;gapStage=-1;presentationStage=-1;interactionStage=-1;soundCase=null;context.getSource().getServer().tickRateManager().setFrozen(false);
                     fixture(context.getSource().getServer(),scenario);
                     context.getSource().sendSuccess(()->Component.literal("Riichi test fixture ready at 0 -60 0"),false);return 1;
                 })))));
         ServerTickEvents.END_SERVER_TICK.register(server->{
             if(server!=runningServer)return;
             try{
+                if(soundCase!=null){soundCaseStep();return;}
+                if(interactionStage>=0){if(server.overworld().getGameTime()>=interactionDue)interactionStep();return;}
                 if(presentationStage>=0){presentationStep();return;}
                 if(gapStage>=0){gapStep();return;}
                 if(stage>=0&&server.overworld().getGameTime()>=due)step();
-            }catch(Throwable failure){failure.printStackTrace();if(presentationStage>=0){presentationStage=-1;savePresentation(false,failure.toString(),List.of());}else if(gapStage>=0){gapStage=-1;saveGap(false,failure.toString());}else{stage=-1;save(false,failure.toString());}}
+            }catch(Throwable failure){failure.printStackTrace();if(interactionStage>=0||soundCase!=null){interactionStage=-1;soundCase=null;saveInteraction(false,failure.toString());}else if(presentationStage>=0){presentationStage=-1;savePresentation(false,failure.toString(),List.of());}else if(gapStage>=0){gapStage=-1;saveGap(false,failure.toString());}else{stage=-1;save(false,failure.toString());}}
         });
     }
 
@@ -439,6 +455,189 @@ public final class RiichiIntegrationTest implements ModInitializer {
         }catch(Exception error){throw new RuntimeException(error);}
     }
 
+    private static void beginInteraction(MinecraftServer server){
+        try{
+            runningServer=server;stage=-1;gapStage=-1;presentationStage=-1;interactionStage=-1;soundCase=null;
+            interactionChecks.clear();interactionButtons.clear();denseInteractionButtons.clear();soundCases.clear();interactionPassed=false;
+            server.tickRateManager().setFrozen(false);fixture(server,"tsumo");require(owner!=null,"interaction tests require a connected vanilla player");
+            interactionStage=0;interactionDue=server.overworld().getGameTime()+3;saveInteraction(false,"running");
+        }catch(Throwable failure){failure.printStackTrace();interactionStage=-1;saveInteraction(false,failure.toString());}
+    }
+
+    private static MahjongTableHumanPlayer ownerHuman(){
+        return (MahjongTableHumanPlayer)table.driver().playerAt(table.seatOfPlayer(owner.getUUID()).orElseThrow());
+    }
+
+    private static PrivateHand privateHand() throws Exception{
+        var hand=(PrivateHand)((Map<?,?>)get(view(),"hands")).get(owner.getUUID());
+        require(hand!=null&&hand.valid(owner),"current private hand is missing or expired");return hand;
+    }
+
+    private static void clickPrivateButton(String text) throws Exception{
+        refreshView();var hand=privateHand();
+        var button=hand.buttonLayout.stream().filter(candidate->candidate.text().equals(text)).findFirst().orElseThrow(()->new AssertionError("no button: "+text));
+        int seat=table.seatOfPlayer(owner.getUUID()).orElseThrow();aimAt(button.centre(POS,PortViews.outward(seat,table.getBlockState())));
+        ((Map<?,?>)get(table,"privateClicks")).clear();
+        var start=owner.getEyePosition();require(hand.handleButtonHit(start,start.add(owner.getLookAngle().scale(8))),"real private ray failed for "+text);
+        refreshView();
+    }
+
+    private static void requireConfirmation() throws Exception{
+        var labels=privateHand().buttonLayout.stream().map(TableButtonLayout.Button::text).toList();
+        require(labels.equals(List.of("确认跳过","返回")),"confirmation UI is wrong: "+labels);
+        require(!ownerHuman().hasQueued(),"first skip or fallback queued an unconfirmed win pass");
+    }
+
+    private static void invokeTableTick() throws Exception{
+        var tick=MahjongTableBlockEntity.class.getDeclaredMethod("serverTick");tick.setAccessible(true);tick.invoke(table);
+    }
+
+    private static void interactionStep() throws Exception{
+        refreshView();
+        if(interactionStage==1){
+            require(table.driver().currentRound().players().get(0).discards().size()==1,"confirmed riichi-tsumo skip did not resume automatic drawn-tile discard");
+            require(table.driver().currentRound().players().get(0).discards().getLast().tile().equals(tile(4,1)),"automatic riichi discard after skipped tsumo chose the wrong tile");
+            interactionChecks.add("riichi-tsumo-confirmation-resumes-real-tick-auto-discard");
+            fixture(runningServer,"dragon_buttons");refreshView();interactionButtons.clear();interactionButtons.addAll(buttonDisplayEvidence("dragons"));
+            interactionStage=-1;interactionPassed=true;saveInteraction(true,null);
+            System.out.println("RIICHI_INTERACTION_PASS "+interactionChecks.size()+" checks; actual-client dragon fixture ready");return;
+        }
+        for(String scenario:List.of("ron","chankan")){
+            fixture(runningServer,scenario);refreshView();int seat=table.seatOfPlayer(owner.getUUID()).orElseThrow();
+            require(table.driver().legalActions(seat).stream().anyMatch(a->scenario.equals("ron")?a instanceof PlayerAction.DeclareRon:a instanceof PlayerAction.DeclareChankan),"fixture lacks "+scenario);
+            clickPrivateButton("跳过");requireConfirmation();
+            var stale=privateHand();var token=(MahjongTableHumanPlayer.TableButton.ConfirmSkip)stale.snapshot.buttons().getFirst();
+            set(table,"lastCuteClickGameTime",-1L);table.onTableRightClick(owner);refreshView();requireConfirmation();
+            require(!ownerHuman().selectTableButton(new MahjongTableHumanPlayer.TableButton.ConfirmSkip(UUID.randomUUID()),table.driver(),seat,owner),"wrong confirmation token was accepted");
+            requireConfirmation();clickPrivateButton("返回");
+            require(!ownerHuman().hasQueued()&&privateHand().buttonLayout.stream().anyMatch(b->b.text().equals(scenario.equals("ron")?"荣和":"抢杠")),"return did not restore the win");
+            stale.click(InteractKey.SeatSlot.AREA_BUTTON,0,false);require(!ownerHuman().hasQueued(),"cancelled private holder submitted a stale confirmation");
+            clickPrivateButton("跳过");requireConfirmation();
+            require(!privateHand().snapshot.buttons().getFirst().equals(token),"a new prompt reused its cancelled token");
+            clickPrivateButton("确认跳过");require(ownerHuman().hasQueued(),"explicit private confirmation did not queue pass");
+            invokeTableTick();require(!ownerHuman().hasQueued()&&table.driver().legalActions(seat).isEmpty(),"confirmed pass was not accepted by real table tick");
+            interactionChecks.add(scenario+"-private-confirm-return-wrong-token-and-accepted-pass");
+        }
+        fixture(runningServer,"ron");refreshView();clickPrivateButton("跳过");var expired=privateHand();
+        fixture(runningServer,"ron");refreshView();expired.click(InteractKey.SeatSlot.AREA_BUTTON,0,false);
+        require(!ownerHuman().hasQueued(),"a different round accepted an old private confirmation");
+        interactionChecks.add("expired-private-confirmation-does-not-submit");
+
+        fixture(runningServer,"tsumo");refreshView();clickPrivateButton("跳过");requireConfirmation();clickPrivateButton("返回");
+        require(privateHand().buttonLayout.stream().anyMatch(b->b.text().equals("自摸")),"return did not restore tsumo");
+        clickPrivateButton("跳过");requireConfirmation();clickPrivateButton("确认跳过");
+        require(!ownerHuman().hasQueued()&&privateHand().buttonLayout.stream().noneMatch(b->b.text().equals("自摸")||b.text().equals("跳过")),"tsumo confirmation queued illegal Pass or left its button visible");
+        table.onCuteClick(owner,new InteractKey.SeatSlot((byte)0,InteractKey.SeatSlot.AREA_HAND,(short)0));
+        require(ownerHuman().hasQueued(),"tsumo skip prevented an ordinary discard");
+        invokeTableTick();require(table.driver().currentRound().players().get(0).discards().size()==1,"ordinary discard after skipped tsumo was not accepted");
+        interactionChecks.add("tsumo-private-confirm-return-local-skip-and-normal-discard");
+
+        fixture(runningServer,"draw");refreshView();owner.setShiftKeyDown(true);owner.setItemInHand(InteractionHand.MAIN_HAND,ItemStack.EMPTY);
+        aimAt(new Vec3(.5,-59.5,.5));((Map<?,?>)get(table,"privateClicks")).clear();set(table,"lastCuteClickGameTime",-1L);
+        ((MahjongTableBlock)table.getBlockState().getBlock()).dispatchUse(table.getBlockState(),owner.level(),POS,owner,InteractionHand.MAIN_HAND,new BlockHitResult(new Vec3(.5,-59.4,.5),Direction.UP,POS,false));
+        require(table.seatOfPlayer(owner.getUUID()).orElse(-1)==0,"shift-right-click block left the active seat");
+        PortMenus.settings(owner,table);require(owner.containerMenu instanceof PortMenus.Actions,"real settings menu did not open");
+        ((PortMenus.Actions)owner.containerMenu).clicked(9,0,ContainerInput.PICKUP,owner);
+        require(table.seatOfPlayer(owner.getUUID()).orElse(-1)==0,"own seat menu action left the seat");owner.closeContainer();
+        set(table,"driver",null);refreshView();
+        var seatHit=(InteractionElement)((Map<?,?>)get(view(),"seatHits")).get(0);require(seatHit!=null,"lobby seat interaction missing");
+        seatHit.getInteractionHandler(owner).interact(owner,InteractionHand.MAIN_HAND,Vec3.ZERO,true);
+        require(table.seatOfPlayer(owner.getUUID()).orElse(-1)==0,"sneaking lobby interaction left the seat");
+        owner.setShiftKeyDown(false);fixture(runningServer,"draw");var match=table.driver().match();
+        runningServer.getCommands().performPrefixedCommand(owner.createCommandSourceStack(),"mahjong leave");
+        require(table.seatOfPlayer(owner.getUUID()).isEmpty()&&!(table.driver().playerAt(0) instanceof MahjongTableHumanPlayer),"actual leave command did not release the seat to BOT");
+        require(table.driver().match()==match,"leave command changed the hand or score");
+        runningServer.getCommands().performPrefixedCommand(owner.createCommandSourceStack(),"mahjong join");
+        require(table.seatOfPlayer(owner.getUUID()).orElse(-1)==0&&table.driver().playerAt(0) instanceof MahjongTableHumanPlayer,"actual join command failed to reclaim the original seat");
+        interactionChecks.add("only-command-leaves-block-menu-lobby-stay-seated-and-command-bot-rejoin");
+
+        fixture(runningServer,"dense_buttons");refreshView();denseInteractionButtons.addAll(buttonDisplayEvidence("dense"));
+        require(denseInteractionButtons.stream().anyMatch(button->((Number)((List<?>)button.get("scale")).getFirst()).doubleValue()<.1999),"dense fixture did not exercise scaled text");
+        fixture(runningServer,"dragon_buttons");refreshView();interactionButtons.addAll(buttonDisplayEvidence("dragons"));
+        var labels=privateHand().buttonLayout.stream().map(TableButtonLayout.Button::text).toList();
+        require(labels.containsAll(List.of("暗杠 白 白 白 白","暗杠 发 发 发 发","暗杠 中 中 中 中")),"actual dragon labels do not follow HAKU/HATSU/CHUN: "+labels);
+        interactionChecks.add("actual-private-button-three-character-gaps-at-normal-and-reduced-scale");
+        interactionChecks.add("actual-private-dragon-buttons-use-white-green-red-enum-names");
+        fixture(runningServer,"riichi_tsumo");refreshView();clickPrivateButton("跳过");requireConfirmation();clickPrivateButton("确认跳过");
+        require(!ownerHuman().hasQueued(),"riichi tsumo skip must wait for ordinary auto-discard timing");
+        interactionStage=1;interactionDue=runningServer.overworld().getGameTime()+8;saveInteraction(false,"waiting for real riichi auto-discard ticks");
+    }
+
+    private static List<Map<String,Object>> buttonDisplayEvidence(String scenario) throws Exception{
+        var hand=privateHand();int seat=table.seatOfPlayer(owner.getUUID()).orElseThrow();var dir=PortViews.outward(seat,table.getBlockState());
+        var evidence=new ArrayList<Map<String,Object>>();TableButtonLayout.Button prior=null;
+        for(var button:hand.buttonLayout){
+            var display=hand.holder.getElements().stream().filter(element->element instanceof TextDisplayElement text&&text.getText().getString().equals(button.text())).map(element->(TextDisplayElement)element).findFirst().orElseThrow();
+            require(display.getOverridePos().distanceTo(button.textPosition(POS,dir))<1e-7,"actual button display is not aligned with its hit plane");
+            require(Math.abs(display.getScale().x()-button.scale())<1e-6,"actual button scale differs from hit plane");
+            double gap=prior==null?0:button.along()-button.width()/2-(prior.along()+prior.width()/2);
+            if(prior!=null)require(Math.abs(gap-27*button.pixelSize())<1e-7,"actual edge gap is not three fullwidth glyph advances");
+            var at=display.getOverridePos();var centre=button.centre(POS,dir);var rotation=display.getLeftRotation();
+            var row=new LinkedHashMap<String,Object>();row.put("scenario",scenario);row.put("text",button.text());row.put("index",button.index());row.put("pixels",button.pixels());row.put("along",button.along());
+            row.put("position",List.of(at.x,at.y,at.z));row.put("centre",List.of(centre.x,centre.y,centre.z));row.put("scale",List.of((double)display.getScale().x(),(double)display.getScale().y(),(double)display.getScale().z()));
+            row.put("leftRotation",List.of((double)rotation.x(),(double)rotation.y(),(double)rotation.z(),(double)rotation.w()));row.put("width",button.width());row.put("depth",button.depth());row.put("gapBefore",gap);row.put("expectedGap",27*button.pixelSize());evidence.add(row);prior=button;
+        }
+        require(evidence.size()>=3,"button fixture lacks enough adjacent displays");return evidence;
+    }
+
+    private static void beginSoundCase(MinecraftServer server,String name){
+        try{
+            require(List.of("normal","riichi","bot","invalid","duplicate","claim","final").contains(name),"unknown sound case: "+name);
+            require(soundCase==null,"wait for the current sound case to finish");
+            runningServer=server;stage=-1;gapStage=-1;presentationStage=-1;interactionStage=-1;server.tickRateManager().setFrozen(false);
+            fixture(server,name.equals("claim")?"claims":"draw");require(owner!=null,"sound packet checks require a connected vanilla player");
+            soundCase=name;soundExpected=name.equals("invalid")||name.equals("claim")?0:1;
+            soundInitialRiver=table.driver().currentRound().players().get(0).discards().size();soundStartTick=server.overworld().getGameTime();soundStartEpoch=System.currentTimeMillis();
+            if(name.equals("bot"))table.driver().replacePlayer(0,com.themahjong.driver.bots.StupidActiveBot.humanLike());
+            else if(name.equals("claim")){
+                var buttons=MahjongTableHumanPlayer.tableButtons(table.driver(),1,false);int pon=-1;
+                for(int index=0;index<buttons.size();index++)if(buttons.get(index) instanceof MahjongTableHumanPlayer.TableButton.SubmitAction action&&action.action() instanceof PlayerAction.Pon){pon=index;break;}
+                require(pon>=0,"claim sound case lacks a legal pon");table.onCuteClick(owner,new InteractKey.SeatSlot((byte)1,InteractKey.SeatSlot.AREA_BUTTON,(short)pon));
+                require(ownerHuman().hasQueued(),"real pon button did not queue a claim");
+            }else{
+                if(name.equals("final")){
+                    var before=table.driver().currentRound();
+                    var last=new TheMahjongRound(before.roundWind(),before.handNumber(),before.honba(),before.riichiSticks(),before.dealerSeat(),before.state(),before.currentTurnSeat(),before.claimSourceSeat().orElse(-1),before.activeTile(),List.of(),before.rinshanTiles(),before.doraIndicators(),before.uraDoraIndicators(),before.revealedDoraCount(),before.players(),List.of());
+                    var old=table.driver();var match=new TheMahjongMatch(4,25000,30000,2,TheMahjongMatch.State.IN_ROUND,old.match().tileSet(),old.rules(),List.of(),last);
+                    var controllers=new ArrayList<MahjongPlayerInterface>();for(int seat=0;seat<4;seat++)controllers.add(old.playerAt(seat));
+                    set(table,"driver",new TheMahjongDriver(match,controllers,new Random(5),old.snapshot()));
+                }
+                if(name.equals("riichi")){
+                    var buttons=MahjongTableHumanPlayer.tableButtons(table.driver(),0,false);int toggle=-1;
+                    for(int index=0;index<buttons.size();index++)if(buttons.get(index) instanceof MahjongTableHumanPlayer.TableButton.RiichiToggle){toggle=index;break;}
+                    require(toggle>=0,"sound riichi fixture has no riichi toggle");table.onCuteClick(owner,new InteractKey.SeatSlot((byte)0,InteractKey.SeatSlot.AREA_BUTTON,(short)toggle));
+                    require(ownerHuman().riichiPending(),"real riichi toggle did not activate");
+                }
+                int index=name.equals("invalid")?300:table.handDisplayOrder(0).size()-1;
+                table.onCuteClick(owner,new InteractKey.SeatSlot((byte)0,InteractKey.SeatSlot.AREA_HAND,(short)index));
+                if(name.equals("duplicate"))table.onCuteClick(owner,new InteractKey.SeatSlot((byte)0,InteractKey.SeatSlot.AREA_HAND,(short)index));
+                require(ownerHuman().hasQueued()!=name.equals("invalid"),"sound case queued an unexpected action");
+            }
+            System.out.println("RIICHI_SOUND_CASE_STARTED "+name+" startEpochMillis="+soundStartEpoch+" expectedCount="+soundExpected);
+        }catch(Throwable failure){failure.printStackTrace();soundCase=null;saveInteraction(false,failure.toString());}
+    }
+
+    private static void soundCaseStep() throws Exception{
+        if(runningServer.overworld().getGameTime()<soundStartTick+(soundCase.equals("bot")?32:6))return;
+        String name=soundCase;int increase=table.driver().currentRound().players().get(0).discards().size()-soundInitialRiver;
+        require(increase==soundExpected,"real table tick accepted unexpected discard count for "+name+": "+increase);
+        if(name.equals("riichi"))require(table.driver().currentRound().players().get(0).riichi(),"riichi sound case did not accept a declaration discard");
+        if(name.equals("claim"))require(table.driver().currentRound().players().get(1).melds().size()==1,"claim sound case did not accept the pon");
+        if(name.equals("final"))require(table.driver().currentPhase() instanceof MatchPhase.RoundEnded,"final-discard sound fixture did not reach result phase");
+        var row=new LinkedHashMap<String,Object>();row.put("name",name);row.put("passed",true);row.put("expectedCount",soundExpected);row.put("acceptedDiscards",increase);row.put("startEpochMillis",soundStartEpoch);row.put("endEpochMillis",System.currentTimeMillis());row.put("startGameTime",soundStartTick);row.put("endGameTime",runningServer.overworld().getGameTime());
+        row.put("soundId","minecraft:block.stone.place");row.put("source","ambient");row.put("volume",1.0);row.put("pitch",2.0);row.put("position",List.of(.5,-59.5,.5));row.put("realServerTicks",true);
+        soundCases.removeIf(previous->name.equals(previous.get("name")));soundCases.add(row);soundCase=null;saveInteraction(interactionPassed,null);
+        System.out.println("RIICHI_SOUND_CASE_PASS "+name+" "+new GsonBuilder().create().toJson(row));
+    }
+
+    private static void saveInteraction(boolean passed,String failure){
+        try{
+            var result=new LinkedHashMap<String,Object>();result.put("passed",passed);result.put("coreVersion",FabricLoader.getInstance().getModContainer("riichi_mahjong").orElseThrow().getMetadata().getVersion().getFriendlyString());result.put("clientConnected",owner!=null);
+            result.put("checks",interactionChecks);result.put("buttonDisplays",interactionButtons);result.put("denseButtonDisplays",denseInteractionButtons);result.put("soundCases",soundCases);result.put("failure",failure);result.put("gameTime",runningServer.overworld().getGameTime());
+            Files.writeString(Path.of("riichi-interaction-results.json"),new GsonBuilder().setPrettyPrinting().create().toJson(result)+"\n");
+        }catch(Exception failureWriting){throw new RuntimeException(failureWriting);}
+    }
+
     private static void finishClaims(TheMahjongDriver driver){
         for(int attempt=0;driver.currentPhase() instanceof MatchPhase.AwaitingClaims claims;attempt++){
             require(attempt<8,"fixture claims did not finish");
@@ -480,7 +679,7 @@ public final class RiichiIntegrationTest implements ModInitializer {
             }
             table=(MahjongTableBlockEntity)level.getBlockEntity(POS);
             require(table!=null,"real MahjongTableBlockEntity not created");
-            int ownerSeat=scenario.equals("draw_observer")?-1:scenario.equals("claims")?1:0;
+            int ownerSeat=scenario.equals("draw_observer")?-1:List.of("claims","ron","chankan","dense_buttons").contains(scenario)?1:0;
             owner=server.getPlayerList().getPlayers().stream().findFirst().orElse(null);
             var seats=new ArrayList<MahjongTableBlockEntity.SeatInfo>();
             var controllers=new ArrayList<MahjongPlayerInterface>();
@@ -496,11 +695,18 @@ public final class RiichiIntegrationTest implements ModInitializer {
             MatchPhase phase=new MatchPhase.AwaitingDiscard(0);int sticks=0;
             switch(scenario){
                 case "draw","draw_observer"->{var hand=new ArrayList<>(waiting(2));hand.add(tile(0,2));players.set(0,player(hand,false));}
-                case "tsumo"->{var hand=new ArrayList<>(waiting(0));hand.add(tile(4,1));players.set(0,player(hand,false));active=TheMahjongRound.ActiveTile.drawn(tile(4,1));}
-                case "claims"->{
+                case "tsumo","riichi_tsumo","ron"->{var hand=new ArrayList<>(waiting(0));hand.add(tile(4,1));players.set(0,player(hand,scenario.equals("riichi_tsumo")));active=TheMahjongRound.ActiveTile.drawn(tile(4,1));}
+                case "chankan"->{
+                    var hand=new ArrayList<TheMahjongTile>();for(int rank=1;rank<=9;rank++)hand.add(tile(0,rank));hand.add(tile(3,1));hand.add(tile(4,1));
+                    var pon=new TheMahjongMeld.Pon(Collections.nCopies(3,tile(4,1)),0,3,0);
+                    players.set(0,new TheMahjongPlayer(25000,TheMahjongPlayer.RiichiState.NONE,false,hand,List.of(pon),List.of(),List.of()));active=TheMahjongRound.ActiveTile.drawn(tile(4,1));
+                }
+                case "dragon_buttons"->{var hand=new ArrayList<TheMahjongTile>();for(int rank=1;rank<=3;rank++)hand.addAll(Collections.nCopies(4,tile(4,rank)));hand.add(tile(3,1));hand.add(tile(3,1));players.set(0,player(hand,false));active=TheMahjongRound.ActiveTile.drawn(tile(3,1));}
+                case "claims","dense_buttons"->{
                     var source=new ArrayList<>(waiting(2));source.add(tile(0,3));players.set(0,player(source,false));
                     players.set(1,player(List.of(tile(0,1),tile(0,2),tile(0,3),tile(0,3),tile(0,3),tile(1,1),tile(1,2),tile(1,3),tile(2,1),tile(2,2),tile(2,3),tile(3,1),tile(3,1)),false));
                     active=TheMahjongRound.ActiveTile.drawn(tile(0,3));
+                    if(scenario.equals("dense_buttons"))players.set(1,player(List.of(tile(0,1),tile(0,2),tile(0,3),tile(0,3),tile(0,3),tile(0,4),tile(0,5),tile(1,1),tile(1,2),tile(1,3),tile(3,1),tile(3,1),tile(3,1)),false));
                 }
                 case "all_tenpai","mixed"->{
                     roundState=TheMahjongRound.State.ENDED;active=TheMahjongRound.ActiveTile.none();phase=new MatchPhase.RoundEnded(List.of());
@@ -522,7 +728,9 @@ public final class RiichiIntegrationTest implements ModInitializer {
                     Collections.nCopies(30,tile(4,2)),Collections.nCopies(4,tile(4,3)),indicators,indicators,1,players,List.of());
             var match=new TheMahjongMatch(4,25000,30000,2,TheMahjongMatch.State.IN_ROUND,TheMahjongTileSet.standardRiichi(false),TheMahjongRuleSet.mahjongSoul(),List.of(),round);
             var driver=new TheMahjongDriver(match,controllers,new Random(1),new TheMahjongDriver.Snapshot(phase,false,OptionalInt.empty()));
-            if(scenario.equals("claims")){driver.submitAction(0,new PlayerAction.Discard(tile(0,3)));driver.advance(.05);}
+            if(scenario.equals("claims")||scenario.equals("dense_buttons")){driver.submitAction(0,new PlayerAction.Discard(tile(0,3)));driver.advance(.05);}
+            if(scenario.equals("ron")){driver.submitAction(0,new PlayerAction.Discard(tile(4,1)));driver.advance(.05);}
+            if(scenario.equals("chankan")){var kakan=driver.legalActions(0).stream().filter(action->action instanceof PlayerAction.Kakan).findFirst().orElseThrow();driver.submitAction(0,kakan);driver.advance(.05);}
             set(table,"driver",driver);set(table,"seats",seats);set(table,"resultAnimStage",MahjongTableBlockEntity.ResultAnimStage.NONE);table.setChanged();
             if(owner!=null){var direction=PortViews.outward(ownerSeat,state);float yaw=switch(direction){case NORTH->0;case EAST->90;case WEST->-90;default->180;};
                 owner.setGameMode(GameType.CREATIVE);owner.teleportTo(level,.5+direction.getStepX()*2.35,-60,.5+direction.getStepZ()*2.35,Set.of(),yaw,29,true);

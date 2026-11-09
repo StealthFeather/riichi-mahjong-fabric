@@ -48,7 +48,7 @@ final class PrivateHand {
             hit.setOverridePos(at.add(0,-.05*TableLayout.TILE_ENLARGEMENT,0));hit.setSize(.071f*TableLayout.TILE_ENLARGEMENT,.12f*TableLayout.TILE_ENLARGEMENT);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
         }
         // Empty discard slots consume clicks without submitting a different tile
-        // or reaching the table's leave-seat/quick-discard action underneath.
+        // or reaching the table's quick-discard action underneath.
         if(!snapshot.revealed&&!snapshot.handSlots.isEmpty())for(int slot=0;slot<snapshot.handSlots.getLast();slot++){
             if(snapshot.handSlots.contains(slot))continue;
             var at=TableLayout.anchor(pos,dir,TableLayout.handAlong(slot,snapshot.handGapStarts),.65,.85);
@@ -80,8 +80,7 @@ final class PrivateHand {
         var dir=PortViews.outward(seat,table.getBlockState());
         for(var button:buttonLayout){var hit=button.hit(table.getBlockPos(),dir,start,end);
             if(hit.isEmpty()||!PortViews.clearButtonRay(owner,table,start,hit.orElseThrow()))continue;
-            // A just-expired visible button still consumes this click so Shift does
-            // not accidentally reach the table's leave-seat action underneath it.
+            // A just-expired visible button still consumes its click.
             table.recordPrivateClick(owner);
             if(valid(owner))click(InteractKey.SeatSlot.AREA_BUTTON,button.index(),false);
             else owner.sendSystemMessage(Component.literal("操作已过期，请点击当前手牌或本人面前的按钮。"),true);
@@ -113,6 +112,7 @@ final class PrivateHand {
     void tick(){
         String prompt="";
         if(snapshot.queued)prompt="已选择操作，等待处理";
+        else if(snapshot.buttons.stream().anyMatch(b->b instanceof MahjongTableHumanPlayer.TableButton.ConfirmSkip))prompt="确认跳过本次和牌？";
         else if(snapshot.phase instanceof MatchPhase.AwaitingDiscard d&&d.seat()==seat){
             boolean pending=snapshot.buttons.stream().anyMatch(b->b instanceof MahjongTableHumanPlayer.TableButton.RiichiToggle r&&r.active());
             prompt=pending?"立直已选 · 请打出绿色箭头标记的牌":"轮到你出牌 · 右键选择手牌";
@@ -129,6 +129,9 @@ final class PrivateHand {
     static String shortLabel(MahjongTableHumanPlayer.TableButton button){String text=label(button);int space=text.indexOf(' ');return space<0?text:text.substring(0,space);}
     static String label(MahjongTableHumanPlayer.TableButton button){
         if(button instanceof MahjongTableHumanPlayer.TableButton.RiichiToggle r)return r.active()?"立直：已选":"立直";
+        if(button instanceof MahjongTableHumanPlayer.TableButton.SkipTsumo)return "跳过";
+        if(button instanceof MahjongTableHumanPlayer.TableButton.ConfirmSkip)return "确认跳过";
+        if(button instanceof MahjongTableHumanPlayer.TableButton.CancelSkip)return "返回";
         var action=((MahjongTableHumanPlayer.TableButton.SubmitAction)button).action();
         return switch(action){
             case PlayerAction.DeclareRon a->"荣和";case PlayerAction.DeclareTsumo a->"自摸";case PlayerAction.DeclareChankan a->"抢杠";
@@ -137,5 +140,9 @@ final class PrivateHand {
             case PlayerAction.KyuushuAbort a->"九种九牌";case PlayerAction.Pass a->"跳过";default->"操作";
         };
     }
-    private static String tiles(List<TheMahjongTile> tiles){return tiles.stream().map(t->(t.redDora()?"赤":"")+t.rank()+switch(t.suit()){case MANZU->"万";case PINZU->"筒";case SOUZU->"条";case WIND->"风";case DRAGON->"元";}).reduce((a,b)->a+" "+b).orElse("");}
+    private static String tiles(List<TheMahjongTile> tiles){return tiles.stream().map(PrivateHand::tileName).reduce((a,b)->a+" "+b).orElse("");}
+    private static String tileName(TheMahjongTile tile){
+        if(tile.suit()==TheMahjongTile.Suit.DRAGON)return switch(TheMahjongTile.Dragon.fromTileRank(tile.rank())){case HAKU->"白";case HATSU->"发";case CHUN->"中";};
+        return (tile.redDora()?"赤":"")+tile.rank()+switch(tile.suit()){case MANZU->"万";case PINZU->"筒";case SOUZU->"条";case WIND->"风";default->throw new IllegalArgumentException("unsupported tile suit");};
+    }
 }
