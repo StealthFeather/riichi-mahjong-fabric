@@ -165,6 +165,16 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         return handDisplay.hand(seat);
     }
 
+    public List<Integer> handDisplaySlots(int seat) {
+        updateHandDisplay();
+        return handDisplay.slots(seat);
+    }
+
+    public List<Integer> handDisplayGapStarts(int seat) {
+        updateHandDisplay();
+        return handDisplay.gapStarts(seat);
+    }
+
     public boolean hasSeparatedDrawnTile(int seat) {
         updateHandDisplay();
         return handDisplay.separated(seat);
@@ -455,13 +465,20 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         var roundOpt = driver.match().currentRound();
         if (roundOpt.isEmpty()) return;
         if (level != null) lastCuteClickGameTime = level.getGameTime();
+        int displayedDiscard = -1;
+        boolean queuedBefore = human.hasQueued();
         if (key instanceof InteractKey.SeatSlot slot && slot.area() == InteractKey.SeatSlot.AREA_HAND) {
             updateHandDisplay();
             int canonical = handDisplay.canonicalIndex(seat, slot.index(), roundOpt.orElseThrow());
             if (canonical < 0) return;
+            displayedDiscard = slot.index();
             key = new InteractKey.SeatSlot(slot.seat(), slot.area(), (short)canonical);
         }
         human.onCuteClick(key, driver, seat, player);
+        if (displayedDiscard >= 0 && !queuedBefore && human.hasQueued()
+                && driver.currentPhase() instanceof MatchPhase.AwaitingDiscard discard && discard.seat() == seat) {
+            handDisplay.recordDiscardSlot(seat, displayedDiscard);
+        }
 
         markChangedAndSynced();
     }

@@ -33,10 +33,9 @@ public final class PortViews {
     private record Key(ServerLevel level,BlockPos pos){}
     private static final Map<Key,View> VIEWS=new HashMap<>();
     private static final Set<Key> PENDING=new HashSet<>();
-    private static long ticks;
     public static void register(){
         ServerTickEvents.END_SERVER_TICK.register(server->{
-            if(++ticks%2!=0)return;
+            // Flush hand positions every tick so a discard gap closes at its exact deadline.
             // Chunk-load callbacks may run before C2ME finishes making the chunk accessible.
             // Never synchronously acquire a chunk from inside that callback.
             var pending=List.copyOf(PENDING);PENDING.clear();
@@ -112,6 +111,7 @@ public final class PortViews {
             var visual=entry.getValue();var hit=TableHitTest.tile(start,end,visual.position(),visual.scale(),visual.rotation());
             if(hit.isPresent()){double distance=start.distanceToSqr(hit.get());if(distance<nearest){nearest=distance;chosen=entry.getKey();}}
         }
+        if(privateHand!=null&&privateHand.handleEmptySlotHit(start,end,nearest))return true;
         if(chosen==null)return false;
         table.recordPrivateClick(player);
         if(chosen.startsWith("hand/")){
@@ -220,7 +220,7 @@ public final class PortViews {
             }
             for(int seat=0;seat<board.seats().size();seat++){
                 var s=board.seats().get(seat);Direction dir=outward(seat,state);double fraction=board.stage()==com.themahjong.driver.MatchPhase.Stage.WALL_BUILDING?0:board.stage()==com.themahjong.driver.MatchPhase.Stage.DEALING_HANDS?board.progress():1;int count=(int)Math.round(s.handCount()*fraction);
-                for(int i=0;i<count;i++)tile("hand/"+seat+"/"+i,s.revealed().isEmpty()?-1:s.revealed().get(i),dir,TableLayout.handAlong(i,s.handCount(),s.drawnTile()),.65,.85,!s.revealed().isEmpty(),false,false,s.revealed().isEmpty()?s.owner():null);
+                for(int i=0;i<count;i++)tile("hand/"+seat+"/"+i,s.revealed().isEmpty()?-1:s.revealed().get(i),dir,TableLayout.handAlong(s.handSlots().get(i),s.handGapStarts()),.65,.85,!s.revealed().isEmpty(),false,false,s.revealed().isEmpty()?s.owner():null);
                 for(int i=0;i<s.river().size();i++){var t=s.river().get(i);tile("river/"+seat+"/"+i,t.code(),dir,(i%6-2.5)*.073,.59,.26+(i/6)*.09,true,false,t.sideways(),null);}
                 double cursor=0;for(int m=0;m<s.melds().size();m++){
                     var meld=s.melds().get(m);double width=meld.tiles().stream().filter(t->!t.stacked()).mapToDouble(t->t.sideways()?.090:.073).sum();

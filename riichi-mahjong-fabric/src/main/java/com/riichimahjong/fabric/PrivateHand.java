@@ -20,7 +20,7 @@ import org.joml.Vector3f;
 
 /** A manual attachment has no chunk audience: exactly one watcher and a predicate per element. */
 final class PrivateHand {
-    record Snapshot(Object driver,Object round,Object phase,List<Integer> hand,List<MahjongTableHumanPlayer.TableButton> buttons,List<Integer> riichiDiscards,boolean queued,boolean drawnTile,boolean revealed){}
+    record Snapshot(Object driver,Object round,Object phase,List<Integer> hand,List<Integer> handSlots,List<Integer> handGapStarts,List<MahjongTableHumanPlayer.TableButton> buttons,List<Integer> riichiDiscards,boolean queued,boolean drawnTile,boolean revealed){}
     final ServerPlayer owner;Snapshot snapshot;final ElementHolder holder=new ElementHolder();
     final MahjongTableBlockEntity table;final int seat;long nextPrompt;String lastPrompt="";
     final List<TableButtonLayout.Button> buttonLayout;
@@ -29,7 +29,7 @@ final class PrivateHand {
         int count=table.handDisplayOrder(seat).size();if(d.currentPhase() instanceof MatchPhase.Dealing dealing){double fraction=switch(dealing.stage()){case WALL_BUILDING->0;case DEALING_HANDS->Math.min(1,dealing.elapsed()/dealing.stage().buildDuration());case DORA_FLIP->1;};count=(int)Math.round(count*fraction);}
         boolean queued=d.playerAt(seat) instanceof MahjongTableHumanPlayer h&&h.hasQueued();
         var discards=d.legalActions(seat).stream().filter(a->a instanceof PlayerAction.DiscardWithRiichi).map(a->PublicTable.code(((PlayerAction.DiscardWithRiichi)a).tile())).toList();
-        return new Snapshot(d,r,d.currentPhase(),table.handDisplayOrder(seat).stream().limit(count).map(PublicTable::code).toList(),queued?List.of():List.copyOf(MahjongTableHumanPlayer.tableButtons(d,seat,table.riichiPendingForSeat(seat))),discards,queued,table.hasSeparatedDrawnTile(seat),PublicTable.revealedSeats(d.currentPhase(),r).contains(seat));
+        return new Snapshot(d,r,d.currentPhase(),table.handDisplayOrder(seat).stream().limit(count).map(PublicTable::code).toList(),table.handDisplaySlots(seat).stream().limit(count).toList(),table.handDisplayGapStarts(seat),queued?List.of():List.copyOf(MahjongTableHumanPlayer.tableButtons(d,seat,table.riichiPendingForSeat(seat))),discards,queued,table.hasSeparatedDrawnTile(seat),PublicTable.revealedSeats(d.currentPhase(),r).contains(seat));
     }
     PrivateHand(MahjongTableBlockEntity table,ServerPlayer owner,int seat,Snapshot snapshot){
         this.table=table;this.owner=owner;this.seat=seat;this.snapshot=snapshot;
@@ -39,12 +39,20 @@ final class PrivateHand {
         // ManualAttachment keeps it alive without registering any chunk watchers.
         new ManualAttachment(holder,owner.level(),()->Vec3.atCenterOf(pos));
         if(!snapshot.revealed)for(int i=0;i<snapshot.hand.size();i++){
-            final int index=i;Vec3 at=TableLayout.anchor(pos,dir,TableLayout.handAlong(i,snapshot.hand.size(),snapshot.drawnTile),.65,.85);
+            final int index=i;Vec3 at=TableLayout.anchor(pos,dir,TableLayout.handAlong(snapshot.handSlots.get(i),snapshot.handGapStarts),.65,.85);
             var tile=PortViews.display(holder,PortViews.tileModel(snapshot.hand.get(i)),at,TableLayout.TILE_SCALE,PortViews.rotation(dir,false,false));tile.setVisibilityPredicate(p->p==owner);
             if(snapshot.buttons.stream().anyMatch(b->b instanceof MahjongTableHumanPlayer.TableButton.RiichiToggle r&&r.active())&&snapshot.riichiDiscards.contains(snapshot.hand.get(i))){
                 var mark=new TextDisplayElement(Component.literal("▼").withStyle(ChatFormatting.GREEN));mark.setOverridePos(at.add(0,.15,0));mark.setScale(new Vector3f(.18f));mark.setBillboardMode(Display.BillboardConstraints.CENTER);mark.setVisibilityPredicate(p->p==owner);holder.addElement(mark);
             }
             var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer player,InteractionHand hand,Vec3 loc,boolean sneaking){if(hand==InteractionHand.MAIN_HAND&&valid(player))click(InteractKey.SeatSlot.AREA_HAND,index,sneaking);}});
+            hit.setOverridePos(at.add(0,-.05*TableLayout.TILE_ENLARGEMENT,0));hit.setSize(.071f*TableLayout.TILE_ENLARGEMENT,.12f*TableLayout.TILE_ENLARGEMENT);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
+        }
+        // Empty discard slots consume clicks without submitting a different tile
+        // or reaching the table's leave-seat/quick-discard action underneath.
+        if(!snapshot.revealed&&!snapshot.handSlots.isEmpty())for(int slot=0;slot<snapshot.handSlots.getLast();slot++){
+            if(snapshot.handSlots.contains(slot))continue;
+            var at=TableLayout.anchor(pos,dir,TableLayout.handAlong(slot,snapshot.handGapStarts),.65,.85);
+            var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer player,InteractionHand hand,Vec3 loc,boolean sneaking){if(player==owner&&hand==InteractionHand.MAIN_HAND)table.recordPrivateClick(owner);}});
             hit.setOverridePos(at.add(0,-.05*TableLayout.TILE_ENLARGEMENT,0));hit.setSize(.071f*TableLayout.TILE_ENLARGEMENT,.12f*TableLayout.TILE_ENLARGEMENT);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
         }
         for(var button:buttonLayout){
@@ -66,7 +74,7 @@ final class PrivateHand {
         if(table.seatOfPlayer(owner.getUUID()).orElse(-1)!=seat||table.driver()!=snapshot.driver)return false;
         return table.driver().match().currentRound().isPresent()&&snapshot.equals(snapshot(table,seat));
     }
-    boolean sameVisuals(Snapshot other){return snapshot.driver==other.driver&&snapshot.hand.equals(other.hand)&&snapshot.buttons.equals(other.buttons)&&snapshot.riichiDiscards.equals(other.riichiDiscards)&&snapshot.revealed==other.revealed&&snapshot.drawnTile==other.drawnTile;}
+    boolean sameVisuals(Snapshot other){return snapshot.driver==other.driver&&snapshot.hand.equals(other.hand)&&snapshot.handSlots.equals(other.handSlots)&&snapshot.handGapStarts.equals(other.handGapStarts)&&snapshot.buttons.equals(other.buttons)&&snapshot.riichiDiscards.equals(other.riichiDiscards)&&snapshot.revealed==other.revealed&&snapshot.drawnTile==other.drawnTile;}
     boolean handleButtonHit(Vec3 start,Vec3 end){
         if(!PortViews.near(owner,owner.level(),table.getBlockPos())||table.isRemoved()||table.getLevel()!=owner.level())return false;
         var dir=PortViews.outward(seat,table.getBlockState());
@@ -78,6 +86,22 @@ final class PrivateHand {
             if(valid(owner))click(InteractKey.SeatSlot.AREA_BUTTON,button.index(),false);
             else owner.sendSystemMessage(Component.literal("操作已过期，请点击当前手牌或本人面前的按钮。"),true);
             return true;
+        }
+        return false;
+    }
+    boolean handleEmptySlotHit(Vec3 start,Vec3 end){
+        return handleEmptySlotHit(start,end,Double.MAX_VALUE);
+    }
+    boolean handleEmptySlotHit(Vec3 start,Vec3 end,double nearestTile){
+        if(snapshot.revealed||snapshot.handSlots.isEmpty())return false;
+        var dir=PortViews.outward(seat,table.getBlockState());
+        for(int slot=0;slot<snapshot.handSlots.getLast();slot++){
+            if(snapshot.handSlots.contains(slot))continue;
+            var at=TableLayout.anchor(table.getBlockPos(),dir,TableLayout.handAlong(slot,snapshot.handGapStarts),.65,.85);
+            var hit=TableHitTest.tile(start,end,at,TableLayout.TILE_SCALE,PortViews.rotation(dir,false,false));
+            if(hit.isPresent()&&start.distanceToSqr(hit.orElseThrow())<nearestTile){
+                table.recordPrivateClick(owner);return true;
+            }
         }
         return false;
     }

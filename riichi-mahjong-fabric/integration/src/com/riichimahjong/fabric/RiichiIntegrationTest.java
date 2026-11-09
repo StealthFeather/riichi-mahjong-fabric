@@ -41,6 +41,15 @@ public final class RiichiIntegrationTest implements ModInitializer {
     private static int stage=-1;
     private static long due,accepted;
     private static List<TheMahjongTile> heldOrder;
+    private static List<Integer> heldSlots;
+    private static List<Vec3> heldPositions;
+    private static int gapStage=-1,gapDiscardIndex;
+    private static long gapDue,gapAccepted;
+    private static List<TheMahjongTile> gapBeforeOrder;
+    private static List<Integer> gapBeforeSlots;
+    private static List<Vec3> gapBeforePositions;
+    private static final Map<String,Object> gapSnapshots=new LinkedHashMap<>();
+    private static boolean emptySlotIgnored,shiftedSlotMappedCorrectly;
 
     @Override public void onInitialize(){
         if(!Files.exists(Path.of("riichi-integration-enabled")))throw new IllegalStateException("Test addon requires isolated-server marker riichi-integration-enabled");
@@ -51,13 +60,22 @@ public final class RiichiIntegrationTest implements ModInitializer {
                     aim(context.getSource().getServer(),IntegerArgumentType.getInteger(context,"index"));return 1;
                 })))
                 .then(Commands.literal("state").executes(context->{state(context.getSource().getServer());return 1;}))
+                .then(Commands.literal("gap_discard").executes(context->{discardGap();return 1;}))
+                .then(Commands.literal("gap_state").executes(context->{System.out.println("RIICHI_GAP_STATE "+new GsonBuilder().create().toJson(gapSnapshot()));return 1;}))
+                .then(Commands.literal("gap_finish").executes(context->{finishGap();return 1;}))
                 .then(Commands.literal("fixture").then(Commands.argument("scenario",StringArgumentType.word()).executes(context->{
-                    stage=-1;fixture(context.getSource().getServer(),StringArgumentType.getString(context,"scenario"));
+                    String scenario=StringArgumentType.getString(context,"scenario");
+                    if(scenario.equals("discard_gap")){prepareGap(context.getSource().getServer());return 1;}
+                    stage=-1;gapStage=-1;context.getSource().getServer().tickRateManager().setFrozen(false);
+                    fixture(context.getSource().getServer(),scenario);
                     context.getSource().sendSuccess(()->Component.literal("Riichi test fixture ready at 0 -60 0"),false);return 1;
                 })))));
         ServerTickEvents.END_SERVER_TICK.register(server->{
-            if(stage<0||server!=runningServer||server.overworld().getGameTime()<due)return;
-            try{step();}catch(Throwable failure){failure.printStackTrace();stage=-1;save(false,failure.toString());}
+            if(server!=runningServer)return;
+            try{
+                if(gapStage>=0){gapStep();return;}
+                if(stage>=0&&server.overworld().getGameTime()>=due)step();
+            }catch(Throwable failure){failure.printStackTrace();if(gapStage>=0){gapStage=-1;saveGap(false,failure.toString());}else{stage=-1;save(false,failure.toString());}}
         });
     }
 
@@ -92,7 +110,7 @@ public final class RiichiIntegrationTest implements ModInitializer {
     }
 
     private static void begin(MinecraftServer server){
-        checks.clear();runningServer=server;
+        checks.clear();runningServer=server;gapStage=-1;server.tickRateManager().setFrozen(false);
         try{
             fixture(server,"draw");
             require(PublicTable.capture(table).seats().stream().allMatch(seat->seat.revealed().isEmpty()),"active hand identities leaked into PublicTable");
@@ -103,6 +121,7 @@ public final class RiichiIntegrationTest implements ModInitializer {
     }
 
     private static void step() throws Exception{
+        refreshView();
         long tick=runningServer.overworld().getGameTime();
         switch(stage){
             case 0->{
@@ -111,7 +130,10 @@ public final class RiichiIntegrationTest implements ModInitializer {
                 require(Math.abs(a.distanceTo(b)-TableLayout.TILE_WIDTH*4/3)<1e-6,"public renderer draw gap is not one third tile width");
                 assertPrivate(false,14);
                 pass("real-portviews-private-hand-and-public-draw-layout");
-                heldOrder=new ArrayList<>(table.handDisplayOrder(0));heldOrder.remove(tile(2,9));
+                int discarded=table.handDisplayOrder(0).indexOf(tile(2,9));
+                heldOrder=new ArrayList<>(table.handDisplayOrder(0));heldOrder.remove(discarded);
+                heldSlots=new ArrayList<>(table.handDisplaySlots(0));heldSlots.remove(discarded);
+                heldPositions=new ArrayList<>(publicHandPositions());heldPositions.remove(discarded);
                 if(owner!=null){
                     int index=table.handDisplayOrder(0).indexOf(tile(2,9));
                     table.onCuteClick(owner,new InteractKey.SeatSlot((byte)0,InteractKey.SeatSlot.AREA_HAND,(short)index));
@@ -124,15 +146,20 @@ public final class RiichiIntegrationTest implements ModInitializer {
                 require(discards.size()==1&&discards.getLast().tile().equals(tile(2,9)),"real table click discarded a different tile");
                 accepted=tick;
                 require(table.handDisplayOrder(0).equals(heldOrder)&&table.hasSeparatedDrawnTile(0),"real table sorted immediately after discard");
-                stage=2;due=accepted+19;
+                require(table.handDisplaySlots(0).equals(heldSlots),"discarded slot was immediately closed");assertHandGeometry(heldPositions);
+                stage=2;due=accepted+9;
             }
             case 2->{
-                require(table.handDisplayOrder(0).equals(heldOrder)&&table.hasSeparatedDrawnTile(0),"real table sorted before twenty ticks");
-                stage=3;due=accepted+20;
+                require(table.handDisplayOrder(0).equals(heldOrder)&&table.hasSeparatedDrawnTile(0),"real table sorted before ten ticks");
+                require(table.handDisplaySlots(0).equals(heldSlots),"discard gap disappeared before ten ticks");assertHandGeometry(heldPositions);
+                stage=3;due=accepted+10;
             }
             case 3->{
-                require(table.handDisplayOrder(0).equals(table.driver().currentRound().handDisplayOrder(0))&&!table.hasSeparatedDrawnTile(0),"real table did not sort at twenty ticks");
-                pass("real-server-discard-and-exact-twenty-tick-sort");
+                require(table.handDisplayOrder(0).equals(table.driver().currentRound().handDisplayOrder(0))&&!table.hasSeparatedDrawnTile(0),"real table did not sort at ten ticks");
+                require(table.handDisplaySlots(0).equals(java.util.stream.IntStream.range(0,13).boxed().toList())&&table.handDisplayGapStarts(0).isEmpty(),"real table did not compact geometry at ten ticks");
+                var compact=new ArrayList<Vec3>();var dir=PortViews.outward(0,table.getBlockState());
+                for(int slot=0;slot<13;slot++)compact.add(TableLayout.anchor(POS,dir,-.44+slot*TableLayout.HAND_STEP,.65,.85));
+                assertHandGeometry(compact);pass("real-server-discard-gap-and-exact-ten-tick-sort");
                 fixture(runningServer,"all_tenpai");
                 require(PublicTable.capture(table).seats().stream().allMatch(seat->seat.revealed().size()==13),"drawn round did not reveal all four tenpai hands");
                 stage=4;due=tick+2;
@@ -178,7 +205,7 @@ public final class RiichiIntegrationTest implements ModInitializer {
         }
     }
 
-    private static void realDelayedClickMapping(){
+    private static void realDelayedClickMapping() throws Exception{
         if(owner==null)return;
         fixture(runningServer,"draw");var driver=table.driver();table.handDisplayOrder(0);
         driver.submitAction(0,new PlayerAction.Discard(tile(2,9)));driver.advance(.05);table.handDisplayOrder(0);finishClaims(driver);
@@ -189,11 +216,137 @@ public final class RiichiIntegrationTest implements ModInitializer {
         driver.submitAction(0,PlayerAction.Draw.INSTANCE);driver.advance(.05);
         var displayed=table.handDisplayOrder(0);int index=displayed.indexOf(tile(0,2));
         require(index>=0&&!driver.currentRound().handDisplayOrder(0).get(index).equals(tile(0,2)),"delayed click fixture does not distinguish visual and canonical indices");
-        table.onCuteClick(owner,new InteractKey.SeatSlot((byte)0,InteractKey.SeatSlot.AREA_HAND,(short)index));
+        require(table.handDisplaySlots(0).get(index)>index,"delayed click fixture lacks a shifted physical slot");
+        var view=view();var update=view.getClass().getDeclaredMethod("update");update.setAccessible(true);update.invoke(view);
+        aimAt(tiles(view).get("hand/0/"+index).getOverridePos());
+        ((Map<?,?>)get(table,"privateClicks")).clear();
+        require(PortViews.handleTileHit(owner,table),"shifted physical tile ray was not handled");
         require(((MahjongTableHumanPlayer)driver.playerAt(0)).hasQueued(),"delayed displayed-slot click did not queue");
         driver.advance(.05);
         require(driver.currentRound().players().get(0).discards().getLast().tile().equals(tile(0,2)),"delayed displayed-slot click discarded canonical slot's different tile");
+        shiftedSlotMappedCorrectly=true;
         pass("real-table-delayed-display-index-discards-correct-tile");
+    }
+
+    private static List<Vec3> publicHandPositions() throws Exception{
+        var elements=tiles(view());var positions=new ArrayList<Vec3>();
+        for(int index=0;index<table.handDisplayOrder(0).size();index++){
+            var tile=elements.get("hand/0/"+index);require(tile!=null,"public hand tile missing at logical index "+index);positions.add(tile.getOverridePos());
+        }
+        return positions;
+    }
+
+    private static void assertHandGeometry(List<Vec3> expected) throws Exception{
+        var seat=PublicTable.capture(table).seats().get(0);
+        require(seat.handSlots().equals(table.handDisplaySlots(0))&&seat.handGapStarts().equals(table.handDisplayGapStarts(0)),"public snapshot lost sparse hand geometry");
+        var actual=publicHandPositions();require(actual.size()==expected.size(),"public hand geometry count changed");
+        for(int index=0;index<expected.size();index++)require(actual.get(index).distanceTo(expected.get(index))<1e-7,"public survivor moved at logical index "+index+": "+actual.get(index)+" != "+expected.get(index));
+        if(owner==null)return;
+        var hand=(PrivateHand)((Map<?,?>)get(view(),"hands")).get(owner.getUUID());
+        require(hand!=null,"connected owner private holder missing");
+        require(hand.snapshot.handSlots().equals(seat.handSlots())&&hand.snapshot.handGapStarts().equals(seat.handGapStarts()),"private snapshot lost sparse hand geometry");
+        var remaining=new ArrayList<Vec3>(expected);
+        for(var element:hand.holder.getElements())if(element instanceof ItemDisplayElement display){
+            int found=-1;for(int index=0;index<remaining.size();index++)if(display.getOverridePos().distanceTo(remaining.get(index))<1e-7){found=index;break;}
+            require(found>=0,"private hand tile moved or overlaps another tile: "+display.getOverridePos());remaining.remove(found);
+        }
+        require(remaining.isEmpty(),"private hand omitted survivor positions");
+    }
+
+    private static void prepareGap(MinecraftServer server){
+        try{
+            checks.clear();stage=-1;gapStage=-1;runningServer=server;gapSnapshots.clear();emptySlotIgnored=false;shiftedSlotMappedCorrectly=false;
+            server.tickRateManager().setFrozen(false);fixture(server,"draw");require(owner!=null,"discard gap visual test requires a connected client");
+            gapDiscardIndex=table.handDisplayOrder(0).indexOf(tile(2,9));require(gapDiscardIndex==8,"fixture discard must occupy physical slot eight");
+            gapBeforeOrder=List.copyOf(table.handDisplayOrder(0));gapBeforeSlots=List.copyOf(table.handDisplaySlots(0));
+            gapStage=0;gapDue=server.overworld().getGameTime()+3;
+            saveGap(false,"running");
+        }catch(Throwable failure){gapStage=-1;saveGap(false,failure.toString());throw new RuntimeException(failure);}
+    }
+
+    private static void discardGap(){
+        require(gapStage==1,"wait for RIICHI_GAP_BEFORE_READY before gap_discard");
+        table.onCuteClick(owner,new InteractKey.SeatSlot((byte)0,InteractKey.SeatSlot.AREA_HAND,(short)gapDiscardIndex));
+        require(((MahjongTableHumanPlayer)table.driver().playerAt(0)).hasQueued(),"discard gap click did not queue");
+        gapStage=2;runningServer.tickRateManager().setFrozen(false);
+    }
+
+    private static void gapStep() throws Exception{
+        refreshView();
+        long tick=runningServer.overworld().getGameTime();
+        if(gapStage==0&&tick>=gapDue){
+            gapBeforePositions=List.copyOf(publicHandPositions());assertHandGeometry(gapBeforePositions);
+            require(gapBeforeSlots.equals(java.util.stream.IntStream.range(0,14).boxed().toList()),"baseline hand slots are not complete");
+            gapSnapshots.put("before",gapSnapshot());runningServer.tickRateManager().setFrozen(true);gapStage=1;
+            System.out.println("RIICHI_GAP_BEFORE_READY gameTime="+tick);saveGap(false,"awaiting discard");
+        }else if(gapStage==2&&table.driver().currentRound().players().get(0).discards().size()==1){
+            gapAccepted=tick;heldOrder=new ArrayList<>(gapBeforeOrder);heldOrder.remove(gapDiscardIndex);
+            heldSlots=new ArrayList<>(gapBeforeSlots);heldSlots.remove(gapDiscardIndex);
+            heldPositions=new ArrayList<>(gapBeforePositions);heldPositions.remove(gapDiscardIndex);
+            assertGapHeld();
+            int discards=table.driver().currentRound().players().get(0).discards().size();
+            float yaw=owner.getYRot(),pitch=owner.getXRot();aimAt(gapBeforePositions.get(gapDiscardIndex));
+            ((Map<?,?>)get(table,"privateClicks")).clear();
+            require(PortViews.handleTileHit(owner,table),"empty physical slot did not consume the ray");
+            require(!((MahjongTableHumanPlayer)table.driver().playerAt(0)).hasQueued(),"empty slot queued a different tile");
+            require(table.seatOfPlayer(owner.getUUID()).orElse(-1)==0&&table.driver().currentRound().players().get(0).discards().size()==discards,"empty slot changed seat or discards");
+            owner.teleportTo(owner.level(),owner.getX(),owner.getY(),owner.getZ(),Set.of(),yaw,pitch,true);emptySlotIgnored=true;
+            gapSnapshots.put("0",gapSnapshot());runningServer.tickRateManager().setFrozen(true);gapStage=3;
+            System.out.println("RIICHI_GAP_TICK_READY relative=0 gameTime="+tick);saveGap(false,"awaiting tick nine");
+        }else if(gapStage==3&&tick>=gapAccepted+9){
+            require(tick==gapAccepted+9,"discard gap missed exact nine-tick observation");assertGapHeld();gapSnapshots.put("9",gapSnapshot());gapStage=4;
+            System.out.println("RIICHI_GAP_TICK_READY relative=9 gameTime="+tick);saveGap(false,"awaiting tick ten");
+        }else if(gapStage==4&&tick>=gapAccepted+10){
+            require(tick==gapAccepted+10,"discard gap missed exact ten-tick observation");
+            require(table.handDisplayOrder(0).equals(table.driver().currentRound().handDisplayOrder(0)),"hand is not canonically sorted at tick ten");
+            require(table.handDisplaySlots(0).equals(java.util.stream.IntStream.range(0,13).boxed().toList())&&table.handDisplayGapStarts(0).isEmpty()&&!table.hasSeparatedDrawnTile(0),"hand did not compact at tick ten");
+            var compact=new ArrayList<Vec3>();var dir=PortViews.outward(0,table.getBlockState());for(int slot=0;slot<13;slot++)compact.add(TableLayout.anchor(POS,dir,-.44+slot*TableLayout.HAND_STEP,.65,.85));assertHandGeometry(compact);
+            gapSnapshots.put("10",gapSnapshot());gapStage=5;
+            System.out.println("RIICHI_GAP_TICK_READY relative=10 gameTime="+tick);saveGap(false,"awaiting finish");
+        }
+    }
+
+    private static void assertGapHeld() throws Exception{
+        require(table.handDisplayOrder(0).equals(heldOrder),"surviving tile order changed during discard delay");
+        require(table.handDisplaySlots(0).equals(heldSlots)&&!heldSlots.contains(gapDiscardIndex),"discard slot was immediately closed");
+        require(table.hasSeparatedDrawnTile(0)&&table.handDisplayOrder(0).getLast().equals(tile(0,2)),"old drawn tile lost its separated right-hand position");
+        assertHandGeometry(heldPositions);
+    }
+
+    private static void aimAt(Vec3 centre){
+        var delta=centre.subtract(owner.getEyePosition());float yaw=(float)Math.toDegrees(Math.atan2(-delta.x,delta.z));
+        float pitch=(float)-Math.toDegrees(Math.atan2(delta.y,Math.sqrt(delta.x*delta.x+delta.z*delta.z)));
+        owner.teleportTo(owner.level(),owner.getX(),owner.getY(),owner.getZ(),Set.of(),yaw,pitch,true);
+    }
+
+    private static void refreshView() throws Exception{
+        // Fabric orders addon callbacks before the core callback on this test loader.
+        // Read the same end-tick renderer state the core flushes later in this tick.
+        var current=view();var update=current.getClass().getDeclaredMethod("update");update.setAccessible(true);update.invoke(current);
+    }
+
+    private static Map<String,Object> gapSnapshot(){
+        try{
+            var result=new LinkedHashMap<String,Object>();long tick=runningServer.overworld().getGameTime();result.put("gameTime",tick);result.put("relativeTick",gapStage<2?null:tick-gapAccepted);
+            result.put("tiles",table.handDisplayOrder(0).stream().map(PublicTable::code).toList());result.put("slots",table.handDisplaySlots(0));result.put("gapStarts",table.handDisplayGapStarts(0));
+            result.put("separatedDraw",table.hasSeparatedDrawnTile(0));result.put("positions",publicHandPositions().stream().map(p->List.of(p.x,p.y,p.z)).toList());return result;
+        }catch(Exception error){throw new RuntimeException(error);}
+    }
+
+    private static void finishGap(){
+        try{
+            require(gapStage==5&&gapSnapshots.keySet().containsAll(List.of("before","0","9","10")),"capture all exact discard-gap stages before finishing");
+            realDelayedClickMapping();require(emptySlotIgnored&&shiftedSlotMappedCorrectly,"discard gap click regressions were not checked");
+            gapStage=-1;saveGap(true,null);System.out.println("RIICHI_DISCARD_GAP_PASS");
+        }catch(Throwable failure){failure.printStackTrace();gapStage=-1;saveGap(false,failure.toString());}
+    }
+
+    private static void saveGap(boolean passed,String failure){
+        try{
+            var result=new LinkedHashMap<String,Object>();result.put("passed",passed);result.put("coreVersion",FabricLoader.getInstance().getModContainer("riichi_mahjong").orElseThrow().getMetadata().getVersion().getFriendlyString());
+            result.put("clientConnected",owner!=null);result.put("delayTicks",10);result.put("gapSlot",gapDiscardIndex);result.put("snapshots",gapSnapshots);result.put("emptySlotIgnored",emptySlotIgnored);result.put("shiftedSlotMappedCorrectly",shiftedSlotMappedCorrectly);result.put("failure",failure);
+            Files.writeString(Path.of("riichi-discard-gap-results.json"),new GsonBuilder().setPrettyPrinting().create().toJson(result)+"\n");
+        }catch(Exception error){throw new RuntimeException(error);}
     }
 
     private static void finishClaims(TheMahjongDriver driver){

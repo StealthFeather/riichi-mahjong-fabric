@@ -14,7 +14,7 @@ Install `build/integration-addon/riichi-integration-test-only.jar` beside the ma
 riichi_test run
 ```
 
-The addon puts a real table at overworld `0 -60 0`, gives the first connected test player the relevant seat, and tests actual table ticks, accepted discard actions, twenty-tick sort timing, connected-player private holders, public rendering, tenpai reveal allowlists, centre-plate riichi sticks, and real claim/tsumo button construction. Results are written to the server's `riichi-integration-results.json`; success is logged as `RIICHI_INTEGRATION_PASS`. Without a connected client the private-holder checks are skipped and `clientConnected` is false.
+The addon puts a real table at overworld `0 -60 0`, gives the first connected test player the relevant seat, and tests actual table ticks, accepted discard actions, ten-tick empty-slot retention and compaction timing, connected-player private holders, public rendering, tenpai reveal allowlists, centre-plate riichi sticks, and real claim/tsumo button construction. Results are written to the server's `riichi-integration-results.json`; success is logged as `RIICHI_INTEGRATION_PASS`. Without a connected client the private-holder checks are skipped and `clientConnected` is false.
 
 For visible manual checks, leave an individual scenario in place:
 
@@ -38,3 +38,13 @@ node riichi-mahjong-fabric/integration/check-hand-entities.cjs <capture.jsonl> 1
 ```
 
 Check `draw` on a fresh table, `all_tenpai` followed by `draw`, and `draw_observer` followed by `draw`. The observer fixture keeps all four controllers inert and removes the connected player's seat, so its own capture must pass with `14 observer`. Each hand position must have one display, the owner must see faces and the observer backs, and IDs/transforms must stay stable for all samples. This checks the real client entity set; counting private-holder elements alone misses public back entities already sent to that client. Test fixtures are not saved-game compatibility tests; use a fresh disposable world after restarting a fixture server.
+
+For the exact discard-gap regression, connect a vanilla client, run `riichi_test fixture discard_gap`, and wait for `RIICHI_GAP_BEFORE_READY`. The test freezes game ticks so entity packets can settle. Capture three client entity samples and a screenshot, then run `riichi_test gap_discard` and capture again after `relative=0`. Run `tick step 9`, wait for `relative=9`, capture; then run `tick step 1`, wait for `relative=10`, and capture. Finish with `riichi_test gap_finish`, which also tests a real server ray through the empty slot and another ray toward a shifted survivor. Compare all four captures with:
+
+```text
+node riichi-mahjong-fabric/integration/check-discard-gap.cjs <server/riichi-discard-gap-results.json> <before.jsonl> <tick0.jsonl> <tick9.jsonl> <tick10.jsonl>
+```
+
+The fixture discards the unique souzu-nine tile in slot eight. All other entities must retain their original coordinates and faces through tick nine; the old drawn tile stays in its separated right-hand position. At tick ten the thirteen survivors must occupy contiguous sorted slots. Remove the fixture table, unfreeze ticks, quit the client and stop the server after testing.
+
+The test loader registers its end-tick callback before the mod's render callback, so the addon invokes that same view update before reading server-side geometry. This changes no game time. The timing evidence comes from real game ticks, the frozen vanilla client's `gameTime`, and actual received display entities.

@@ -18,6 +18,10 @@ final class TableLayout {
     static double handAlong(int index,int count,boolean drawn){
         return -.44+index*HAND_STEP+(drawn&&index==count-1&&count>1?TILE_WIDTH*4/3-HAND_STEP:0);
     }
+    /** Sparse slots keep every surviving tile at its old position during the discard delay. */
+    static double handAlong(int slot,java.util.List<Integer> gapStarts){
+        return -.44+slot*HAND_STEP+gapStarts.stream().filter(start->start<=slot).count()*(TILE_WIDTH*4/3-HAND_STEP);
+    }
     static Quaternionf textRotation(Direction dir){return PortViews.rotation(dir,false,false).rotateX(-(float)Math.PI/2).rotateZ((float)Math.PI);}
     static Vec3 anchor(BlockPos pos,Direction dir,double along,double height,double distance){
         return PortViews.anchor(pos,dir,along*TILE_ENLARGEMENT,

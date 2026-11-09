@@ -12,7 +12,7 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
                           String label,String roundLabel,int turnSeat,int riichiSticks,MatchPhase.Stage stage,double progress) {
     public record Tile(int code,boolean sideways,boolean stacked){Tile(int code,boolean sideways){this(code,sideways,false);}}
     public record Meld(List<Tile> tiles){}
-    public record Seat(UUID owner,String name,int wind,int points,int handCount,List<Integer> revealed,List<Tile> river,List<Meld> melds,int kita,boolean riichi,boolean riichiStick,boolean drawnTile){}
+    public record Seat(UUID owner,String name,int wind,int points,int handCount,List<Integer> handSlots,List<Integer> handGapStarts,List<Integer> revealed,List<Tile> river,List<Meld> melds,int kita,boolean riichi,boolean riichiStick,boolean drawnTile){}
     static int code(TheMahjongTile tile){return MahjongTileItems.codeForTile(tile);}
     /** Concealed identities become public only after the round has ended. */
     static Set<Integer> revealedSeats(MatchPhase phase,TheMahjongRound round){
@@ -61,7 +61,7 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
         for(int i=0;i<infos.size();i++){
             var info=infos.get(i);UUID owner=info.occupant().orElse(null);var player=owner==null?null:table.getLevel().getPlayerByUUID(owner);
             String name=player==null?(owner==null?(round==null?"空位":"BOT"):"离线玩家"):player.getName().getString();
-            if(round==null||i>=round.players().size()){out.add(new Seat(owner,info.enabled()?name:"关闭",i,0,0,List.of(),List.of(),List.of(),0,false,false,false));continue;}
+            if(round==null||i>=round.players().size()){out.add(new Seat(owner,info.enabled()?name:"关闭",i,0,0,List.of(),List.of(),List.of(),List.of(),List.of(),0,false,false,false));continue;}
             var p=round.players().get(i);var river=new ArrayList<Tile>();Set<Integer> claimed=claimed(round.players(),i);
             for(int d=0;d<p.discards().size();d++)if(!claimed.contains(d)){var tile=p.discards().get(d);river.add(new Tile(code(tile.tile()),tile.riichiDeclared()));}
             var melds=new ArrayList<Meld>();for(var meld:p.melds()){
@@ -72,7 +72,7 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
             List<Integer> revealed=visibleHands.contains(i)?table.handDisplayOrder(i).stream().map(PublicTable::code).toList():List.of();
             int count=p.currentHand().size(); // The public value is only the count.
             boolean deposited=p.riichi()&&driver.snapshot().pendingRiichiCommit().orElse(-1)!=i;
-            out.add(new Seat(owner,name,Math.floorMod(i-round.dealerSeat(),round.players().size()),p.points(),count,revealed,List.copyOf(river),List.copyOf(melds),p.kitaCount(),p.riichi(),deposited,table.hasSeparatedDrawnTile(i)));
+            out.add(new Seat(owner,name,Math.floorMod(i-round.dealerSeat(),round.players().size()),p.points(),count,table.handDisplaySlots(i),table.handDisplayGapStarts(i),revealed,List.copyOf(river),List.copyOf(melds),p.kitaCount(),p.riichi(),deposited,table.hasSeparatedDrawnTile(i)));
         }
         String label="";
         if(phase instanceof MatchPhase.RoundEnded ended){
