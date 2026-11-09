@@ -50,6 +50,9 @@ public final class RiichiIntegrationTest implements ModInitializer {
     private static List<Vec3> gapBeforePositions;
     private static final Map<String,Object> gapSnapshots=new LinkedHashMap<>();
     private static boolean emptySlotIgnored,shiftedSlotMappedCorrectly;
+    private static int presentationStage=-1;
+    private static long presentationDue;
+    private static final List<Map<String,Object>> paymentChecks=new ArrayList<>();
 
     @Override public void onInitialize(){
         if(!Files.exists(Path.of("riichi-integration-enabled")))throw new IllegalStateException("Test addon requires isolated-server marker riichi-integration-enabled");
@@ -63,19 +66,21 @@ public final class RiichiIntegrationTest implements ModInitializer {
                 .then(Commands.literal("gap_discard").executes(context->{discardGap();return 1;}))
                 .then(Commands.literal("gap_state").executes(context->{System.out.println("RIICHI_GAP_STATE "+new GsonBuilder().create().toJson(gapSnapshot()));return 1;}))
                 .then(Commands.literal("gap_finish").executes(context->{finishGap();return 1;}))
+                .then(Commands.literal("presentation").executes(context->{beginPresentation(context.getSource().getServer());return 1;}))
                 .then(Commands.literal("fixture").then(Commands.argument("scenario",StringArgumentType.word()).executes(context->{
                     String scenario=StringArgumentType.getString(context,"scenario");
                     if(scenario.equals("discard_gap")){prepareGap(context.getSource().getServer());return 1;}
-                    stage=-1;gapStage=-1;context.getSource().getServer().tickRateManager().setFrozen(false);
+                    stage=-1;gapStage=-1;presentationStage=-1;context.getSource().getServer().tickRateManager().setFrozen(false);
                     fixture(context.getSource().getServer(),scenario);
                     context.getSource().sendSuccess(()->Component.literal("Riichi test fixture ready at 0 -60 0"),false);return 1;
                 })))));
         ServerTickEvents.END_SERVER_TICK.register(server->{
             if(server!=runningServer)return;
             try{
+                if(presentationStage>=0){presentationStep();return;}
                 if(gapStage>=0){gapStep();return;}
                 if(stage>=0&&server.overworld().getGameTime()>=due)step();
-            }catch(Throwable failure){failure.printStackTrace();if(gapStage>=0){gapStage=-1;saveGap(false,failure.toString());}else{stage=-1;save(false,failure.toString());}}
+            }catch(Throwable failure){failure.printStackTrace();if(presentationStage>=0){presentationStage=-1;savePresentation(false,failure.toString(),List.of());}else if(gapStage>=0){gapStage=-1;saveGap(false,failure.toString());}else{stage=-1;save(false,failure.toString());}}
         });
     }
 
@@ -110,7 +115,7 @@ public final class RiichiIntegrationTest implements ModInitializer {
     }
 
     private static void begin(MinecraftServer server){
-        checks.clear();runningServer=server;gapStage=-1;server.tickRateManager().setFrozen(false);
+        checks.clear();runningServer=server;gapStage=-1;presentationStage=-1;server.tickRateManager().setFrozen(false);
         try{
             fixture(server,"draw");
             require(PublicTable.capture(table).seats().stream().allMatch(seat->seat.revealed().isEmpty()),"active hand identities leaked into PublicTable");
@@ -255,7 +260,7 @@ public final class RiichiIntegrationTest implements ModInitializer {
 
     private static void prepareGap(MinecraftServer server){
         try{
-            checks.clear();stage=-1;gapStage=-1;runningServer=server;gapSnapshots.clear();emptySlotIgnored=false;shiftedSlotMappedCorrectly=false;
+            checks.clear();stage=-1;gapStage=-1;presentationStage=-1;runningServer=server;gapSnapshots.clear();emptySlotIgnored=false;shiftedSlotMappedCorrectly=false;
             server.tickRateManager().setFrozen(false);fixture(server,"draw");require(owner!=null,"discard gap visual test requires a connected client");
             gapDiscardIndex=table.handDisplayOrder(0).indexOf(tile(2,9));require(gapDiscardIndex==8,"fixture discard must occupy physical slot eight");
             gapBeforeOrder=List.copyOf(table.handDisplayOrder(0));gapBeforeSlots=List.copyOf(table.handDisplaySlots(0));
@@ -349,6 +354,91 @@ public final class RiichiIntegrationTest implements ModInitializer {
         }catch(Exception error){throw new RuntimeException(error);}
     }
 
+    private static void beginPresentation(MinecraftServer server){
+        try{
+            stage=-1;gapStage=-1;presentationStage=-1;runningServer=server;paymentChecks.clear();server.tickRateManager().setFrozen(false);
+            for(int count=1;count<=3;count++)realDrawPayment(server,4,count);
+            for(int count=1;count<=2;count++)realDrawPayment(server,3,count);
+            fixture(server,"concealed_kan");require(owner!=null,"presentation client test requires a connected vanilla client");
+            presentationStage=0;presentationDue=server.overworld().getGameTime()+3;
+            savePresentation(false,"waiting for real client meld fixture",List.of());
+        }catch(Throwable failure){failure.printStackTrace();presentationStage=-1;savePresentation(false,failure.toString(),List.of());}
+    }
+
+    private static List<TheMahjongTile> paymentReady(int index){
+        var hand=new ArrayList<>(waiting(2));for(int at=9;at<=11;at++)hand.set(at,tile(3,index+1));return List.copyOf(hand);
+    }
+
+    private static List<TheMahjongTile> paymentNoten(){
+        return List.of(tile(1,1),tile(1,2),tile(1,4),tile(1,5),tile(1,7),tile(1,8),tile(1,9),tile(2,2),tile(2,5),tile(2,8),tile(3,4),tile(4,2),tile(4,3));
+    }
+
+    private static void realDrawPayment(MinecraftServer server,int playerCount,int readyCount) throws Exception{
+        fixture(server,"draw");int initial=playerCount==3?35000:25000;
+        var players=new ArrayList<TheMahjongPlayer>();var controllers=new ArrayList<MahjongPlayerInterface>();
+        for(int seat=0;seat<playerCount;seat++){
+            boolean ready=seat>0&&seat<=readyCount;var hand=ready?paymentReady(seat-1):paymentNoten();
+            players.add(new TheMahjongPlayer(initial,TheMahjongPlayer.RiichiState.NONE,false,hand,List.of(),List.of(new TheMahjongDiscard(tile(1,3),false)),List.of()));
+            controllers.add(new MahjongHumanPlayer());
+        }
+        var rules=playerCount==3?TheMahjongRuleSet.mahjongSoulSanma():TheMahjongRuleSet.mahjongSoul();
+        var indicators=Collections.nCopies(5,tile(4,3));
+        var round=new TheMahjongRound(TheMahjongTile.Wind.EAST,1,0,0,0,TheMahjongRound.State.SETUP,0,-1,TheMahjongRound.ActiveTile.none(),
+            List.of(tile(4,1)),Collections.nCopies(TheMahjongRound.rinshanTileCountFor(playerCount),tile(4,3)),indicators,indicators,1,players,List.of());
+        var match=new TheMahjongMatch(playerCount,initial,playerCount==3?40000:30000,2,TheMahjongMatch.State.IN_ROUND,
+            playerCount==3?TheMahjongTileSet.standardSanma(false):TheMahjongTileSet.standardRiichi(false),rules,List.of(),round);
+        var driver=new TheMahjongDriver(match,controllers,new Random(7),new TheMahjongDriver.Snapshot(new MatchPhase.AwaitingDraw(0,false),false,OptionalInt.empty()));
+        set(table,"driver",driver);set(table,"resultAnimStage",MahjongTableBlockEntity.ResultAnimStage.NONE);
+        for(int seat=0;seat<playerCount;seat++)require(com.themahjong.compat.DrawSettlement.inTenpai(players.get(seat))==(seat>0&&seat<=readyCount),"payment fixture ready mask incorrect at "+seat);
+        var phases=new ArrayList<String>();phases.add(driver.currentPhase().getClass().getSimpleName());
+        driver.submitAction(0,PlayerAction.Draw.INSTANCE);driver.advance(.05);phases.add(driver.currentPhase().getClass().getSimpleName());
+        require(driver.currentRound().liveWall().isEmpty()&&driver.currentPhase() instanceof MatchPhase.AwaitingDiscard,"fixture did not consume the final live-wall tile");
+        require(driver.currentRound().players().stream().allMatch(p->p.points()==initial),"points changed before final discard");
+        driver.submitAction(0,new PlayerAction.Discard(tile(4,1)));driver.advance(.05);phases.add(driver.currentPhase().getClass().getSimpleName());
+        require(driver.currentPhase() instanceof MatchPhase.AwaitingClaims,"final discard fixture skipped the genuine claim window");
+        var claim=(MatchPhase.AwaitingClaims)driver.currentPhase();require(!claim.pendingSeats().isEmpty(),"no legal final-discard response");
+        require(claim.pendingSeats().stream().anyMatch(seat->driver.legalActions(seat).stream().anyMatch(a->a instanceof PlayerAction.DeclareRon)),"fixture lacks a real last-discard ron decision");
+        require(driver.currentRound().players().stream().allMatch(p->p.points()==initial),"noten payment was applied while ron claims remained open");
+        var responders=List.copyOf(claim.pendingSeats());finishClaims(driver);phases.add(driver.currentPhase().getClass().getSimpleName());
+        require(driver.currentPhase() instanceof MatchPhase.RoundEnded ended&&ended.winResults().isEmpty()&&driver.currentRound().state()==TheMahjongRound.State.ENDED,"final-discard passes did not reach genuine exhaustive draw");
+        List<Integer> deltas=playerCount==4?switch(readyCount){case 1->List.of(-1000,3000,-1000,-1000);case 2->List.of(-1500,1500,1500,-1500);default->List.of(-3000,1000,1000,1000);}:readyCount==1?List.of(-1500,3000,-1500):List.of(-3000,1500,1500);
+        var actual=driver.currentRound().players().stream().map(TheMahjongPlayer::points).toList();
+        for(int seat=0;seat<playerCount;seat++)require(actual.get(seat)==initial+deltas.get(seat),"incorrect real exhaustive-draw points: "+actual+" expected deltas "+deltas);
+        require(actual.stream().mapToInt(Integer::intValue).sum()==initial*playerCount,"exhaustive draw did not conserve points");
+        var board=PublicTable.capture(table);for(int seat=0;seat<playerCount;seat++){
+            require(board.seats().get(seat).points()==actual.get(seat),"public seat score did not receive settled points");
+            require(!board.seats().get(seat).revealed().isEmpty()==(seat>0&&seat<=readyCount),"draw fee and revealed ready-hand masks disagree");
+        }
+        var result=new LinkedHashMap<String,Object>();result.put("name",playerCount+"-player-"+readyCount+"-tenpai");result.put("passed",true);result.put("playerCount",playerCount);result.put("tenpaiCount",readyCount);result.put("initialPoints",initial);result.put("expectedDeltas",deltas);result.put("actualPoints",actual);result.put("phases",phases);result.put("claimResponders",responders);result.put("actualLastWallDraw",true);result.put("realClaimPasses",true);result.put("publicPointsMatch",true);result.put("revealMaskMatches",true);paymentChecks.add(result);
+        System.out.println("RIICHI_PAYMENT_PASS "+playerCount+"p "+readyCount+"tenpai points="+actual);
+    }
+
+    private static void presentationStep() throws Exception{
+        if(runningServer.overworld().getGameTime()<presentationDue)return;refreshView();
+        var expected=new ArrayList<Map<String,Object>>();var publicBoard=PublicTable.capture(table);var elements=tiles(view());
+        for(int seat=0;seat<4;seat++){
+            var meld=publicBoard.seats().get(seat).melds().getFirst();require(meld.tiles().size()==4,"concealed kan did not create exactly four public tiles");
+            for(int index=0;index<4;index++){
+                boolean down=index==0||index==3;var data=meld.tiles().get(index);require(data.faceDown()==down,"concealed-kan public faceDown mask wrong");
+                require((data.code()<0)==down,"concealed-kan ends leaked identity or middle identities were hidden");
+                var element=elements.get("meld/"+seat+"/0/"+index);require(element!=null,"concealed-kan display entity missing");
+                var dir=PortViews.outward(seat,table.getBlockState());float yaw=switch(dir){case EAST->-90;case WEST->90;case SOUTH->180;default->0;};
+                var expectedRotation=new org.joml.Quaternionf().rotationX((float)Math.PI/2).rotateLocalY((float)Math.toRadians(yaw));if(down)expectedRotation.rotateLocalX((float)Math.PI);
+                require(Math.abs(Math.abs(element.getLeftRotation().dot(expectedRotation))-1)<1e-5,"concealed-kan tile orientation is not face "+(down?"down":"up"));
+                var entry=new LinkedHashMap<String,Object>();entry.put("key","meld/"+seat+"/0/"+index);entry.put("seat",seat);entry.put("index",index);entry.put("faceDown",down);entry.put("expectedModel","riichi_mahjong:"+PortViews.tileModel(data.code()));
+                var at=element.getOverridePos();entry.put("position",List.of(at.x,at.y,at.z));var q=expectedRotation;entry.put("expectedLeftRotation",List.of(q.x,q.y,q.z,q.w));entry.put("scale",List.of(.1,.1,.1));expected.add(entry);
+            }
+        }
+        presentationStage=-1;savePresentation(true,null,expected);System.out.println("RIICHI_PRESENTATION_PASS payments="+paymentChecks.size()+" meldTiles="+expected.size());
+    }
+
+    private static void savePresentation(boolean passed,String failure,List<Map<String,Object>> meldTiles){
+        try{
+            var result=new LinkedHashMap<String,Object>();result.put("passed",passed);result.put("coreVersion",FabricLoader.getInstance().getModContainer("riichi_mahjong").orElseThrow().getMetadata().getVersion().getFriendlyString());result.put("clientConnected",owner!=null);result.put("paymentScenarios",paymentChecks);result.put("meldTiles",meldTiles);result.put("failure",failure);result.put("gameTime",runningServer.overworld().getGameTime());
+            Files.writeString(Path.of("riichi-presentation-results.json"),new GsonBuilder().setPrettyPrinting().create().toJson(result)+"\n");
+        }catch(Exception error){throw new RuntimeException(error);}
+    }
+
     private static void finishClaims(TheMahjongDriver driver){
         for(int attempt=0;driver.currentPhase() instanceof MatchPhase.AwaitingClaims claims;attempt++){
             require(attempt<8,"fixture claims did not finish");
@@ -417,7 +507,15 @@ public final class RiichiIntegrationTest implements ModInitializer {
                     if(scenario.equals("mixed"))for(int seat:new int[]{1,3})players.set(seat,player(List.of(tile(0,1),tile(0,2),tile(0,4),tile(0,5),tile(0,7),tile(0,8),tile(1,1),tile(1,4),tile(1,7),tile(2,2),tile(2,5),tile(2,8),tile(4,2)),false));
                 }
                 case "riichi"->{for(int seat=0;seat<4;seat++)players.set(seat,player(waiting(seat%3),true));active=TheMahjongRound.ActiveTile.none();phase=new MatchPhase.AwaitingDraw(0,false);sticks=6;}
-                default->throw new IllegalArgumentException("scenario must be draw, draw_observer, tsumo, claims, all_tenpai, mixed, or riichi");
+                case "concealed_kan"->{
+                    for(int seat=0;seat<4;seat++){
+                        var meld=new TheMahjongMeld.Ankan(Collections.nCopies(4,tile(seat%3,seat+2)));
+                        var hand=List.of(tile(2,1),tile(2,2),tile(2,3),tile(2,4),tile(2,5),tile(2,6),tile(2,7),tile(2,8),tile(2,9),tile(4,1));
+                        players.set(seat,new TheMahjongPlayer(25000,TheMahjongPlayer.RiichiState.NONE,false,hand,List.of(meld),List.of(),List.of()));
+                    }
+                    roundState=TheMahjongRound.State.SETUP;active=TheMahjongRound.ActiveTile.none();phase=new MatchPhase.AwaitingDraw(0,false);
+                }
+                default->throw new IllegalArgumentException("unknown fixture scenario "+scenario);
             }
             var indicators=Collections.nCopies(5,tile(4,3));
             var round=new TheMahjongRound(TheMahjongTile.Wind.EAST,1,0,sticks,0,roundState,0,-1,active,
@@ -428,6 +526,7 @@ public final class RiichiIntegrationTest implements ModInitializer {
             set(table,"driver",driver);set(table,"seats",seats);set(table,"resultAnimStage",MahjongTableBlockEntity.ResultAnimStage.NONE);table.setChanged();
             if(owner!=null){var direction=PortViews.outward(ownerSeat,state);float yaw=switch(direction){case NORTH->0;case EAST->90;case WEST->-90;default->180;};
                 owner.setGameMode(GameType.CREATIVE);owner.teleportTo(level,.5+direction.getStepX()*2.35,-60,.5+direction.getStepZ()*2.35,Set.of(),yaw,29,true);
+                if(scenario.equals("concealed_kan")){owner.getAbilities().flying=true;owner.onUpdateAbilities();owner.teleportTo(level,.5,-57.2,.5,Set.of(),0,90,true);}
             }
             var ensure=PortViews.class.getDeclaredMethod("ensure",ServerLevel.class,BlockPos.class);ensure.setAccessible(true);ensure.invoke(null,level,POS);
             System.out.println("RIICHI_FIXTURE_READY "+scenario+" owner="+(owner==null?"none":owner.getName().getString())+" seat="+ownerSeat+" pos="+POS.toShortString());

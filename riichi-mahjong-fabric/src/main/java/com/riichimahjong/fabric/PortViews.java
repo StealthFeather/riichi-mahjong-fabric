@@ -228,7 +228,7 @@ public final class PortViews {
                     for(int i=0;i<meld.tiles().size();i++){
                         var t=meld.tiles().get(i);double step=t.sideways()?.090:.073;
                         double x=t.stacked()?last:.90-cursor-width+offset+step/2;
-                        tile("meld/"+seat+"/"+m+"/"+i,t.code(),dir,x,.59+(t.stacked()?.058:0),.89,true,false,t.sideways(),null);
+                        tile("meld/"+seat+"/"+m+"/"+i,t.code(),dir,x,.59+(t.stacked()?.058:0),.89,true,t.faceDown(),t.sideways(),null);
                         if(!t.stacked()){last=x;offset+=step;}
                     }cursor+=width+.020;
                 }

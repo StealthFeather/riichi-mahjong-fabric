@@ -5,12 +5,15 @@ import com.riichimahjong.mahjongtable.*;
 import com.riichimahjong.mahjongcore.MahjongTileItems;
 import com.themahjong.*;
 import com.themahjong.driver.MatchPhase;
-import com.themahjong.yaku.TenpaiChecker;
+import com.themahjong.compat.DrawSettlement;
 
 /** The sole allowlist passed to the public tile renderer. No round, wall tiles, seed or legal actions. */
 public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<Integer> dora,List<Integer> ura,
                           String label,String roundLabel,int turnSeat,int riichiSticks,MatchPhase.Stage stage,double progress) {
-    public record Tile(int code,boolean sideways,boolean stacked){Tile(int code,boolean sideways){this(code,sideways,false);}}
+    public record Tile(int code,boolean sideways,boolean stacked,boolean faceDown){
+        Tile(int code,boolean sideways){this(code,sideways,false,false);}
+        Tile(int code,boolean sideways,boolean stacked){this(code,sideways,stacked,false);}
+    }
     public record Meld(List<Tile> tiles){}
     public record Seat(UUID owner,String name,int wind,int points,int handCount,List<Integer> handSlots,List<Integer> handGapStarts,List<Integer> revealed,List<Tile> river,List<Meld> melds,int kita,boolean riichi,boolean riichiStick,boolean drawnTile){}
     static int code(TheMahjongTile tile){return MahjongTileItems.codeForTile(tile);}
@@ -20,21 +23,12 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
         Set<Integer> revealed=new HashSet<>();
         if(ended.winResults().isEmpty()){
             for(int seat=0;seat<round.players().size();seat++)
-                if(readyForReveal(round.players().get(seat)))revealed.add(seat);
+                if(DrawSettlement.inTenpai(round.players().get(seat)))revealed.add(seat);
         }else{
             for(var win:ended.winResults())for(int seat=0;seat<Math.min(round.players().size(),win.pointDeltas().size());seat++)
                 if(win.pointDeltas().get(seat)>0)revealed.add(seat);
         }
         return Set.copyOf(revealed);
-    }
-    private static boolean readyForReveal(TheMahjongPlayer player){
-        var ownTiles=new ArrayList<>(player.currentHand());
-        player.melds().forEach(meld->ownTiles.addAll(meld.tiles()));
-        // The upstream shape checker can complete a hand with a nonexistent fifth
-        // copy. Counts include this player's melds and treat red fives as the same
-        // kind. Other players' tiles and rivers do not invalidate a ready hand.
-        return TenpaiChecker.winningTiles(player).stream().anyMatch(candidate->
-                ownTiles.stream().filter(tile->tile.matchesSuitRank(candidate)).count()<4);
     }
     static Set<Integer> claimed(List<TheMahjongPlayer> players,int seat){
         Set<Integer> out=new HashSet<>();
@@ -65,7 +59,7 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
             var p=round.players().get(i);var river=new ArrayList<Tile>();Set<Integer> claimed=claimed(round.players(),i);
             for(int d=0;d<p.discards().size();d++)if(!claimed.contains(d)){var tile=p.discards().get(d);river.add(new Tile(code(tile.tile()),tile.riichiDeclared()));}
             var melds=new ArrayList<Meld>();for(var meld:p.melds()){
-                var tiles=new ArrayList<Tile>();for(var t:MeldLayout.arrange(meld,i,round.players().size()))tiles.add(new Tile(t.concealed()?-1:code(t.tile()),t.sideways(),t.stacked()));
+                var tiles=new ArrayList<Tile>();for(var t:MeldLayout.arrange(meld,i,round.players().size()))tiles.add(new Tile(t.concealed()?-1:code(t.tile()),t.sideways(),t.stacked(),t.concealed()));
                 melds.add(new Meld(List.copyOf(tiles)));
             }
             // The allowlist also includes every tenpai hand at a drawn-round result.

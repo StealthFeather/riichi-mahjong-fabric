@@ -48,3 +48,13 @@ node riichi-mahjong-fabric/integration/check-discard-gap.cjs <server/riichi-disc
 The fixture discards the unique souzu-nine tile in slot eight. All other entities must retain their original coordinates and faces through tick nine; the old drawn tile stays in its separated right-hand position. At tick ten the thirteen survivors must occupy contiguous sorted slots. Remove the fixture table, unfreeze ticks, quit the client and stop the server after testing.
 
 The test loader registers its end-tick callback before the mod's render callback, so the addon invokes that same view update before reading server-side geometry. This changes no game time. The timing evidence comes from real game ticks, the frozen vanilla client's `gameTime`, and actual received display entities.
+
+`riichi_test presentation` validates concealed kans and exhaustive-draw payments. It starts five real driver scenarios with one live-wall tile, draws that tile, discards it, verifies that legal ron claims remain open without an early payment, submits real passes, then checks the resulting exhaustive-draw scores and matching public hand reveals. Four-player scenarios cover one, two and three tenpai players; three-player scenarios cover one and two. Each uses a 3000-point noten pool, and each player has a middle-tile river so nagashi mangan cannot replace the noten settlement.
+
+After those checks it leaves four concealed kans, one at each table side. Wait for `RIICHI_PRESENTATION_PASS`, record three actual client entity snapshots plus a screenshot, and compare the entities with:
+
+```text
+node riichi-mahjong-fabric/integration/check-presentation.cjs <server/riichi-presentation-results.json> <capture.jsonl>
+```
+
+The checker confirms all sixteen actual entity models and quaternions: both outer tiles use concealed models and flip 180 degrees from the face-up middle pair. The server report records actual payment phases and points; it does not inject an already-ended draw result.

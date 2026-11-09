@@ -24,7 +24,7 @@ node riichi-mahjong-fabric/test.cjs
 
 提取命令也可读取旧版模组或备份文件。也可从可信的 Polymer bundled `0.18.7+26.3` 分发自行提取依赖，并将环境变量指向包含这些 JAR 的目录。`prepare-local-deps.cjs` 不运行导入脚本，不覆盖源码或资产。
 
-`build.cjs` 编译移植和原规则库，通过 `rules-patches.cjs` 对驱动器应用带匹配校验的小范围修复，保持上游快照不变。产物位于 `riichi-mahjong-fabric/build/libs/`。`test.cjs` 自动编译并执行 `src/test/java/com/riichimahjong/fabric/*Regression.java`，将通过结果与当前 JAR 的 SHA-256 绑定，写入 `build/verification.json`。这些回归检查不代替真实服务器及客户端验收，结果中的两项运行验收标志默认仍为 `false`。
+`build.cjs` 编译移植代码、原规则库和 `src/rules/java` 中的共享规则兼容层；`rules-patches.cjs` 对驱动器和回合结算源码应用带匹配校验的补丁，保持上游快照不变。产物位于 `riichi-mahjong-fabric/build/libs/`。`test.cjs` 自动编译并执行 `src/test/java/com/riichimahjong/fabric/*Regression.java`，将通过结果与当前 JAR 的 SHA-256 绑定，写入 `build/verification.json`。这些回归检查不代替真实服务器及客户端验收，结果中的两项运行验收标志默认仍为 `false`。
 
 ## 合并资源包与发布附件
 

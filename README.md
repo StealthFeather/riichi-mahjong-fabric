@@ -2,13 +2,13 @@
 
 基于 [caxapexac/MinecraftRiichiMahjong](https://github.com/caxapexac/MinecraftRiichiMahjong) 的独立 Fabric 服务端移植，保留原项目麻将规则、3D 模型、材质和音效。仅服务端安装 Mod，玩家使用原版客户端并接受资源包。
 
-当前版本：`0.4.2+fabric.26.3.11`。适用于 Minecraft **26.3**、Fabric Loader **0.19.5**、Fabric API **0.163.0**、Java **25**。
+当前版本：`0.4.2+fabric.26.3.12`。适用于 Minecraft **26.3**、Fabric Loader **0.19.5**、Fabric API **0.163.0**、Java **25**。
 
 ## 下载与安装
 
-前往 [最新版 Release](https://github.com/StealthFeather/riichi-mahjong-fabric/releases/tag/v0.4.2%2Bfabric.26.3.11) 下载：
+前往 [最新版 Release](https://github.com/StealthFeather/riichi-mahjong-fabric/releases/tag/v0.4.2%2Bfabric.26.3.12) 下载：
 
-- `riichi-mahjong-0.4.2+fabric.26.3.11.jar`：放入服务端 `mods/`，同时安装对应 Fabric API。Polymer 已内嵌。
+- `riichi-mahjong-0.4.2+fabric.26.3.12.jar`：放入服务端 `mods/`，同时安装对应 Fabric API。Polymer 已内嵌。
 - `TimoryResource-26.3.zip`：包含本版全部麻将模型和中文进度的服务器资源包。已有包含 `26.3.8` 麻将资产的自定义资源包可继续使用；从 `26.3.6` 升级时须补充立直棒模型，或使用本版附件。
 - Release 下方的 `Source code (zip/tar.gz)`：GitHub 按发布标签生成的完整仓库源码，含移植代码及固定版本的上游快照。
 - `verification.json`：本版构建哈希、回归、服务器集成及原版客户端测试结果。
@@ -26,7 +26,7 @@
 
 `26.3.10` 修复本人手牌与公共牌背重叠造成的闪烁，包含最右侧普通手牌。手牌所属玩家变化或流局公开时，显示实体也会按新的可见范围重建。
 
-桌上显示随庄家轮转的门风、当前出牌者；场次、分数、余牌及结算移至本人 BossBar。鸣牌按出牌者相对方位横放，加杠叠放。每桌一个隐身、NoAI 的虚拟潜影贝承担原版客户端碰撞；服务端玩家使用相同包围盒。完整牌局留在服务端，对局中的暗牌牌面只发送给所属玩家。
+桌上显示随庄家轮转的门风、当前出牌者；场次、分数、余牌及结算移至本人 BossBar。鸣牌按出牌者相对方位横放，加杠叠放；暗杠左右两张牌背朝上，中间两张显示牌面。普通荒牌流局结算按规则预设及听牌人数计算未听罚符。每桌一个隐身、NoAI 的虚拟潜影贝承担原版客户端碰撞；服务端玩家使用相同包围盒。完整牌局留在服务端，对局中的暗牌牌面只发送给所属玩家。
 
 同时包含牌谱、预设练习牌谱、单人配对麻将、麻将祭坛、役发电机、自动点击器、物品、配方和进度。53 个麻将进度的标题与达成说明已汉化。
 
@@ -43,4 +43,4 @@
 
 原版客户端界面由显示实体、interaction、ActionBar 提示和原版容器替代。客户端 FOV 调整、渲染编辑器等不能直接移植；自定义流体以水投影，单个潜影贝的桌下碰撞为近似。
 
-`26.3.11` 通过 6 组回归和 9 项真实服务器集成检查。在原版客户端对弃牌前、弃牌接受后、第 9 tick 和第 10 tick 四个时点各采样 3 次，确认前 9 tick 保留空槽和其余牌位置，第 10 tick 合并排序，并验证空槽及后续槽位的点击映射。第 9 tick 截图和重复同场景正常推进后的截图分别复核空位与压紧显示。以上为固定场景测试，未遍历整场多人牌局；详见 [本版变更与验证](riichi-mahjong-fabric/docs/26.3.11.md)。此前闪烁修复的记录保留在 [26.3.10 说明](riichi-mahjong-fabric/docs/26.3.10.md)。
+`26.3.12` 通过 7 组回归、9 项真实服务器集成检查，以及四麻 1/2/3 人听牌、三麻 1/2 人听牌的 5 个真实流局结算场景。原版客户端的 3 次实体采样和截图复核确认四个座位共 16 张暗杠牌的两端牌背、中间牌面及摆放方向。以上为固定场景测试，未遍历整场多人牌局；详见 [本版变更与验证](riichi-mahjong-fabric/docs/26.3.12.md)。此前验证保留在 [26.3.11 说明](riichi-mahjong-fabric/docs/26.3.11.md) 和 [26.3.10 说明](riichi-mahjong-fabric/docs/26.3.10.md)。

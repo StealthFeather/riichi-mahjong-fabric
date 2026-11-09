@@ -5,11 +5,16 @@ for(const required of [javaTool('javac'),javaTool('jar'),p.join(server,'versions
 fs.mkdirSync(build,{recursive:true});fs.mkdirSync(p.join(build,'libs'),{recursive:true});fs.rmSync(classes,{recursive:true,force:true});fs.mkdirSync(classes,{recursive:true});fs.mkdirSync(rules,{recursive:true});
 const compile=(name,args)=>{const f=p.join(build,name+'.args');fs.writeFileSync(f,args.map(s=>'"'+s.replaceAll('\\','/')+'"').join('\n'));exec(javaTool('javac'),['-J-Duser.language=en','-J-Duser.country=US','@'+f],{stdio:'inherit',windowsHide:true});};
 const ruleSources=files(p.join(project,'upstream/themahjong/src/main/java'),'.java');
-const driverIndex=ruleSources.findIndex(f=>f.endsWith(p.join('driver','TheMahjongDriver.java')));
-const patchedDriver=p.join(build,'rule-patches/com/themahjong/driver/TheMahjongDriver.java');
-fs.mkdirSync(p.dirname(patchedDriver),{recursive:true});
-fs.writeFileSync(patchedDriver,require('./rules-patches.cjs')(fs.readFileSync(ruleSources[driverIndex],'utf8').replaceAll('\r\n','\n')));
-ruleSources[driverIndex]=patchedDriver;
+const patches=require('./rules-patches.cjs');
+for(const [relative,patch] of [['driver/TheMahjongDriver.java',patches],['TheMahjongRound.java',patches.round]]){
+ const sourceIndex=ruleSources.findIndex(f=>f.endsWith(p.join('com','themahjong',relative)));
+ if(sourceIndex<0)throw Error('Missing upstream rule source: '+relative);
+ const patched=p.join(build,'rule-patches/com/themahjong',relative);
+ fs.mkdirSync(p.dirname(patched),{recursive:true});
+ fs.writeFileSync(patched,patch(fs.readFileSync(ruleSources[sourceIndex],'utf8').replaceAll('\r\n','\n')));
+ ruleSources[sourceIndex]=patched;
+}
+ruleSources.push(...files(p.join(project,'src/rules/java'),'.java'));
 compile('rules',['--release','25','-encoding','UTF-8','-proc:none','-d',rules,...ruleSources]);
 const cp=[...new Set([rules,p.join(server,'versions/26.3/server-26.3.jar'),...files(p.join(server,'libraries'),'.jar'),...files(p.join(server,'.fabric/processedMods'),'.jar'),...polymerClasspath()])].join(p.delimiter);
 compile('main',['--release','25','-encoding','UTF-8','-proc:none','-Xmaxerrs','200','-cp',cp,'-d',classes,...files(p.join(project,'src/main/java'),'.java')]);
