@@ -5,14 +5,37 @@ import com.riichimahjong.mahjongtable.*;
 import com.riichimahjong.mahjongcore.MahjongTileItems;
 import com.themahjong.*;
 import com.themahjong.driver.MatchPhase;
+import com.themahjong.yaku.TenpaiChecker;
 
 /** The sole allowlist passed to the public tile renderer. No round, wall tiles, seed or legal actions. */
 public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<Integer> dora,List<Integer> ura,
                           String label,String roundLabel,int turnSeat,int riichiSticks,MatchPhase.Stage stage,double progress) {
     public record Tile(int code,boolean sideways,boolean stacked){Tile(int code,boolean sideways){this(code,sideways,false);}}
     public record Meld(List<Tile> tiles){}
-    public record Seat(UUID owner,String name,int wind,int points,int handCount,List<Integer> revealed,List<Tile> river,List<Meld> melds,int kita,boolean riichi,boolean riichiStick){}
+    public record Seat(UUID owner,String name,int wind,int points,int handCount,List<Integer> revealed,List<Tile> river,List<Meld> melds,int kita,boolean riichi,boolean riichiStick,boolean drawnTile){}
     static int code(TheMahjongTile tile){return MahjongTileItems.codeForTile(tile);}
+    /** Concealed identities become public only after the round has ended. */
+    static Set<Integer> revealedSeats(MatchPhase phase,TheMahjongRound round){
+        if(round==null||!(phase instanceof MatchPhase.RoundEnded ended))return Set.of();
+        Set<Integer> revealed=new HashSet<>();
+        if(ended.winResults().isEmpty()){
+            for(int seat=0;seat<round.players().size();seat++)
+                if(readyForReveal(round.players().get(seat)))revealed.add(seat);
+        }else{
+            for(var win:ended.winResults())for(int seat=0;seat<Math.min(round.players().size(),win.pointDeltas().size());seat++)
+                if(win.pointDeltas().get(seat)>0)revealed.add(seat);
+        }
+        return Set.copyOf(revealed);
+    }
+    private static boolean readyForReveal(TheMahjongPlayer player){
+        var ownTiles=new ArrayList<>(player.currentHand());
+        player.melds().forEach(meld->ownTiles.addAll(meld.tiles()));
+        // The upstream shape checker can complete a hand with a nonexistent fifth
+        // copy. Counts include this player's melds and treat red fives as the same
+        // kind. Other players' tiles and rivers do not invalidate a ready hand.
+        return TenpaiChecker.winningTiles(player).stream().anyMatch(candidate->
+                ownTiles.stream().filter(tile->tile.matchesSuitRank(candidate)).count()<4);
+    }
     static Set<Integer> claimed(List<TheMahjongPlayer> players,int seat){
         Set<Integer> out=new HashSet<>();
         for(var player:players)for(var meld:player.melds()){
@@ -30,6 +53,7 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
         var driver=table.driver();var round=driver==null?null:driver.match().currentRound().orElse(null);
         var infos=table.seats();var out=new ArrayList<Seat>();
         MatchPhase phase=driver==null?null:driver.currentPhase();
+        Set<Integer> visibleHands=revealedSeats(phase,round);
         Set<Integer> winners=new HashSet<>();boolean ura=false;
         if(phase instanceof MatchPhase.RoundEnded ended&&!ended.winResults().isEmpty()&&round!=null){
             for(var win:ended.winResults())for(int i=0;i<win.pointDeltas().size();i++)if(win.pointDeltas().get(i)>0){winners.add(i);if(round.players().get(i).riichi())ura=true;}
@@ -37,18 +61,18 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
         for(int i=0;i<infos.size();i++){
             var info=infos.get(i);UUID owner=info.occupant().orElse(null);var player=owner==null?null:table.getLevel().getPlayerByUUID(owner);
             String name=player==null?(owner==null?(round==null?"空位":"BOT"):"离线玩家"):player.getName().getString();
-            if(round==null||i>=round.players().size()){out.add(new Seat(owner,info.enabled()?name:"关闭",i,0,0,List.of(),List.of(),List.of(),0,false,false));continue;}
+            if(round==null||i>=round.players().size()){out.add(new Seat(owner,info.enabled()?name:"关闭",i,0,0,List.of(),List.of(),List.of(),0,false,false,false));continue;}
             var p=round.players().get(i);var river=new ArrayList<Tile>();Set<Integer> claimed=claimed(round.players(),i);
             for(int d=0;d<p.discards().size();d++)if(!claimed.contains(d)){var tile=p.discards().get(d);river.add(new Tile(code(tile.tile()),tile.riichiDeclared()));}
             var melds=new ArrayList<Meld>();for(var meld:p.melds()){
                 var tiles=new ArrayList<Tile>();for(var t:MeldLayout.arrange(meld,i,round.players().size()))tiles.add(new Tile(t.concealed()?-1:code(t.tile()),t.sideways(),t.stacked()));
                 melds.add(new Meld(List.copyOf(tiles)));
             }
-            // Read a concealed identity only for a winner whose result has already been accepted.
-            List<Integer> revealed=winners.contains(i)?round.handDisplayOrder(i).stream().map(PublicTable::code).toList():List.of();
+            // The allowlist also includes every tenpai hand at a drawn-round result.
+            List<Integer> revealed=visibleHands.contains(i)?table.handDisplayOrder(i).stream().map(PublicTable::code).toList():List.of();
             int count=p.currentHand().size(); // The public value is only the count.
             boolean deposited=p.riichi()&&driver.snapshot().pendingRiichiCommit().orElse(-1)!=i;
-            out.add(new Seat(owner,name,Math.floorMod(i-round.dealerSeat(),round.players().size()),p.points(),count,revealed,List.copyOf(river),List.copyOf(melds),p.kitaCount(),p.riichi(),deposited));
+            out.add(new Seat(owner,name,Math.floorMod(i-round.dealerSeat(),round.players().size()),p.points(),count,revealed,List.copyOf(river),List.copyOf(melds),p.kitaCount(),p.riichi(),deposited,table.hasSeparatedDrawnTile(i)));
         }
         String label="";
         if(phase instanceof MatchPhase.RoundEnded ended){

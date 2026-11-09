@@ -21,6 +21,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Display;
 import net.minecraft.world.item.*;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.AABB;
@@ -78,11 +79,24 @@ public final class PortViews {
         var d=new ItemDisplayElement(model(model));d.setItemDisplayContext(ItemDisplayContext.NONE);d.setOverridePos(pos);d.setScale(new Vector3f(scale));d.setLeftRotation(rotation);d.setRightRotation(new Quaternionf().rotationY((float)Math.PI));d.setDisplaySize(3,3);holder.addElement(d);return d;
     }
     static boolean near(ServerPlayer p,ServerLevel level,BlockPos pos){return !p.isSpectator()&&p.level()==level&&p.distanceToSqr(pos.getX()+.5,pos.getY()+.5,pos.getZ()+.5)<=64;}
+    static boolean clearButtonRay(ServerPlayer player,MahjongTableBlockEntity table,Vec3 start,Vec3 hit){
+        double distance=start.distanceToSqr(hit);
+        var block=player.level().clip(new ClipContext(start,hit,ClipContext.Block.COLLIDER,ClipContext.Fluid.NONE,player));
+        if(block.getType()!=net.minecraft.world.phys.HitResult.Type.MISS&&start.distanceToSqr(block.getLocation())<distance-1e-8)return false;
+        var view=VIEWS.get(new Key(player.level(),table.getBlockPos()));if(view==null)return false;
+        for(var visual:view.sent.values()){
+            var tileHit=TableHitTest.tile(start,hit,visual.position(),visual.scale(),visual.rotation());
+            if(tileHit.isPresent()&&start.distanceToSqr(tileHit.get())<distance-1e-8)return false;
+        }
+        return true;
+    }
     public static boolean handleTileHit(ServerPlayer player,MahjongTableBlockEntity table){
         if(table.recentPrivateClick(player))return true;
         var view=VIEWS.get(new Key(player.level(),table.getBlockPos()));
         if(view==null)return false;
         Vec3 start=player.getEyePosition(),end=start.add(player.getLookAngle().scale(8));
+        var privateHand=view.hands.get(player.getUUID());
+        if(privateHand!=null&&privateHand.handleButtonHit(start,end))return true;
         var pos=table.getBlockPos();
         var surface=new AABB(pos.getX()-.5,pos.getY()+TableLayout.TABLE_TOP-2,pos.getZ()-.5,pos.getX()+1.5,pos.getY()+TableLayout.TABLE_TOP,pos.getZ()+1.5);
         end=surface.clip(start,end).orElse(end);
@@ -194,7 +208,7 @@ public final class PortViews {
             }
             for(int seat=0;seat<board.seats().size();seat++){
                 var s=board.seats().get(seat);Direction dir=outward(seat,state);double fraction=board.stage()==com.themahjong.driver.MatchPhase.Stage.WALL_BUILDING?0:board.stage()==com.themahjong.driver.MatchPhase.Stage.DEALING_HANDS?board.progress():1;int count=(int)Math.round(s.handCount()*fraction);
-                for(int i=0;i<count;i++)tile("hand/"+seat+"/"+i,s.revealed().isEmpty()?-1:s.revealed().get(i),dir,-.44+i*.073,.65,.85,!s.revealed().isEmpty(),false,false,s.revealed().isEmpty()?s.owner():null);
+                for(int i=0;i<count;i++)tile("hand/"+seat+"/"+i,s.revealed().isEmpty()?-1:s.revealed().get(i),dir,TableLayout.handAlong(i,s.handCount(),s.drawnTile()),.65,.85,!s.revealed().isEmpty(),false,false,s.revealed().isEmpty()?s.owner():null);
                 for(int i=0;i<s.river().size();i++){var t=s.river().get(i);tile("river/"+seat+"/"+i,t.code(),dir,(i%6-2.5)*.073,.59,.26+(i/6)*.09,true,false,t.sideways(),null);}
                 double cursor=0;for(int m=0;m<s.melds().size();m++){
                     var meld=s.melds().get(m);double width=meld.tiles().stream().filter(t->!t.stacked()).mapToDouble(t->t.sideways()?.090:.073).sum();
@@ -209,13 +223,14 @@ public final class PortViews {
                 for(int i=0;i<s.kita();i++)tile("kita/"+seat+"/"+i,30,dir,-.53+i*.073,.59,.57,true,false,false,null);
                 if(s.riichiStick()){
                     String key="riichi/"+seat;used.add(key);var stick=tiles.get(key);
-                    if(stick==null){stick=display(holder,"bridge/table_riichi_stick",TableLayout.anchor(pos,dir,0,.585,.60),.5f,rotation(dir,false,false));tiles.put(key,stick);}
+                    // The centre wind plate is 4/16 wide and its top is at 9.5/16.
+                    if(stick==null){stick=display(holder,"bridge/table_riichi_stick",anchor(pos,dir,0,.596,.09),.22f,rotation(dir,false,false));tiles.put(key,stick);}
                 }
             }
             // Deposits carried from a drawn hand stay visible in the centre.
             int carried=Math.max(0,board.riichiSticks()-(int)board.seats().stream().filter(PublicTable.Seat::riichiStick).count());
             for(int i=0;i<carried;i++){
-                String key="carried-riichi/"+i;used.add(key);if(!tiles.containsKey(key))tiles.put(key,display(holder,"bridge/table_riichi_stick",anchor(pos,Direction.NORTH,0,.59+(i/4)*.025,(i%4-1.5)*.045),.3f,new Quaternionf()));
+                String key="carried-riichi/"+i;used.add(key);if(!tiles.containsKey(key))tiles.put(key,display(holder,"bridge/table_riichi_stick",anchor(pos,Direction.NORTH,0,.610+(i/4)*.012,(i%4-1.5)*.038),.22f,new Quaternionf()));
             }cleanup();
         }
         void updatePrivate(MahjongTableBlockEntity table){

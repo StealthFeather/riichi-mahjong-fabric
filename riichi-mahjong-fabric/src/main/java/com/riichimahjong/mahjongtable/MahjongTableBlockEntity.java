@@ -6,6 +6,8 @@ import com.riichimahjong.mahjongcore.MahjongWinEffects;
 import com.riichimahjong.cuterenderer.CuteClickHandler;
 import com.riichimahjong.cuterenderer.InteractKey;
 import com.riichimahjong.themahjongcompat.DriverNbt;
+import com.riichimahjong.fabric.HandDisplayState;
+import com.themahjong.TheMahjongTile;
 import com.themahjong.TheMahjongMatch;
 import com.themahjong.driver.MahjongPlayerInterface;
 import com.themahjong.driver.MatchPhase;
@@ -112,6 +114,8 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     private List<SeatInfo> seats = defaultSeats();
     private final ReturningSeats returningSeats = new ReturningSeats();
     private final Map<UUID,Long> privateClicks = new HashMap<>();
+    private final HandDisplayState handDisplay = new HandDisplayState();
+    @Nullable private TheMahjongDriver handDisplayDriver;
     private RuleSetPreset preset = RuleSetPreset.MAHJONG_SOUL_4P;
     private long randomSeed;
 
@@ -150,6 +154,21 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
 
     @Nullable
     public TheMahjongDriver driver() { return driver; }
+
+    private void updateHandDisplay() {
+        if (handDisplayDriver != driver) { handDisplay.clear(); handDisplayDriver = driver; }
+        if (driver != null && level != null) driver.match().currentRound().ifPresent(round -> handDisplay.update(round, level.getGameTime()));
+    }
+
+    public List<TheMahjongTile> handDisplayOrder(int seat) {
+        updateHandDisplay();
+        return handDisplay.hand(seat);
+    }
+
+    public boolean hasSeparatedDrawnTile(int seat) {
+        updateHandDisplay();
+        return handDisplay.separated(seat);
+    }
 
     public List<SeatInfo> seats() { return List.copyOf(seats); }
 
@@ -436,6 +455,12 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         var roundOpt = driver.match().currentRound();
         if (roundOpt.isEmpty()) return;
         if (level != null) lastCuteClickGameTime = level.getGameTime();
+        if (key instanceof InteractKey.SeatSlot slot && slot.area() == InteractKey.SeatSlot.AREA_HAND) {
+            updateHandDisplay();
+            int canonical = handDisplay.canonicalIndex(seat, slot.index(), roundOpt.orElseThrow());
+            if (canonical < 0) return;
+            key = new InteractKey.SeatSlot(slot.seat(), slot.area(), (short)canonical);
+        }
         human.onCuteClick(key, driver, seat, player);
 
         markChangedAndSynced();
@@ -507,6 +532,8 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         if (driver == null) return;
         if (!(level instanceof ServerLevel sl)) return;
 
+        updateHandDisplay();
+
         MatchPhase prevPhase = driver.currentPhase();
         TheMahjongMatch prevMatch = driver.match();
 
@@ -521,6 +548,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             driver.advance(SECONDS_PER_TICK);
         }
         MatchPhase nextPhase = driver.currentPhase();
+        updateHandDisplay();
 
         boolean playerStateChanged = false;
         for (int i = 0; i < driver.match().playerCount(); i++) {
