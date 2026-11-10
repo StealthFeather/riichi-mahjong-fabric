@@ -9,8 +9,11 @@ const regressions=fs.readdirSync(testRoot).filter(name=>name.endsWith('Regressio
 const testArgs=['--release','25','-encoding','UTF-8','-proc:none','-cp',runtime,'-d',out,...regressions.map(name=>p.join(testRoot,name+'.java'))];
 const testArgfile=p.join(project,'build/tests.args');fs.writeFileSync(testArgfile,testArgs.map(value=>'"'+value.replaceAll('\\','/')+'"').join('\n'));
 exec(javaTool('javac'),['-J-Duser.language=en','-J-Duser.country=US','@'+testArgfile],{stdio:'inherit',windowsHide:true});
+exec(process.execPath,['--test',p.join(project,'ai/test.cjs')],{stdio:'inherit',windowsHide:true});
 for(const regression of regressions)exec(javaTool('java'),['-cp',runtime,'com.riichimahjong.fabric.'+regression],{stdio:'inherit',windowsHide:true});
 const result={version,passed:true,regressionClasses:regressions,checks:['successive-riichi','called-riichi-deposit','claim-expiry','bot-takeover','meld-directions-3p-4p','table-centre-2x2','wind-label-orientation','independent-human-riichi-controls'],clientVisualTest:false,serverIntegrationTest:false};
 result.checks.push('tile-hit-before-table','returning-seat-reservations','human-rejoin-after-bot');
+result.checks.push('three-level-real-kobalab-ai','ai-private-information-boundary','ai-missing-node-and-timeout-fallback','ai-invalid-response-rejection','ai-stale-decision-cancellation');
+result.ai={nodeWorkerTests:true,pinnedAi:'@kobalab/majiang-ai@1.3.0',pinnedCore:'@kobalab/majiang-core@1.3.4',fourPlayerOnly:true,difficultyStrengthCalibrated:false};
 result.jarSha256=crypto.createHash('sha256').update(fs.readFileSync(jarPath)).digest('hex');
 fs.writeFileSync(p.join(project,'build/verification.json'),JSON.stringify(result,null,2)+'\n');

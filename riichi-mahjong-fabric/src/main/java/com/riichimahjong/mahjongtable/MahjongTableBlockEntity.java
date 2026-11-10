@@ -7,6 +7,8 @@ import com.riichimahjong.cuterenderer.CuteClickHandler;
 import com.riichimahjong.cuterenderer.InteractKey;
 import com.riichimahjong.themahjongcompat.DriverNbt;
 import com.riichimahjong.fabric.HandDisplayState;
+import com.riichimahjong.ai.BotDifficulty;
+import com.riichimahjong.ai.KobalabBot;
 import com.themahjong.TheMahjongTile;
 import com.themahjong.TheMahjongMatch;
 import com.themahjong.driver.MahjongPlayerInterface;
@@ -102,6 +104,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     private static final String NBT_SEAT_LEGACY_TYPE = "type";
     private static final String NBT_PRESET = "Preset";
     private static final String NBT_RANDOM_SEED = "RandomSeed";
+    private static final String NBT_BOT_DIFFICULTY = "BotDifficulty";
     private static final String NBT_MINT_TILES = "MintTilesFromNothing";
     private static final String NBT_DELIVER_TO_MAIN_HAND = "DeliverToMainHand";
     private static final String NBT_HUMAN_PLAYERS = "HumanPlayers";
@@ -117,6 +120,9 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     private final HandDisplayState handDisplay = new HandDisplayState();
     @Nullable private TheMahjongDriver handDisplayDriver;
     private RuleSetPreset preset = RuleSetPreset.MAHJONG_SOUL_4P;
+    private BotDifficulty defaultBotDifficulty = BotDifficulty.NORMAL;
+    private final Map<Integer, BotDifficulty> seatBotDifficulties = new HashMap<>();
+    private boolean botsSuspended;
     private long randomSeed;
 
     private boolean mintTilesFromNothing = true;
@@ -211,6 +217,37 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
 
     public RuleSetPreset preset() { return preset; }
 
+    public BotDifficulty defaultBotDifficulty() { return defaultBotDifficulty; }
+
+    public Optional<BotDifficulty> botDifficultyOverride(int seat) {
+        return Optional.ofNullable(seatBotDifficulties.get(seat));
+    }
+
+    public BotDifficulty botDifficulty(int seat) {
+        return seatBotDifficulties.getOrDefault(seat, defaultBotDifficulty);
+    }
+
+    public boolean setDefaultBotDifficulty(BotDifficulty difficulty) {
+        if (driver != null || difficulty == null) return false;
+        defaultBotDifficulty = difficulty;
+        markChangedAndSynced();
+        return true;
+    }
+
+    public boolean setSeatBotDifficulty(int seat, @Nullable BotDifficulty difficulty) {
+        if (driver != null || seat < 0 || seat >= DEFAULT_SEAT_COUNT) return false;
+        if (difficulty == null) seatBotDifficulties.remove(seat);
+        else seatBotDifficulties.put(seat, difficulty);
+        markChangedAndSynced();
+        return true;
+    }
+
+    public void cycleSeatBotDifficulty(int seat) {
+        BotDifficulty current = seatBotDifficulties.get(seat);
+        setSeatBotDifficulty(seat, current == null ? BotDifficulty.EASY
+                : current == BotDifficulty.HARD ? null : current.next());
+    }
+
     public RuleSetPreset effectivePreset() {
         if (preset == RuleSetPreset.MAHJONG_SOUL_4P
                 && seats.size() >= 4 && !seats.get(3).enabled()) {
@@ -238,7 +275,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         if (seats.get(seat).occupant().filter(uuid::equals).isPresent()) return true;
         if (driver != null) {
             returningSeats.remember(uuid,seat);
-            driver.replacePlayer(seat,buildPlayer(SeatInfo.claimed(uuid)));
+            replaceController(seat, buildPlayer(SeatInfo.claimed(uuid), seat, driver.match().playerCount(), activeRedFives()));
         }
         seatOfPlayer(uuid).ifPresent(prev -> {
             if (prev != seat) seats.set(prev, SeatInfo.open());
@@ -254,7 +291,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         if (info.occupant().isPresent()) {
             if (driver != null && seat < driver.match().playerCount()) {
                 returningSeats.remember(info.occupant().orElseThrow(),seat);
-                driver.replacePlayer(seat, StupidActiveBot.humanLike());
+                replaceController(seat, buildBot(seat, driver.match().playerCount(), activeRedFives()));
             }
             seats.set(seat, SeatInfo.open());
             markChangedAndSynced();
@@ -322,7 +359,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
 
         resetReturningSeats();
         this.randomSeed = seed;
-        this.driver = new TheMahjongDriver(match, buildPlayersFromSeats(activeSeats), new java.security.SecureRandom());
+        this.driver = new TheMahjongDriver(match, buildPlayersFromSeats(activeSeats, match.tileSet().tiles().stream().anyMatch(TheMahjongTile::redDora)), new java.security.SecureRandom());
         this.driver.setAnimationsEnabled(true);
         this.driver.startMatch();
         markChangedAndSynced();
@@ -379,7 +416,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         resetReturningSeats();
         this.randomSeed = seed;
         this.driver = new TheMahjongDriver(
-                fixedMatch, buildPlayersFromSeats(activeSeats), new Random(seed), snap);
+                fixedMatch, buildPlayersFromSeats(activeSeats, fixedMatch.tileSet().tiles().stream().anyMatch(TheMahjongTile::redDora)), new Random(seed), snap);
         this.driver.setAnimationsEnabled(true);
         markChangedAndSynced();
         return StartMatchResult.STARTED;
@@ -449,6 +486,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             throw new IllegalStateException("endGame must be called on the server");
         }
         if (driver == null) return;
+        closeBotPlayers();
         this.driver = null;
         returningSeats.clear();
         privateClicks.clear();
@@ -529,20 +567,61 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         while (seats.size() < wanted) seats.add(SeatInfo.open());
     }
 
-    private static List<MahjongPlayerInterface> buildPlayersFromSeats(List<SeatInfo> seats) {
+    private List<MahjongPlayerInterface> buildPlayersFromSeats(List<SeatInfo> seats, boolean redFives) {
         List<MahjongPlayerInterface> out = new ArrayList<>(seats.size());
-        for (SeatInfo info : seats) out.add(buildPlayer(info));
+        for (int seat = 0; seat < seats.size(); seat++) out.add(buildPlayer(seats.get(seat), seat, seats.size(), redFives));
         return out;
     }
 
-    private static MahjongPlayerInterface buildPlayer(SeatInfo info) {
+    private MahjongPlayerInterface buildPlayer(SeatInfo info, int seat, int playerCount, boolean redFives) {
         if (info.occupant().isPresent()) {
             MahjongTableHumanPlayer p = new MahjongTableHumanPlayer();
             p.setOccupant(info.occupant().get());
             p.setAutoDrawAfterSeconds(0.0);
             return p;
         }
-        return StupidActiveBot.humanLike();
+        return buildBot(seat, playerCount, redFives);
+    }
+
+    private MahjongPlayerInterface buildBot(int seat, int playerCount, boolean redFives) {
+        return playerCount == 4 ? new KobalabBot(botDifficulty(seat), redFives) : StupidActiveBot.humanLike();
+    }
+
+    private boolean activeRedFives() {
+        return driver != null && driver.match().tileSet().tiles().stream().anyMatch(TheMahjongTile::redDora);
+    }
+
+    private void replaceController(int seat, MahjongPlayerInterface replacement) {
+        MahjongPlayerInterface previous = driver.playerAt(seat);
+        driver.replacePlayer(seat, replacement);
+        if (previous instanceof KobalabBot bot) bot.close();
+    }
+
+    private void closeBotPlayers() {
+        if (driver == null) return;
+        for (int seat = 0; seat < driver.match().playerCount(); seat++) {
+            if (driver.playerAt(seat) instanceof KobalabBot bot) bot.close();
+        }
+    }
+
+    @Override
+    public void setRemoved() {
+        closeBotPlayers();
+        botsSuspended = true;
+        super.setRemoved();
+    }
+
+    @Override
+    public void clearRemoved() {
+        super.clearRemoved();
+        if (!botsSuspended) return;
+        botsSuspended = false;
+        if (driver == null) return;
+        for (int seat = 0; seat < driver.match().playerCount(); seat++) {
+            if (driver.playerAt(seat) instanceof KobalabBot) {
+                replaceController(seat, buildBot(seat, driver.match().playerCount(), activeRedFives()));
+            }
+        }
     }
 
     private void serverTick() {
@@ -916,6 +995,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
 
         out.putBoolean(NBT_LAST_POWERED, lastPowered);
         out.putString(NBT_PRESET, preset.name());
+        out.putString(NBT_BOT_DIFFICULTY, defaultBotDifficulty.name());
         out.putBoolean(NBT_MINT_TILES, mintTilesFromNothing);
         out.putBoolean(NBT_DELIVER_TO_MAIN_HAND, deliverToMainHand);
 
@@ -923,10 +1003,13 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         out.putInt(NBT_RESULT_ANIM_YAKU_IDX, resultAnimYakuIdx);
 
         ValueOutput.ValueOutputList seatsOut = out.childrenList(NBT_SEATS);
-        for (SeatInfo info : seats) {
+        for (int seat = 0; seat < seats.size(); seat++) {
+            SeatInfo info = seats.get(seat);
             ValueOutput entry = seatsOut.addChild();
             entry.putBoolean(NBT_SEAT_ENABLED, info.enabled());
             info.occupant().ifPresent(uuid -> entry.store(NBT_SEAT_OCCUPANT, UUIDUtil.CODEC, uuid));
+            BotDifficulty override = seatBotDifficulties.get(seat);
+            if (override != null) entry.putString(NBT_BOT_DIFFICULTY, override.name());
         }
 
         ValueOutput.ValueOutputList inventoryOut = out.childrenList(NBT_INVENTORY);
@@ -961,6 +1044,11 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     protected void loadAdditional(ValueInput in) {
         super.loadAdditional(in);
 
+        closeBotPlayers();
+        botsSuspended = false;
+        defaultBotDifficulty = BotDifficulty.parse(in.getString(NBT_BOT_DIFFICULTY).orElse(null));
+        seatBotDifficulties.clear();
+
         lastPowered = in.getBooleanOr(NBT_LAST_POWERED, false);
         mintTilesFromNothing = in.getBooleanOr(NBT_MINT_TILES, true);
         deliverToMainHand = in.getBooleanOr(NBT_DELIVER_TO_MAIN_HAND, true);
@@ -990,6 +1078,13 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
                         NBT_SEAT_ENABLED,
                         entry.getString(NBT_SEAT_LEGACY_TYPE).isPresent());
                 UUID uuid = entry.read(NBT_SEAT_OCCUPANT, UUIDUtil.CODEC).orElse(null);
+                int seat = loaded.size();
+                if (seat < DEFAULT_SEAT_COUNT) {
+                    entry.getString(NBT_BOT_DIFFICULTY).ifPresent(name -> {
+                        try { seatBotDifficulties.put(seat, BotDifficulty.valueOf(name)); }
+                        catch (IllegalArgumentException ignored) { /* Invalid overrides inherit the table default. */ }
+                    });
+                }
                 loaded.add(new SeatInfo(enabled, enabled ? Optional.ofNullable(uuid) : Optional.empty()));
             }
             seats = loaded;
@@ -1018,9 +1113,13 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
                 if (activeSeats.size() == playerCount) break;
             }
             while (activeSeats.size() < playerCount) activeSeats.add(SeatInfo.open());
+            boolean redFives = false;
+            for (ValueInput entry : driverIn.get().childOrEmpty("match").childOrEmpty("tileSet").childrenListOrEmpty("entries")) {
+                if (entry.childOrEmpty("tile").getBooleanOr("redDora", false)) redFives = true;
+            }
             this.driver = DriverNbt.readDriver(
                     driverIn.get(),
-                    buildPlayersFromSeats(activeSeats),
+                    buildPlayersFromSeats(activeSeats, redFives),
                     new java.security.SecureRandom());
             this.driver.setAnimationsEnabled(true);
 

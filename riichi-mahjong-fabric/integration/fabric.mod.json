@@ -4,6 +4,6 @@
   "version": "1.0.0",
   "name": "Riichi isolated integration test (never deploy)",
   "environment": "server",
-  "entrypoints": { "main": ["com.riichimahjong.fabric.RiichiIntegrationTest"] },
+  "entrypoints": { "main": ["com.riichimahjong.fabric.RiichiIntegrationTest", "com.riichimahjong.fabric.AiIntegrationTest"] },
   "depends": { "fabricloader": ">=0.19.0", "fabric-api": "*", "minecraft": "26.3", "java": ">=25", "riichi_mahjong": "*" }
 }

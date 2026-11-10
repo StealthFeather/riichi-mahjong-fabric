@@ -19,6 +19,14 @@ compile('rules',['--release','25','-encoding','UTF-8','-proc:none','-d',rules,..
 const cp=[...new Set([rules,p.join(server,'versions/26.3/server-26.3.jar'),...files(p.join(server,'libraries'),'.jar'),...files(p.join(server,'.fabric/processedMods'),'.jar'),...polymerClasspath()])].join(p.delimiter);
 compile('main',['--release','25','-encoding','UTF-8','-proc:none','-Xmaxerrs','200','-cp',cp,'-d',classes,...files(p.join(project,'src/main/java'),'.java')]);
 copyTree(rules,classes);copyTree(p.join(project,'src/main/resources'),classes);
+// Ship the pinned, offline AI sources; Node itself remains a server prerequisite.
+const aiSource=p.join(project,'ai'),aiTarget=p.join(classes,'ai');
+for(const name of ['worker.cjs','dependencies.json','node_modules']){
+ if(!fs.existsSync(p.join(aiSource,name)))throw Error('Missing vendored AI runtime: '+name);
+ copyTree(p.join(aiSource,name),p.join(aiTarget,name));
+}
+const aiFiles=files(aiTarget,'').map(file=>p.relative(aiTarget,file).replaceAll('\\','/')).sort();
+fs.writeFileSync(p.join(aiTarget,'runtime-files.txt'),aiFiles.join('\n')+'\n');
 fs.mkdirSync(p.join(classes,'META-INF/jars'),{recursive:true});fs.copyFileSync(polymerJar,p.join(classes,'META-INF/jars/polymer-bundled.jar'));
 for(const file of ['LICENSE.txt'])fs.copyFileSync(p.join(project,'upstream',file),p.join(classes,file));
 fs.copyFileSync(p.join(project,'upstream/neoforge/src/main/resources/LICENSE_mahjong4j.txt'),p.join(classes,'LICENSE_mahjong4j.txt'));

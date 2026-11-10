@@ -1,5 +1,7 @@
 # Isolated Minecraft integration addon
 
+The AI preview adds `riichi_ai_test run`. It requires only the isolated server marker, not a connected client. It validates real table settings/NBT, the actual settings menu through a captured `ServerPlayer.openMenu`, three-player fallback, save/restore, leave/rejoin, closed pending decisions and unload/reactivation. It then runs all three actual Node strategies through at least twelve accepted discards and records their separate engine counters in `riichi-ai-integration-results.json`. Success is `RIICHI_AI_INTEGRATION_PASS`. A headless menu test does not verify client rendering. Stop the disposable server normally after the report is written.
+
 This addon is kept outside `src/main` and is never part of the production JAR. It injects deterministic fixtures by reflection and changes a small area of its test world. **Install only in a disposable local test server.** It refuses to initialize unless the server working directory contains the marker file `riichi-integration-enabled`.
 
 After building the main mod, build with the same Java environment:
