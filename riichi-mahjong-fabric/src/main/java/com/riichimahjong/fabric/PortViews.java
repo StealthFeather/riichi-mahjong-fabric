@@ -21,6 +21,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Display;
 import net.minecraft.world.item.*;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.Vec3;
@@ -32,35 +33,58 @@ import org.joml.Vector3f;
 public final class PortViews {
     private record Key(ServerLevel level,BlockPos pos){}
     private static final Map<Key,View> VIEWS=new HashMap<>();
-    private static final Set<Key> PENDING=new HashSet<>();
+    private static final int LOAD_RETRY_TICKS=200;
+    private static final Map<Key,Integer> PENDING=new HashMap<>();
     public static void register(){
         ServerTickEvents.END_SERVER_TICK.register(server->{
             // Flush hand positions every tick so a discard gap closes at its exact deadline.
             // Chunk-load callbacks may run before C2ME finishes making the chunk accessible.
             // Never synchronously acquire a chunk from inside that callback.
-            var pending=List.copyOf(PENDING);PENDING.clear();
-            for(var key:pending){
+            for(var it=VIEWS.entrySet().iterator();it.hasNext();){var entry=it.next();var key=entry.getKey();var view=entry.getValue();
                 var chunk=key.level.getChunkSource().getChunkNow(key.pos.getX()>>4,key.pos.getZ()>>4);
-                if(chunk==null)continue;
+                if(chunk==null||chunk.getBlockState(key.pos)!=view.state||!view.attachedTo(chunk)){
+                    view.destroy();it.remove();
+                    if(chunk!=null)PENDING.put(key,LOAD_RETRY_TICKS);
+                    continue;
+                }
+                view.update();
+            }
+            var pending=new HashMap<>(PENDING);PENDING.clear();
+            for(var entry:pending.entrySet()){
+                var key=entry.getKey();
+                var chunk=key.level.getChunkSource().getChunkNow(key.pos.getX()>>4,key.pos.getZ()>>4);
+                if(chunk==null){
+                    // Async chunk loading may expose a load event before getChunkNow.
+                    // Retry without loading the chunk ourselves; unload cancels the request.
+                    if(entry.getValue()>1)PENDING.putIfAbsent(key,entry.getValue()-1);
+                    continue;
+                }
                 var state=chunk.getBlockState(key.pos);
                 if(!BuiltInRegistries.BLOCK.getKey(state.getBlock()).getNamespace().equals("riichi_mahjong"))continue;
                 if(state.hasProperty(BaseMultipartBlock.PART_X)&&!BaseMultipartBlock.isMaster(state))continue;
-                if(!VIEWS.containsKey(key))VIEWS.put(key,new View(key.level,key.pos,state));
-            }
-            for(var it=VIEWS.entrySet().iterator();it.hasNext();){var entry=it.next();var key=entry.getKey();var view=entry.getValue();
-                var chunk=key.level.getChunkSource().getChunkNow(key.pos.getX()>>4,key.pos.getZ()>>4);
-                if(chunk==null||chunk.getBlockState(key.pos)!=view.state){view.destroy();it.remove();continue;}
-                view.update();
+                if(!VIEWS.containsKey(key))VIEWS.put(key,new View(key.level,chunk,key.pos,state));
             }
         });
         ServerChunkEvents.CHUNK_LOAD.register((level,chunk,generated)->{for(var be:chunk.getBlockEntities().values())if(BuiltInRegistries.BLOCK.getKey(be.getBlockState().getBlock()).getNamespace().equals("riichi_mahjong"))ensure(level,be.getBlockPos());});
+        ServerChunkEvents.CHUNK_UNLOAD.register((level,chunk)->{
+            // Polymer destroys the chunk attachment on unload. Retiring the cached
+            // view here also removes private hands, HUDs and collision registrations.
+            var pos=chunk.getPos();
+            PENDING.keySet().removeIf(key->key.level==level&&(key.pos.getX()>>4)==pos.x()&&(key.pos.getZ()>>4)==pos.z());
+            VIEWS.entrySet().removeIf(entry->{var key=entry.getKey();
+                if(key.level!=level||(key.pos.getX()>>4)!=pos.x()||(key.pos.getZ()>>4)!=pos.z())return false;
+                entry.getValue().destroy();return true;
+            });
+        });
         ServerLifecycleEvents.SERVER_STARTED.register(RecordVault::start);
         ServerLifecycleEvents.SERVER_STOPPING.register(server->{VIEWS.values().forEach(View::destroy);VIEWS.clear();PENDING.clear();});
         ServerEntityEvents.ENTITY_LOAD.register((entity,level)->{if(entity.entityTags().contains("timory_mahjong_display"))entity.discard();});
     }
     public static void ensure(ServerPlayer player,BlockPos pos){ensure(player.level(),pos);}
     private static void ensure(ServerLevel level,BlockPos pos){
-        PENDING.add(new Key(level,pos.immutable()));
+        var key=new Key(level,pos.immutable());
+        // Polymer can request a view while serializing a chunk off the server thread.
+        level.getServer().execute(()->PENDING.put(key,LOAD_RETRY_TICKS));
     }
     static ItemStack model(String path){var stack=new ItemStack(Items.PAPER);stack.set(DataComponents.ITEM_MODEL,Identifier.fromNamespaceAndPath("riichi_mahjong",path));return stack;}
     static String tileModel(int code){return code<0?"bridge/tile_back":"bridge/"+BuiltInRegistries.ITEM.getKey(MahjongTileItems.itemForCode(code)).getPath();}
@@ -133,7 +157,7 @@ public final class PortViews {
         final Map<Integer,InteractionElement> seatHits=new HashMap<>();
         final TableHud hud;
         final TableCollision.Registration collision;
-        View(ServerLevel level,BlockPos pos,BlockState state){
+        View(ServerLevel level,LevelChunk chunk,BlockPos pos,BlockState state){
             this.level=level;this.pos=pos;this.state=state;String id=BuiltInRegistries.BLOCK.getKey(state.getBlock()).getPath();
             if(!id.equals("liquid_experience_block")){
                 var base=display(holder,"bridge/"+id,Vec3.atCenterOf(pos),1,blockRotation(state));
@@ -142,7 +166,10 @@ public final class PortViews {
             collision=state.getBlock() instanceof BaseMultipartBlock?TableCollision.add(holder,level,pos,state):null;
             hud=state.getBlock() instanceof MahjongTableBlock?new TableHud():null;
             label.setOverridePos(Vec3.atCenterOf(pos).add(0,1.5,0));label.setScale(new Vector3f(.2f));label.setBillboardMode(Display.BillboardConstraints.CENTER);label.setLineWidth(500);label.setDisplaySize(4,4);if(hud==null)holder.addElement(label);
-            ChunkAttachment.of(holder,level,pos);update();
+            new ChunkAttachment(holder,chunk,Vec3.atCenterOf(pos),false);update();
+        }
+        boolean attachedTo(LevelChunk chunk){
+            return holder.getAttachment() instanceof ChunkAttachment attachment&&!attachment.isRemoved()&&attachment.getChunk()==chunk;
         }
         Quaternionf blockRotation(BlockState state){
             if(state.hasProperty(BlockStateProperties.FACING)){var d=state.getValue(BlockStateProperties.FACING);if(d==Direction.UP)return new Quaternionf().rotateX((float)Math.PI/2);if(d==Direction.DOWN)return new Quaternionf().rotateX(-(float)Math.PI/2);return rotation(d,false,false);}
@@ -161,6 +188,10 @@ public final class PortViews {
         void tile(String key,int code,Direction dir,double along,double height,double distance,boolean flat,boolean down,boolean sideways,UUID hide){var q=rotation(dir,flat,down);if(sideways)q.rotateLocalY((float)Math.PI/2);tile(key,code,TableLayout.anchor(pos,dir,along,height,distance),TableLayout.TILE_SCALE,q,hide);}
         void cleanup(){for(var it=tiles.entrySet().iterator();it.hasNext();){var e=it.next();if(!used.contains(e.getKey())){holder.removeElement(e.getValue());sent.remove(e.getKey());it.remove();}}}
         void update(){
+            // A table's chunk can stay loaded for another player or a chunk ticket.
+            // ElementHolder.tick does not reconcile chunk watchers after a teleport.
+            var attachment=holder.getAttachment();
+            if(attachment!=null)attachment.updateCurrentlyTracking(List.copyOf(holder.getWatchingPlayers()));
             var be=level.getBlockEntity(pos);
             if(be instanceof MahjongTableBlockEntity table){var board=PublicTable.capture(table);if(!board.equals(previous)){renderTable(board);previous=board;}updateLobby(table,board);updatePrivate(table);hud.update(table,board);}
             else if(be instanceof MahjongSolitaireBlockEntity solitaire)renderSolitaire(solitaire);

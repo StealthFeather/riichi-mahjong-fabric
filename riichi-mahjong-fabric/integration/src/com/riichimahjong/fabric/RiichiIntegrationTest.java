@@ -11,6 +11,8 @@ import com.riichimahjong.mahjongtable.MahjongTableHumanPlayer;
 import com.riichimahjong.registry.ModBlocks;
 import com.themahjong.*;
 import com.themahjong.driver.*;
+import eu.pb4.polymer.virtualentity.api.ElementHolder;
+import eu.pb4.polymer.virtualentity.api.attachment.ChunkAttachment;
 import eu.pb4.polymer.virtualentity.api.elements.*;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
@@ -65,6 +67,14 @@ public final class RiichiIntegrationTest implements ModInitializer {
     private static final List<String> interactionChecks=new ArrayList<>();
     private static final List<Map<String,Object>> interactionButtons=new ArrayList<>(),denseInteractionButtons=new ArrayList<>(),soundCases=new ArrayList<>();
     private static boolean interactionPassed;
+    private static int viewLifecycleStage=-1;
+    private static long viewLifecycleDue;
+    private static MinecraftServer viewLifecycleServer;
+    private static Object lifecycleView,lifecycleDriver,lifecycleRound;
+    private static List<List<TheMahjongTile>> lifecycleHands;
+    private static List<Integer> lifecyclePoints;
+    private static final BlockPos LIFECYCLE_UNAVAILABLE_POS=new BlockPos(1_000_000,-60,1_000_000);
+    private static final Map<String,Object> lifecycleSnapshots=new LinkedHashMap<>();
 
     @Override public void onInitialize(){
         if(!Files.exists(Path.of("riichi-integration-enabled")))throw new IllegalStateException("Test addon requires isolated-server marker riichi-integration-enabled");
@@ -75,6 +85,9 @@ public final class RiichiIntegrationTest implements ModInitializer {
                     aim(context.getSource().getServer(),IntegerArgumentType.getInteger(context,"index"));return 1;
                 })))
                 .then(Commands.literal("state").executes(context->{state(context.getSource().getServer());return 1;}))
+                .then(Commands.literal("view_state").executes(context->{printViewState(context.getSource().getServer());return 1;}))
+                .then(Commands.literal("detach_view").executes(context->{detachView(context.getSource().getServer());return 1;}))
+                .then(Commands.literal("view_lifecycle").executes(context->{beginViewLifecycle(context.getSource().getServer());return 1;}))
                 .then(Commands.literal("gap_discard").executes(context->{discardGap();return 1;}))
                 .then(Commands.literal("gap_state").executes(context->{System.out.println("RIICHI_GAP_STATE "+new GsonBuilder().create().toJson(gapSnapshot()));return 1;}))
                 .then(Commands.literal("gap_finish").executes(context->{finishGap();return 1;}))
@@ -84,7 +97,7 @@ public final class RiichiIntegrationTest implements ModInitializer {
                 .then(Commands.literal("fixture").then(Commands.argument("scenario",StringArgumentType.word()).executes(context->{
                     String scenario=StringArgumentType.getString(context,"scenario");
                     if(scenario.equals("discard_gap")){prepareGap(context.getSource().getServer());return 1;}
-                    stage=-1;gapStage=-1;presentationStage=-1;interactionStage=-1;soundCase=null;context.getSource().getServer().tickRateManager().setFrozen(false);
+                    stage=-1;gapStage=-1;presentationStage=-1;interactionStage=-1;viewLifecycleStage=-1;soundCase=null;context.getSource().getServer().tickRateManager().setFrozen(false);
                     fixture(context.getSource().getServer(),scenario);
                     context.getSource().sendSuccess(()->Component.literal("Riichi test fixture ready at 0 -60 0"),false);return 1;
                 })))));
@@ -98,6 +111,108 @@ public final class RiichiIntegrationTest implements ModInitializer {
                 if(stage>=0&&server.overworld().getGameTime()>=due)step();
             }catch(Throwable failure){failure.printStackTrace();if(interactionStage>=0||soundCase!=null){interactionStage=-1;soundCase=null;saveInteraction(false,failure.toString());}else if(presentationStage>=0){presentationStage=-1;savePresentation(false,failure.toString(),List.of());}else if(gapStage>=0){gapStage=-1;saveGap(false,failure.toString());}else{stage=-1;save(false,failure.toString());}}
         });
+        // This callback only observes normal server ticks. In particular it never
+        // calls refreshView/ensure after detaching the holder under test.
+        ServerTickEvents.END_SERVER_TICK.register(server->{
+            if(server!=viewLifecycleServer||viewLifecycleStage<0||server.getTickCount()<viewLifecycleDue)return;
+            try{viewLifecycleStep(server);}catch(Throwable failure){failure.printStackTrace();viewLifecycleStage=-1;saveViewLifecycle(server,false,failure.toString());}
+        });
+    }
+
+    private static Object currentView(MinecraftServer server) throws Exception{
+        for(var value:((Map<?,?>)get(PortViews.class,"VIEWS")).values())
+            if(POS.equals(get(value,"pos"))&&get(value,"level")==server.overworld())return value;
+        return null;
+    }
+
+    private static Map<String,Object> viewState(MinecraftServer server) throws Exception{
+        var level=server.overworld();var chunk=level.getChunkSource().getChunkNow(POS.getX()>>4,POS.getZ()>>4);
+        Object view=currentView(server);var state=new LinkedHashMap<String,Object>();
+        ElementHolder holder=view==null?null:(ElementHolder)get(view,"holder");
+        var attachment=holder==null?null:holder.getAttachment();
+        state.put("serverTick",server.getTickCount());state.put("gameTime",level.getGameTime());
+        state.put("viewPresent",view!=null);state.put("viewIdentity",view==null?null:System.identityHashCode(view));
+        state.put("chunkAvailable",chunk!=null);state.put("holderAttachmentPresent",attachment!=null);
+        state.put("holderAttachmentRemoved",attachment==null||attachment.isRemoved());
+        state.put("chunkMatches",chunk!=null&&attachment instanceof ChunkAttachment chunkAttachment&&chunkAttachment.getChunk()==chunk);
+        state.put("blockStateMatches",chunk!=null&&view!=null&&chunk.getBlockState(POS)==get(view,"state"));
+        state.put("publicItemCount",holder==null?0:holder.getElements().stream().filter(ItemDisplayElement.class::isInstance).count());
+        state.put("publicWatchers",holder==null?0:holder.getWatchingPlayers().size());
+        state.put("publicWatcherNames",holder==null?List.of():holder.getWatchingPlayers().stream().map(connection->connection.player.getName().getString()).toList());
+        state.put("privateHands",view==null?0:((Map<?,?>)get(view,"hands")).size());
+        state.put("levelDimension",level.dimension().toString());
+        state.put("players",server.getPlayerList().getPlayers().stream().map(player->{
+            var data=new LinkedHashMap<String,Object>();data.put("name",player.getName().getString());data.put("dimension",player.level().dimension().toString());
+            data.put("position",List.of(player.getX(),player.getY(),player.getZ()));return data;
+        }).toList());
+        return state;
+    }
+
+    private static void printViewState(MinecraftServer server){
+        try{System.out.println("RIICHI_VIEW_STATE "+new GsonBuilder().create().toJson(viewState(server)));}
+        catch(RuntimeException failure){throw failure;}catch(Exception failure){throw new RuntimeException(failure);}
+    }
+
+    private static void detachView(MinecraftServer server){
+        try{
+            Object view=currentView(server);require(view!=null,"no current view at test table position");
+            var holder=(ElementHolder)get(view,"holder");var attachment=holder.getAttachment();require(attachment!=null,"current holder already detached");
+            attachment.destroy();
+            System.out.println("RIICHI_VIEW_DETACHED "+new GsonBuilder().create().toJson(viewState(server)));
+        }catch(RuntimeException failure){throw failure;}catch(Exception failure){throw new RuntimeException(failure);}
+    }
+
+    private static void beginViewLifecycle(MinecraftServer server){
+        runningServer=server;viewLifecycleServer=server;stage=-1;gapStage=-1;presentationStage=-1;interactionStage=-1;soundCase=null;
+        lifecycleSnapshots.clear();viewLifecycleStage=-1;server.tickRateManager().setFrozen(false);
+        try{fixture(server,"draw");viewLifecycleStage=0;viewLifecycleDue=server.getTickCount()+3;saveViewLifecycle(server,false,"running");}
+        catch(Throwable failure){failure.printStackTrace();saveViewLifecycle(server,false,failure.toString());}
+    }
+
+    private static void viewLifecycleStep(MinecraftServer server) throws Exception{
+        if(viewLifecycleStage==0){
+            lifecycleView=currentView(server);require(lifecycleView!=null,"initial view missing");
+            var initial=viewState(server);require(Boolean.TRUE.equals(initial.get("chunkMatches"))&&!Boolean.TRUE.equals(initial.get("holderAttachmentRemoved")),"initial attachment invalid");
+            lifecycleDriver=table.driver();lifecycleRound=table.driver().currentRound();
+            lifecycleHands=table.driver().currentRound().players().stream().map(player->List.copyOf(player.currentHand())).toList();
+            lifecyclePoints=table.driver().currentRound().players().stream().map(TheMahjongPlayer::points).toList();
+            require(server.overworld().getChunkSource().getChunkNow(LIFECYCLE_UNAVAILABLE_POS.getX()>>4,LIFECYCLE_UNAVAILABLE_POS.getZ()>>4)==null,"pending retry target unexpectedly loaded");
+            var ensure=PortViews.class.getDeclaredMethod("ensure",ServerLevel.class,BlockPos.class);ensure.setAccessible(true);ensure.invoke(null,server.overworld(),LIFECYCLE_UNAVAILABLE_POS);
+            lifecycleSnapshots.put("unavailablePendingTarget",LIFECYCLE_UNAVAILABLE_POS.toShortString());
+            lifecycleSnapshots.put("before",initial);detachView(server);lifecycleSnapshots.put("detached",viewState(server));
+            viewLifecycleStage=1;viewLifecycleDue=server.getTickCount()+2;return;
+        }
+        Object recovered=currentView(server);var state=viewState(server);lifecycleSnapshots.put("recovered",state);
+        require(recovered!=null&&recovered!=lifecycleView,"main loop did not replace detached view");
+        require(Boolean.TRUE.equals(state.get("chunkMatches"))&&!Boolean.TRUE.equals(state.get("holderAttachmentRemoved")),"recovered holder is not attached to current chunk");
+        require(table.driver()==lifecycleDriver&&table.driver().currentRound()==lifecycleRound,"view recovery replaced driver or round");
+        require(lifecycleHands.equals(table.driver().currentRound().players().stream().map(player->List.copyOf(player.currentHand())).toList()),"view recovery changed hands");
+        require(lifecyclePoints.equals(table.driver().currentRound().players().stream().map(TheMahjongPlayer::points).toList()),"view recovery changed scores");
+        var before=(Map<?,?>)lifecycleSnapshots.get("before");
+        require(Objects.equals(state.get("publicItemCount"),before.get("publicItemCount")),"public table items not restored");
+        require(Objects.equals(state.get("privateHands"),before.get("privateHands")),"private hands not restored");
+        require(Objects.equals(state.get("publicWatchers"),before.get("publicWatchers")),"public watchers not restored");
+        var oldHolder=(ElementHolder)get(lifecycleView,"holder");
+        require(oldHolder.getAttachment()==null&&oldHolder.getWatchingPlayers().isEmpty(),"old public holder still attached or watched");
+        require(((Map<?,?>)get(lifecycleView,"hands")).isEmpty(),"old private holders not disposed");
+        require(server.overworld().getChunkSource().getChunkNow(LIFECYCLE_UNAVAILABLE_POS.getX()>>4,LIFECYCLE_UNAVAILABLE_POS.getZ()>>4)==null,"pending retry synchronously acquired an unavailable chunk");
+        Object pending=get(PortViews.class,"PENDING");
+        var keys=pending instanceof Map<?,?> map?map.keySet():(Collection<?>)pending;
+        boolean retained=false;for(var key:keys)if(get(key,"level")==server.overworld()&&LIFECYCLE_UNAVAILABLE_POS.equals(get(key,"pos"))){retained=true;break;}
+        require(retained,"pending unavailable chunk was dropped instead of retried");
+        lifecycleSnapshots.put("unavailablePendingRetainedAfterTwoTicks",true);lifecycleSnapshots.put("unavailableChunkRemainedUnloaded",true);
+        lifecycleSnapshots.put("driverPreserved",true);lifecycleSnapshots.put("roundPreserved",true);lifecycleSnapshots.put("handsPreserved",true);lifecycleSnapshots.put("scoresPreserved",true);
+        lifecycleSnapshots.put("oldHoldersDisposed",true);viewLifecycleStage=-1;saveViewLifecycle(server,true,"");
+        System.out.println("RIICHI_VIEW_LIFECYCLE_PASS automatic detached-holder recovery; game state preserved");
+    }
+
+    private static void saveViewLifecycle(MinecraftServer server,boolean passed,String failure){
+        try{
+            var report=new LinkedHashMap<String,Object>();report.put("passed",passed);report.put("failure",failure);
+            report.put("coreVersion",FabricLoader.getInstance().getModContainer("riichi_mahjong").orElseThrow().getMetadata().getVersion().getFriendlyString());
+            report.put("clientConnected",!server.getPlayerList().getPlayers().isEmpty());report.put("serverTick",server.getTickCount());
+            report.put("snapshots",lifecycleSnapshots);Files.writeString(Path.of("riichi-view-lifecycle-results.json"),new GsonBuilder().setPrettyPrinting().create().toJson(report)+"\n");
+        }catch(Exception failureWriting){throw new RuntimeException(failureWriting);}
     }
 
     private static void current(MinecraftServer server){

@@ -39,6 +39,18 @@ node riichi-mahjong-fabric/integration/check-hand-entities.cjs <capture.jsonl> 1
 
 Check `draw` on a fresh table, `all_tenpai` followed by `draw`, and `draw_observer` followed by `draw`. The observer fixture keeps all four controllers inert and removes the connected player's seat, so its own capture must pass with `14 observer`. Each hand position must have one display, the owner must see faces and the observer backs, and IDs/transforms must stay stable for all samples. This checks the real client entity set; counting private-holder elements alone misses public back entities already sent to that client. Test fixtures are not saved-game compatibility tests; use a fresh disposable world after restarting a fixture server.
 
+For teleport recovery, keep the `draw` fixture unchanged and record at least three settled client samples before leaving, while far away, and after returning. Repeat the away/return pair to cover multiple trips:
+
+```text
+node riichi-mahjong-fabric/integration/check-teleport-entities.cjs owner <before.jsonl> <away.jsonl> <returned.jsonl> [away2.jsonl returned2.jsonl ...]
+```
+
+Use `observer` with `draw_observer` to verify that returning spectators still see only concealed hand backs. The checker requires the complete table and all four hand rows to recover, compares every item model and transform plus table labels/private buttons against the initial capture, rejects overlapping displays, and verifies that no original-table displays remain while away. Entity IDs may change between trips but must stay stable within each settled capture. Captures alone do not prove a server chunk unloaded or a dimension changed; record those conditions separately from the server when testing those paths.
+
+`riichi_test view_state` prints `RIICHI_VIEW_STATE` JSON without acquiring an unloaded chunk or requiring an active driver. It records chunk availability, view identity, attachment validity and chunk identity, public item/watcher counts, private hand count, and server/player dimensions. `riichi_test detach_view` destroys only the current public holder's attachment to simulate Polymer unloading it; the normal mod loop must recover the view without the addon calling `ensure` or refreshing it.
+
+`riichi_test view_lifecycle` automates that detached-attachment regression on a fresh `draw` fixture. It waits three ticks, detaches the attachment, then observes recovery two ticks later. The view must be replaced, its public/private displays and watchers restored, and the old holders disposed while the driver, round, hands and points stay unchanged. It also queues an unavailable remote chunk and verifies that its pending request survives those two ticks without synchronously loading the chunk. Results are written to `riichi-view-lifecycle-results.json`; success prints `RIICHI_VIEW_LIFECYCLE_PASS`. This deterministic test complements actual player teleport/unload captures.
+
 For the exact discard-gap regression, connect a vanilla client, run `riichi_test fixture discard_gap`, and wait for `RIICHI_GAP_BEFORE_READY`. The test freezes game ticks so entity packets can settle. Capture three client entity samples and a screenshot, then run `riichi_test gap_discard` and capture again after `relative=0`. Run `tick step 9`, wait for `relative=9`, capture; then run `tick step 1`, wait for `relative=10`, and capture. Finish with `riichi_test gap_finish`, which also tests a real server ray through the empty slot and another ray toward a shifted survivor. Compare all four captures with:
 
 ```text
