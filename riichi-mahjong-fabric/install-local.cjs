@@ -1,9 +1,10 @@
 // Install only this port and its merged resource pack after a graceful shutdown.
 const fs=require('node:fs'),p=require('node:path'),crypto=require('node:crypto');
-const root=p.resolve(__dirname,'..'),server=p.join(root,'run/local-26.3'),manager=p.join(root,'run/single-server'),release=p.join(root,'deploy/RiichiMahjong-0.4.2+fabric.26.3.8');
+const {root,release,jarName:jar}=require('./build-config.cjs');
+const server=p.join(root,'run/local-26.3'),manager=p.join(root,'run/single-server');
 if(JSON.parse(fs.readFileSync(p.join(manager,'status.json'))).state!=='stopped')throw Error('Stop the existing launcher gracefully before installing.');
 const hash=(f,algorithm='sha256')=>crypto.createHash(algorithm).update(fs.readFileSync(f)).digest('hex');
-const manifest=JSON.parse(fs.readFileSync(p.join(release,'release.json'))),jar='riichi-mahjong-0.4.2+fabric.26.3.8.jar',pack='TimoryResource-26.3.zip';
+const manifest=JSON.parse(fs.readFileSync(p.join(release,'release.json'))),pack='TimoryResource-26.3.zip';
 const sums=new Map(fs.readFileSync(p.join(release,'SHA256SUMS.txt'),'utf8').trim().split(/\r?\n/).map(s=>s.split('  ').reverse()));
 for(const name of [jar,pack])if(hash(p.join(release,name))!==sums.get(name))throw Error('Packaged artifact changed: '+name);
 const backup=p.join(manager,'riichi-upstream-backup-'+Date.now()),mods=p.join(server,'mods');fs.mkdirSync(backup,{recursive:true});

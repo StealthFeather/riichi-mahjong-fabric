@@ -6,7 +6,7 @@ import java.util.Optional;
 
 /** Intersect the actual tile model before allowing a click to reach the table below it. */
 final class TableHitTest {
-    private static final AABB TILE=new AABB(-5.5/16,-8.0/16,-4.5/16,5.5/16,6.0/16,4.5/16);
+    private static final AABB TILE=TableLayout.TILE_MODEL_BOUNDS;
     static Optional<Vec3> tile(Vec3 start,Vec3 end,Vec3 at,float scale,Quaternionf rotation){
         var inverse=new Quaternionf(rotation).invert();
         Vec3 a=local(start,at,scale,inverse),b=local(end,at,scale,inverse);

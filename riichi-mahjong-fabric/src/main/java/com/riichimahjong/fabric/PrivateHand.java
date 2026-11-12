@@ -39,10 +39,10 @@ final class PrivateHand {
         // ManualAttachment keeps it alive without registering any chunk watchers.
         new ManualAttachment(holder,owner.level(),()->Vec3.atCenterOf(pos));
         if(!snapshot.revealed)for(int i=0;i<snapshot.hand.size();i++){
-            final int index=i;Vec3 at=TableLayout.anchor(pos,dir,TableLayout.handAlong(snapshot.handSlots.get(i),snapshot.handGapStarts),.65,.85);
+            final int index=i;Vec3 at=TableLayout.handAnchor(pos,dir,TableLayout.handAlong(snapshot.handSlots.get(i),snapshot.handGapStarts),false);
             var tile=PortViews.display(holder,PortViews.tileModel(snapshot.hand.get(i)),at,TableLayout.TILE_SCALE,PortViews.rotation(dir,false,false));tile.setVisibilityPredicate(p->p==owner);
             if(snapshot.buttons.stream().anyMatch(b->b instanceof MahjongTableHumanPlayer.TableButton.RiichiToggle r&&r.active())&&snapshot.riichiDiscards.contains(snapshot.hand.get(i))){
-                var mark=new TextDisplayElement(Component.literal("▼").withStyle(ChatFormatting.GREEN));mark.setOverridePos(at.add(0,.15,0));mark.setScale(new Vector3f(.18f));mark.setBillboardMode(Display.BillboardConstraints.CENTER);mark.setVisibilityPredicate(p->p==owner);holder.addElement(mark);
+                var mark=new TextDisplayElement(Component.literal("▼").withStyle(ChatFormatting.GREEN));mark.setOverridePos(at.add(0,.15*TableLayout.TILE_ENLARGEMENT,0));mark.setScale(new Vector3f(.18f*TableLayout.TILE_ENLARGEMENT));mark.setBillboardMode(Display.BillboardConstraints.CENTER);mark.setVisibilityPredicate(p->p==owner);holder.addElement(mark);
             }
             var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer player,InteractionHand hand,Vec3 loc,boolean sneaking){if(hand==InteractionHand.MAIN_HAND&&valid(player))click(InteractKey.SeatSlot.AREA_HAND,index,sneaking);}});
             hit.setOverridePos(at.add(0,-.05*TableLayout.TILE_ENLARGEMENT,0));hit.setSize(.071f*TableLayout.TILE_ENLARGEMENT,.12f*TableLayout.TILE_ENLARGEMENT);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
@@ -51,20 +51,20 @@ final class PrivateHand {
         // or reaching the table's quick-discard action underneath.
         if(!snapshot.revealed&&!snapshot.handSlots.isEmpty())for(int slot=0;slot<snapshot.handSlots.getLast();slot++){
             if(snapshot.handSlots.contains(slot))continue;
-            var at=TableLayout.anchor(pos,dir,TableLayout.handAlong(slot,snapshot.handGapStarts),.65,.85);
+            var at=TableLayout.handAnchor(pos,dir,TableLayout.handAlong(slot,snapshot.handGapStarts),false);
             var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer player,InteractionHand hand,Vec3 loc,boolean sneaking){if(player==owner&&hand==InteractionHand.MAIN_HAND)table.recordPrivateClick(owner);}});
             hit.setOverridePos(at.add(0,-.05*TableLayout.TILE_ENLARGEMENT,0));hit.setSize(.071f*TableLayout.TILE_ENLARGEMENT,.12f*TableLayout.TILE_ENLARGEMENT);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
         }
         for(var button:buttonLayout){
             var text=Component.literal(button.text()).withStyle(style->style.withColor(ChatFormatting.YELLOW).withFont(new FontDescription.Resource(Identifier.withDefaultNamespace("uniform"))));
-            var display=new TextDisplayElement(text);display.setOverridePos(button.textPosition(pos,dir));display.setScale(new Vector3f(button.scale()));display.setBillboardMode(Display.BillboardConstraints.FIXED);display.setLeftRotation(TableLayout.textRotation(dir));display.setLineWidth(1000);display.setBackground(0xD0333333);display.setDisplaySize(2,2);display.setVisibilityPredicate(p->p==owner);holder.addElement(display);
+            var display=new TextDisplayElement(text);display.setOverridePos(button.textPosition(pos,dir));display.setScale(new Vector3f(button.scale()*TableLayout.TILE_ENLARGEMENT));display.setBillboardMode(Display.BillboardConstraints.FIXED);display.setLeftRotation(TableLayout.textRotation(dir));display.setLineWidth(1000);display.setBackground(0xD0333333);display.setDisplaySize(2,2);display.setVisibilityPredicate(p->p==owner);holder.addElement(display);
             // Vanilla interaction boxes have a square footprint. Overlapping squares
             // exactly cover this text rectangle; the ray-plane check handles its edge.
             int cells=(int)Math.ceil(button.width()/button.depth());
             for(int cell=0;cell<cells;cell++){
                 double along=button.along()-button.width()/2+button.depth()/2+(cells==1?0:cell*(button.width()-button.depth())/(cells-1));
                 var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer p,InteractionHand h,Vec3 loc,boolean sneak){if(h==InteractionHand.MAIN_HAND&&p==owner){Vec3 start=p.getEyePosition();handleButtonHit(start,start.add(p.getLookAngle().scale(8)));}}});
-                hit.setOverridePos(TableLayout.anchor(pos,dir,along,TableButtonLayout.HEIGHT-.003,TableButtonLayout.EDGE_DISTANCE));hit.setSize((float)button.depth(),.006f);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
+                hit.setOverridePos(TableLayout.anchor(pos,dir,along,TableButtonLayout.HEIGHT-.003,TableButtonLayout.EDGE_DISTANCE));hit.setSize((float)button.depth()*TableLayout.TILE_ENLARGEMENT,.006f*TableLayout.TILE_ENLARGEMENT);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
             }
         }
         holder.startWatching(owner);
@@ -96,7 +96,7 @@ final class PrivateHand {
         var dir=PortViews.outward(seat,table.getBlockState());
         for(int slot=0;slot<snapshot.handSlots.getLast();slot++){
             if(snapshot.handSlots.contains(slot))continue;
-            var at=TableLayout.anchor(table.getBlockPos(),dir,TableLayout.handAlong(slot,snapshot.handGapStarts),.65,.85);
+            var at=TableLayout.handAnchor(table.getBlockPos(),dir,TableLayout.handAlong(slot,snapshot.handGapStarts),false);
             var hit=TableHitTest.tile(start,end,at,TableLayout.TILE_SCALE,PortViews.rotation(dir,false,false));
             if(hit.isPresent()&&start.distanceToSqr(hit.orElseThrow())<nearestTile){
                 table.recordPrivateClick(owner);return true;

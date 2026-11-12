@@ -2,7 +2,9 @@ const fs = require('node:fs');
 const p = require('node:path');
 
 const project = __dirname;
-const root = p.resolve(project, '..');
+// Support both projects/riichi-mahjong in Timory and the standalone source archive.
+const root = fs.existsSync(p.resolve(project, '../../projects/workspace.json'))
+  ? p.resolve(project, '../..') : p.resolve(project, '..');
 const metadata = JSON.parse(fs.readFileSync(p.join(project, 'src/main/resources/fabric.mod.json'), 'utf8'));
 const files = (directory, extension) => fs.existsSync(directory)
   ? fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => entry.isDirectory()

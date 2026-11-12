@@ -294,7 +294,7 @@ public final class RiichiIntegrationTest implements ModInitializer {
                 require(table.handDisplayOrder(0).equals(table.driver().currentRound().handDisplayOrder(0))&&!table.hasSeparatedDrawnTile(0),"real table did not sort at ten ticks");
                 require(table.handDisplaySlots(0).equals(java.util.stream.IntStream.range(0,13).boxed().toList())&&table.handDisplayGapStarts(0).isEmpty(),"real table did not compact geometry at ten ticks");
                 var compact=new ArrayList<Vec3>();var dir=PortViews.outward(0,table.getBlockState());
-                for(int slot=0;slot<13;slot++)compact.add(TableLayout.anchor(POS,dir,-.44+slot*TableLayout.HAND_STEP,.65,.85));
+                for(int slot=0;slot<13;slot++)compact.add(TableLayout.handAnchor(POS,dir,-.44+slot*TableLayout.HAND_STEP,false));
                 assertHandGeometry(compact);pass("real-server-discard-gap-and-exact-ten-tick-sort");
                 fixture(runningServer,"all_tenpai");
                 require(PublicTable.capture(table).seats().stream().allMatch(seat->seat.revealed().size()==13),"drawn round did not reveal all four tenpai hands");
@@ -436,7 +436,7 @@ public final class RiichiIntegrationTest implements ModInitializer {
             require(tick==gapAccepted+10,"discard gap missed exact ten-tick observation");
             require(table.handDisplayOrder(0).equals(table.driver().currentRound().handDisplayOrder(0)),"hand is not canonically sorted at tick ten");
             require(table.handDisplaySlots(0).equals(java.util.stream.IntStream.range(0,13).boxed().toList())&&table.handDisplayGapStarts(0).isEmpty()&&!table.hasSeparatedDrawnTile(0),"hand did not compact at tick ten");
-            var compact=new ArrayList<Vec3>();var dir=PortViews.outward(0,table.getBlockState());for(int slot=0;slot<13;slot++)compact.add(TableLayout.anchor(POS,dir,-.44+slot*TableLayout.HAND_STEP,.65,.85));assertHandGeometry(compact);
+            var compact=new ArrayList<Vec3>();var dir=PortViews.outward(0,table.getBlockState());for(int slot=0;slot<13;slot++)compact.add(TableLayout.handAnchor(POS,dir,-.44+slot*TableLayout.HAND_STEP,false));assertHandGeometry(compact);
             gapSnapshots.put("10",gapSnapshot());gapStage=5;
             System.out.println("RIICHI_GAP_TICK_READY relative=10 gameTime="+tick);saveGap(false,"awaiting finish");
         }

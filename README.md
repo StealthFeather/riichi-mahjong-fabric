@@ -2,20 +2,24 @@
 
 基于 [caxapexac/MinecraftRiichiMahjong](https://github.com/caxapexac/MinecraftRiichiMahjong) 的独立 Fabric 服务端移植，保留原项目麻将规则、3D 模型、材质和音效。仅服务端安装 Mod，玩家使用原版客户端并接受资源包。
 
-当前正式版：`0.4.2+fabric.26.3.15`，包含 `26.3.14` 的 TP 返回显示恢复修复。适用于 Minecraft **26.3**、Fabric Loader **0.19.5**、Fabric API **0.163.0**、Java **25**。
+当前正式版：`0.4.2+fabric.26.3.17`，包含 3×3 牌桌、1.5 倍麻将牌、定制材质和手牌贴桌修复。适用于 Minecraft **26.3**、Fabric Loader **0.19.5**、Fabric API **0.163.0**、Java **25**。
 
-本版增加四麻初级／中级／高级电将 AI、默认及各座位难度设置、存档恢复与离座接管。服务端需 Node.js 22+；固定版本 AI 源码与 MIT 许可已内嵌，无需 npm 安装或远程 AI 服务。三麻仍使用原 BOT。难度尚未通过大规模同牌山对战标定，详见 [四麻 AI 说明](riichi-mahjong-fabric/docs/26.3.15.md)。
+保留四麻初级／中级／高级电将 AI、默认及各座位难度设置、存档恢复与离座接管。服务端需 Node.js 22+；固定版本 AI 源码与 MIT 许可已内嵌，无需 npm 安装或远程 AI 服务。三麻仍使用原 BOT。难度尚未通过大规模同牌山对战标定，详见 [四麻 AI 说明](riichi-mahjong-fabric/docs/26.3.15.md)。
 
 `26.3.14` 修复玩家 TP 离开后返回看不见麻将桌的问题：同步玩家显示观察关系，区块卸载时清理旧显示，返回后恢复桌体、桌上公共牌及本人手牌；同时处理显示附件失效和异步区块加载的恢复。此次修复无需更新资源包。构建、9 组主回归、9 项通用服务器集成及 5 次实际 TP 往返检查通过；针对性验证详见 [26.3.14 变更与验证](riichi-mahjong-fabric/docs/26.3.14.md)。
 
+本版牌桌为居中的 3×3 格，麻将牌与排列间距按 1.5 倍放大。竖立和摊开的手牌按模型底面贴齐桌面，本人手牌、公共牌背与点击区域同步对齐。材质重复铺设不做平滑插值，保持像素一致性。详见 [26.3.17 说明](riichi-mahjong-fabric/docs/26.3.17.md) 和 [材质说明](riichi-mahjong-fabric/docs/materials-lime-quartz.md)。
+
+本版通过全部自动回归、224 个手牌位置检查，以及测试服启动、JAR 哈希和资源包 HTTP 校验；尚未进行真实客户端画面或完整联机牌局验收。
+
 ## 下载与安装
 
-前往 [26.3.15 Release](https://github.com/StealthFeather/riichi-mahjong-fabric/releases/tag/v0.4.2%2Bfabric.26.3.15) 下载：
+前往 [26.3.17 Release](https://github.com/StealthFeather/riichi-mahjong-fabric/releases/tag/v0.4.2%2Bfabric.26.3.17) 下载：
 
-- `riichi-mahjong-0.4.2+fabric.26.3.15.jar`：放入服务端 `mods/`，同时安装对应 Fabric API。Polymer 已内嵌。
-- `TimoryResource-26.3.zip`：包含本版全部麻将模型和中文进度的服务器资源包，与 `26.3.14` 附件完全一致。已有包含 `26.3.8` 麻将资产的自定义资源包可继续使用；从 `26.3.6` 升级时须补充立直棒模型，或使用本版附件。
+- `riichi-mahjong-0.4.2+fabric.26.3.17.jar`：放入服务端 `mods/`，同时安装对应 Fabric API。Polymer 已内嵌。
+- `TimoryResource-26.3.zip`：本版完整配套材质包，含绿色混凝土粉末桌面（64 像素/格）、黑色陶瓦底座（32 像素/格）、黄绿色牌背、石英牌面和去皮红树原木桌边。升级本版时请同时更新资源包。
 - Release 下方的 `Source code (zip/tar.gz)`：GitHub 按发布标签生成的完整仓库源码，含移植代码及固定版本的上游快照。
-- `verification.json`：本版构建哈希、回归及服务器集成验证结果和测试范围。
+- `verification.json`：本版构建哈希、12 组 Java 回归及 10 项 Node AI 测试结果；`release.json` 包含测试服加载及资源下载验证范围。
 - `SHA256SUMS.txt`：发布附件校验值。
 
 请在停服并备份存档后安装，确保运行服务端的账号可以执行 Node.js 22+。客户端无需安装此 Mod 或 Node.js。可选的 Team Reborn Energy API 用于役发电机能源互联。

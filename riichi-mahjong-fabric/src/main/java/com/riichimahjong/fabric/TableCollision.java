@@ -78,7 +78,7 @@ public final class TableCollision {
                 if(PortViews.near(player,level,pos)&&level.getBlockState(pos)==state)player.gameMode.destroyBlock(pos);
             }
         };
-        double top=state.getBlock() instanceof MahjongTableBlock?9.0/16:1.0/16;
+        double top=state.getBlock() instanceof MahjongTableBlock?TableLayout.TABLE_TOP:1.0/16;
         float size=state.getBlock() instanceof MahjongTableBlock?TableLayout.TABLE_WIDTH:2;
         var feet=new Vec3(pos.getX()+.5,pos.getY()+top-size,pos.getZ()+.5);
         var anchor=new SimpleEntityElement(EntityTypes.ARMOR_STAND);

@@ -62,8 +62,12 @@ public class MahjongTableBlock extends BaseMultipartBlock {
 
 
     public MahjongTableBlock(Properties properties) {
-        // The model spans -0.5 .. 1.5 around the centre block on both axes.
-        super(properties, MODEL_BOXES);
+        // Scale around the centre pixel, matching the display's horizontal transform.
+        super(properties, MODEL_BOXES.stream().map(box -> {
+            double scale=com.riichimahjong.fabric.TableLayout.TABLE_HORIZONTAL_SCALE;
+            return new double[]{8+(box[0]-8)*scale,box[1],8+(box[2]-8)*scale,
+                    8+(box[3]-8)*scale,box[4],8+(box[5]-8)*scale};
+        }).toList());
     }
 
 

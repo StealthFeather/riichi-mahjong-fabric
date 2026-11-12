@@ -128,7 +128,7 @@ public final class PortViews {
         var privateHand=view.hands.get(player.getUUID());
         if(privateHand!=null&&privateHand.handleButtonHit(start,end))return true;
         var pos=table.getBlockPos();
-        var surface=new AABB(pos.getX()-.5,pos.getY()+TableLayout.TABLE_TOP-2,pos.getZ()-.5,pos.getX()+1.5,pos.getY()+TableLayout.TABLE_TOP,pos.getZ()+1.5);
+        var surface=TableLayout.surface(pos);
         end=surface.clip(start,end).orElse(end);
         String chosen=null;double nearest=Double.MAX_VALUE;
         for(var entry:view.sent.entrySet()){
@@ -210,8 +210,8 @@ public final class PortViews {
                     name=new TextDisplayElement();
                     name.setLineWidth(250);name.setDisplaySize(2,2);holder.addElement(name);seatLabels.put(seat,name);
                 }
-                name.setOverridePos(active?TableLayout.anchor(pos,dir,0,.585,.16):anchor(pos,dir,0,1.0,1.25));
-                name.setScale(new Vector3f(active?.14f:.2f));name.setBackground(active?0x00000000:0x80333333);
+                name.setOverridePos(TableLayout.anchor(pos,dir,0,active?.585:1.0,active?.16:1.25));
+                name.setScale(new Vector3f((active?.14f:.2f)*TableLayout.TILE_ENLARGEMENT));name.setBackground(active?0x00000000:0x80333333);
                 name.setBillboardMode(active?Display.BillboardConstraints.FIXED:Display.BillboardConstraints.CENTER);
                 name.setLeftRotation(active?TableLayout.textRotation(dir):new Quaternionf());
                 if(!text.equals(name.getText()))name.setText(text);
@@ -221,7 +221,7 @@ public final class PortViews {
                             if(hand==InteractionHand.MAIN_HAND)TableSeating.join(p,table,index);
                         }
                     });
-                    hit.setOverridePos(anchor(pos,dir,0,.4,1.25));hit.setSize(.72f,.85f);
+                    hit.setOverridePos(TableLayout.anchor(pos,dir,0,.4,1.25));hit.setSize(.72f*TableLayout.TILE_ENLARGEMENT,.85f*TableLayout.TILE_ENLARGEMENT);
                     holder.addElement(hit);seatHits.put(seat,hit);
                 }
             }
@@ -251,7 +251,10 @@ public final class PortViews {
             }
             for(int seat=0;seat<board.seats().size();seat++){
                 var s=board.seats().get(seat);Direction dir=outward(seat,state);double fraction=board.stage()==com.themahjong.driver.MatchPhase.Stage.WALL_BUILDING?0:board.stage()==com.themahjong.driver.MatchPhase.Stage.DEALING_HANDS?board.progress():1;int count=(int)Math.round(s.handCount()*fraction);
-                for(int i=0;i<count;i++)tile("hand/"+seat+"/"+i,s.revealed().isEmpty()?-1:s.revealed().get(i),dir,TableLayout.handAlong(s.handSlots().get(i),s.handGapStarts()),.65,.85,!s.revealed().isEmpty(),false,false,s.revealed().isEmpty()?s.owner():null);
+                boolean revealed=!s.revealed().isEmpty();
+                for(int i=0;i<count;i++)tile("hand/"+seat+"/"+i,revealed?s.revealed().get(i):-1,
+                        TableLayout.handAnchor(pos,dir,TableLayout.handAlong(s.handSlots().get(i),s.handGapStarts()),revealed),
+                        TableLayout.TILE_SCALE,rotation(dir,revealed,false),revealed?null:s.owner());
                 for(int i=0;i<s.river().size();i++){var t=s.river().get(i);tile("river/"+seat+"/"+i,t.code(),dir,(i%6-2.5)*.073,.59,.26+(i/6)*.09,true,false,t.sideways(),null);}
                 double cursor=0;for(int m=0;m<s.melds().size();m++){
                     var meld=s.melds().get(m);double width=meld.tiles().stream().filter(t->!t.stacked()).mapToDouble(t->t.sideways()?.090:.073).sum();
@@ -267,13 +270,13 @@ public final class PortViews {
                 if(s.riichiStick()){
                     String key="riichi/"+seat;used.add(key);var stick=tiles.get(key);
                     // The centre wind plate is 4/16 wide and its top is at 9.5/16.
-                    if(stick==null){stick=display(holder,"bridge/table_riichi_stick",anchor(pos,dir,0,.596,.09),.22f,rotation(dir,false,false));tiles.put(key,stick);}
+                    if(stick==null){stick=display(holder,"bridge/table_riichi_stick",TableLayout.anchor(pos,dir,0,.596,.09),.22f*TableLayout.TILE_ENLARGEMENT,rotation(dir,false,false));tiles.put(key,stick);}
                 }
             }
             // Deposits carried from a drawn hand stay visible in the centre.
             int carried=Math.max(0,board.riichiSticks()-(int)board.seats().stream().filter(PublicTable.Seat::riichiStick).count());
             for(int i=0;i<carried;i++){
-                String key="carried-riichi/"+i;used.add(key);if(!tiles.containsKey(key))tiles.put(key,display(holder,"bridge/table_riichi_stick",anchor(pos,Direction.NORTH,0,.610+(i/4)*.012,(i%4-1.5)*.038),.22f,new Quaternionf()));
+                String key="carried-riichi/"+i;used.add(key);if(!tiles.containsKey(key))tiles.put(key,display(holder,"bridge/table_riichi_stick",TableLayout.anchor(pos,Direction.NORTH,0,.610+(i/4)*.012,(i%4-1.5)*.038),.22f*TableLayout.TILE_ENLARGEMENT,new Quaternionf()));
             }cleanup();
         }
         void updatePrivate(MahjongTableBlockEntity table){

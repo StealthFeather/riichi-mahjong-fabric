@@ -41,7 +41,7 @@ public final class TableSeating {
         int chosen=-1;double best=Double.MAX_VALUE;var seats=table.seats();
         for(int seat=0;seat<seats.size();seat++){
             var info=seats.get(seat);if(info.occupant().isPresent()||!table.canClaimSeat(seat,player.getUUID()))continue;
-            double distance=PortViews.anchor(table.getBlockPos(),PortViews.outward(seat,table.getBlockState()),0,.5,1.25).distanceToSqr(player.position());
+            double distance=TableLayout.anchor(table.getBlockPos(),PortViews.outward(seat,table.getBlockState()),0,.5,1.25).distanceToSqr(player.position());
             if(distance<best){best=distance;chosen=seat;}
         }
         return chosen<0?message(player,"没有可接管的空位；其他玩家的原座位会为其保留。"):join(player,table,chosen);
@@ -49,7 +49,7 @@ public final class TableSeating {
     public static int sideOfPlayer(ServerPlayer player,MahjongTableBlockEntity table){
         int chosen=0;double best=Double.MAX_VALUE;
         for(int seat=0;seat<table.seats().size();seat++){
-            double distance=PortViews.anchor(table.getBlockPos(),PortViews.outward(seat,table.getBlockState()),0,.5,1.25).distanceToSqr(player.position());
+            double distance=TableLayout.anchor(table.getBlockPos(),PortViews.outward(seat,table.getBlockState()),0,.5,1.25).distanceToSqr(player.position());
             if(distance<best){best=distance;chosen=seat;}
         }return chosen;
     }

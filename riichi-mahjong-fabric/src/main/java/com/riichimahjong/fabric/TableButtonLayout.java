@@ -29,7 +29,7 @@ final class TableButtonLayout {
             var line=dir.getCounterClockWise();
             double x=delta.x*line.getStepX()+delta.z*line.getStepZ();
             double z=delta.x*dir.getStepX()+delta.z*dir.getStepZ();
-            return Math.abs(x)<=width()/2&&Math.abs(z)<=depth()/2?Optional.of(at):Optional.empty();
+            return Math.abs(x)<=width()*TableLayout.TILE_ENLARGEMENT/2&&Math.abs(z)<=depth()*TableLayout.TILE_ENLARGEMENT/2?Optional.of(at):Optional.empty();
         }
     }
     static List<Button> arrange(List<String> labels){

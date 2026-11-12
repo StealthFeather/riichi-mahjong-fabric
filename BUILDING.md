@@ -1,5 +1,7 @@
 # 构建环境
 
+当前 Timory 工作区项目目录为 `projects/riichi-mahjong/`，在此目录执行 `node project.cjs build` 和 `node test.cjs`。下文的 `riichi-mahjong-fabric/` 指独立仓库及源码归档内的项目路径；工作区内请替换为 `projects/riichi-mahjong/`。默认共享依赖位于工作区根目录，构建器会自动识别两种布局。
+
 本仓库保存 Fabric 服务端移植源码、固定上游源码和资源覆盖。现有源码与资源已准备好，**不要重新运行 `prepare.cjs`、`adapt.cjs` 或 `resources.cjs`**，这些首次导入脚本会覆盖当前源码、资源或版本元数据。
 
 需要 Node.js、完整 JDK 25（含 `java`、`javac`、`jar`），以及已启动过一次的 Minecraft 26.3 / Fabric 0.19.x 服务端目录。服务端应已加载 Fabric API，使 `.fabric/processedMods` 内有拆分后的 API 依赖。Minecraft 运行文件和世界不包含在源码仓库中。
