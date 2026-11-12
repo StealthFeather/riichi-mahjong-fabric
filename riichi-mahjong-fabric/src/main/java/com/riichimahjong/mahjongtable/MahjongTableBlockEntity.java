@@ -132,6 +132,9 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     @Nullable
     private TheMahjongDriver driver;
 
+    // A live menu must not survive a reset, reload or intervening match lifecycle.
+    private transient long matchRevision;
+
     public enum ResultAnimStage { NONE, SHOW_HEADER, SHOW_YAKU_LINES, SHOW_FINAL, AWAITING_ADVANCE }
 
     private ResultAnimStage resultAnimStage = ResultAnimStage.NONE;
@@ -161,29 +164,31 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     @Nullable
     public TheMahjongDriver driver() { return driver; }
 
-    private void updateHandDisplay() {
+    public long matchRevision() { return matchRevision; }
+
+    private boolean updateHandDisplay() {
         if (handDisplayDriver != driver) { handDisplay.clear(); handDisplayDriver = driver; }
-        if (driver != null && level != null) driver.match().currentRound().ifPresent(round -> handDisplay.update(round, level.getGameTime()));
+        if (driver == null || level == null) return false;
+        var round = driver.match().currentRound().orElse(null);
+        if (round == null) { handDisplay.clear(); return false; }
+        handDisplay.update(round, level.getGameTime());
+        return true;
     }
 
     public List<TheMahjongTile> handDisplayOrder(int seat) {
-        updateHandDisplay();
-        return handDisplay.hand(seat);
+        return updateHandDisplay() ? handDisplay.hand(seat) : List.of();
     }
 
     public List<Integer> handDisplaySlots(int seat) {
-        updateHandDisplay();
-        return handDisplay.slots(seat);
+        return updateHandDisplay() ? handDisplay.slots(seat) : List.of();
     }
 
     public List<Integer> handDisplayGapStarts(int seat) {
-        updateHandDisplay();
-        return handDisplay.gapStarts(seat);
+        return updateHandDisplay() ? handDisplay.gapStarts(seat) : List.of();
     }
 
     public boolean hasSeparatedDrawnTile(int seat) {
-        updateHandDisplay();
-        return handDisplay.separated(seat);
+        return updateHandDisplay() && handDisplay.separated(seat);
     }
 
     public List<SeatInfo> seats() { return List.copyOf(seats); }
@@ -362,6 +367,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         this.driver = new TheMahjongDriver(match, buildPlayersFromSeats(activeSeats, match.tileSet().tiles().stream().anyMatch(TheMahjongTile::redDora)), new java.security.SecureRandom());
         this.driver.setAnimationsEnabled(true);
         this.driver.startMatch();
+        matchRevision++;
         markChangedAndSynced();
         return StartMatchResult.STARTED;
     }
@@ -418,6 +424,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         this.driver = new TheMahjongDriver(
                 fixedMatch, buildPlayersFromSeats(activeSeats, fixedMatch.tileSet().tiles().stream().anyMatch(TheMahjongTile::redDora)), new Random(seed), snap);
         this.driver.setAnimationsEnabled(true);
+        matchRevision++;
         markChangedAndSynced();
         return StartMatchResult.STARTED;
     }
@@ -485,13 +492,35 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         if (level == null || level.isClientSide()) {
             throw new IllegalStateException("endGame must be called on the server");
         }
-        if (driver == null) return;
+        clearMatchState();
+        markChangedAndSynced();
+    }
+
+    /** The confirmation must still describe this exact live match and lifecycle. */
+    public boolean resetTable(@Nullable TheMahjongDriver expectedDriver, long expectedRevision) {
+        if (level == null || level.isClientSide() || isRemoved()
+                || driver != expectedDriver || matchRevision != expectedRevision) return false;
+        clearMatchState();
+        for (int seat = 0; seat < seats.size(); seat++) {
+            seats.set(seat, new SeatInfo(seats.get(seat).enabled(), Optional.empty()));
+        }
+        markChangedAndSynced();
+        return true;
+    }
+
+    private void clearMatchState() {
         closeBotPlayers();
         this.driver = null;
+        botsSuspended = false;
         returningSeats.clear();
         privateClicks.clear();
         this.randomSeed = 0L;
-        markChangedAndSynced();
+        handDisplay.clear();
+        handDisplayDriver = null;
+        clearResultAnimState();
+        lastCuteClickGameTime = -1L;
+        clientRenderState = null;
+        matchRevision++;
     }
 
     @Override
@@ -606,6 +635,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
 
     @Override
     public void setRemoved() {
+        matchRevision++;
         closeBotPlayers();
         botsSuspended = true;
         super.setRemoved();
@@ -1044,6 +1074,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     protected void loadAdditional(ValueInput in) {
         super.loadAdditional(in);
 
+        matchRevision++;
         closeBotPlayers();
         botsSuspended = false;
         defaultBotDifficulty = BotDifficulty.parse(in.getString(NBT_BOT_DIFFICULTY).orElse(null));

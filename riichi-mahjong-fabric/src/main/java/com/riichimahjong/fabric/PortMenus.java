@@ -43,10 +43,11 @@ public final class PortMenus {
         if(best==null)throw new IllegalArgumentException("请靠近原版麻将桌。");return best;
     }
     static boolean host(ServerPlayer p,MahjongTableBlockEntity table){return table.seats().stream().flatMap(s->s.occupant().stream()).findFirst().map(p.getUUID()::equals).orElse(true);}
+    static boolean tableMenuValid(ServerPlayer p,MahjongTableBlockEntity table){return table.getLevel()==p.level()&&!table.isRemoved()&&PortViews.near(p,p.level(),table.getBlockPos())&&p.level().hasChunkAt(table.getBlockPos())&&p.level().getBlockEntity(table.getBlockPos())==table;}
     static ItemStack icon(Item item,String text){var s=new ItemStack(item);s.set(DataComponents.CUSTOM_NAME,Component.literal(text));return s;}
     static void open(ServerPlayer p,String title,BooleanSupplier valid,Consumer<Actions> setup){p.openMenu(new SimpleMenuProvider((id,inv,player)->{var menu=new Actions(id,inv,valid);setup.accept(menu);return menu;},Component.literal(title)));}
     public static void settings(ServerPlayer p,MahjongTableBlockEntity table){
-        open(p,"立直麻将 · 原版设置",()->table.getLevel()==p.level()&&PortViews.near(p,p.level(),table.getBlockPos())&&!table.isRemoved(),menu->{
+        open(p,"立直麻将 · 原版设置",()->tableMenuValid(p,table),menu->{
             var presets=RuleSetPreset.values();String[] names={"雀魂四麻","天凤四麻","WRC 四麻","雀魂三麻","天凤三麻"};
             for(int i=0;i<presets.length;i++){final int n=i;menu.button(i,icon(table.preset()==presets[i]?Items.EMERALD:Items.PAPER,names[i]),()->{if(host(p,table))table.selectPreset(presets[n]);settings(p,table);});}
             boolean fourPlayer=table.effectivePreset().playerCount()==4;
@@ -60,6 +61,24 @@ public final class PortMenus {
             menu.button(22,icon(Items.PAPER,fourPlayer?"初级 → 中级 → 高级；座位可单独设置":"三麻使用原版 BOT；难度配置仅适用于四麻"),()->{});
             menu.button(27,icon(Items.BARREL,"牌桌库存 · 136 槽分页"),()->inventory(p,table,0));
             menu.button(28,icon(Items.BOOK,"领取空白牌谱"),()->{p.getInventory().add(new ItemStack(ModItems.MAHJONG_TABLE_RECORD.get()));p.closeContainer();});
+            menu.button(35,icon(Items.BARRIER,"重置牌桌（需确认"+(host(p,table)?"":" · 仅桌主")+"）"),()->{if(host(p,table))confirmTableReset(p,table);else p.sendSystemMessage(Component.literal("只有桌主可以重置牌桌。"),true);});
+        });
+    }
+    static void confirmTableReset(ServerPlayer p,MahjongTableBlockEntity table){
+        if(!tableMenuValid(p,table)||!host(p,table))return;
+        var driver=table.driver();long revision=table.matchRevision();
+        open(p,"立直麻将 · 确认重置牌桌",()->tableMenuValid(p,table)&&host(p,table)&&table.driver()==driver&&table.matchRevision()==revision,menu->{
+            menu.button(12,icon(Items.PAPER,"结束当前牌局，清空比分与供托"),()->{});
+            menu.button(13,icon(Items.CHEST,"保留桌子、库存和规则 / AI 设置"),()->{});
+            menu.button(14,icon(Items.OAK_BOAT,"释放所有座位，重新入座后开局"),()->{});
+            menu.button(29,icon(Items.REDSTONE_BLOCK,"确认重置牌桌"),()->{
+                if(p.containerMenu!=menu||!tableMenuValid(p,table)||!host(p,table))return;
+                if(table.resetTable(driver,revision)){
+                    p.sendSystemMessage(Component.literal("牌桌已重置，可重新入座开局。"),true);
+                    settings(p,table);
+                }
+            });
+            menu.button(33,icon(Items.ARROW,"取消 · 返回设置"),()->settings(p,table));
         });
     }
     static void items(ServerPlayer p,int page){
@@ -82,7 +101,7 @@ public final class PortMenus {
         final Map<Integer,Runnable> actions=new HashMap<>();final BooleanSupplier valid;
         Actions(int id,Inventory inv,BooleanSupplier valid){super(MenuType.GENERIC_9x6,id,inv,new SimpleContainer(54),6);this.valid=valid;}
         void button(int slot,ItemStack item,Runnable action){getContainer().setItem(slot,item);actions.put(slot,action);}
-        @Override public void clicked(int slot,int button,ContainerInput type,Player p){if(valid.getAsBoolean()&&type==ContainerInput.PICKUP&&actions.containsKey(slot))actions.get(slot).run();}
+        @Override public void clicked(int slot,int button,ContainerInput type,Player p){if(p.containerMenu==this&&valid.getAsBoolean()&&type==ContainerInput.PICKUP&&actions.containsKey(slot))actions.get(slot).run();}
         @Override public ItemStack quickMoveStack(Player p,int slot){return ItemStack.EMPTY;}
         @Override public boolean stillValid(Player p){return valid.getAsBoolean();}
     }

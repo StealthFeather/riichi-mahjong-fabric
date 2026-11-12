@@ -22,6 +22,7 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.commands.Commands;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ClientInformation;
 import net.minecraft.server.level.ServerPlayer;
@@ -29,6 +30,8 @@ import net.minecraft.util.ProblemReporter;
 import net.minecraft.world.MenuProvider;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ContainerInput;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.storage.TagValueInput;
 import net.minecraft.world.level.storage.ValueInput;
 
@@ -112,6 +115,7 @@ public final class AiIntegrationTest implements ModInitializer {
             checkIdleConfiguration();
             checkMenuConfiguration();
             checkSavedConfiguration(server);
+            checkResetMenus(server);
             checkSanma();
             table.selectPreset(RuleSetPreset.MAHJONG_SOUL_4P);
             require(table.tryStartMatch(123456L) == MahjongTableBlockEntity.StartMatchResult.STARTED,
@@ -256,6 +260,158 @@ public final class AiIntegrationTest implements ModInitializer {
         return ((PortMenus.Actions) menuPlayer.opened).getContainer().getItem(slot).getHoverName().getString();
     }
 
+    private static void checkResetMenus(MinecraftServer server) throws Exception {
+        var saved = table.exportRecordSnapshot(server.registryAccess());
+        UUID host = menuPlayer.getUUID();
+        require(table.claimSeat(0, host), "reset fixture could not claim host seat");
+        table.setItem(135, new ItemStack(Items.DIAMOND, 7));
+        table.setMintTilesFromNothing(false);
+        table.toggleSeatEnabled(3);
+        var idleSeats = table.seats();
+        PortMenus.settings(menuPlayer, table);
+        require(menuText(35).contains("重置牌桌"), "reset entry missing from actual settings menu");
+        menuClick(35);
+        var cancelled = menuPlayer.opened;
+        require(menuText(12).contains("比分与供托") && menuText(13).contains("库存")
+                && menuText(14).contains("释放所有座位"), "reset confirmation does not describe its effects");
+        require(table.seats().equals(idleSeats), "opening confirmation reset the table");
+        menuClick(33);
+        cancelled.clicked(29, 0, ContainerInput.PICKUP, menuPlayer);
+        require(table.seats().equals(idleSeats), "cancelled confirmation reset the table");
+        menuClick(35);
+        var closed = menuPlayer.opened;
+        menuPlayer.containerMenu = menuPlayer.inventoryMenu;
+        closed.clicked(29, 0, ContainerInput.PICKUP, menuPlayer);
+        require(table.seats().equals(idleSeats), "closed confirmation reset the table");
+
+        PortMenus.settings(menuPlayer, table);
+        menuClick(35);
+        menuClick(29);
+        require(!table.hasActiveMatch() && table.humanSeatCount() == 0 && !table.seats().get(3).enabled(),
+                "idle reset did not release occupants while preserving seat configuration");
+        require(table.getItem(135).is(Items.DIAMOND) && table.getItem(135).getCount() == 7
+                && !table.mintTilesFromNothing() && table.defaultBotDifficulty() == BotDifficulty.HARD
+                && table.botDifficulty(0) == BotDifficulty.EASY, "idle reset changed inventory or configuration");
+        pass("reset-confirmation-cancel-and-close-are-inert-idle-reset-preserves-inventory-and-settings");
+
+        table.toggleSeatEnabled(3);
+        require(table.claimSeat(0, host), "reset host could not rejoin");
+        require(table.tryStartMatch(456L) == MahjongTableBlockEntity.StartMatchResult.STARTED,
+                "reset active fixture did not start");
+        UUID returning = UUID.randomUUID();
+        require(table.claimSeat(1, returning), "reset fixture could not claim returning seat");
+        table.releaseSeat(1);
+        var active = table.driver();
+        var bots = new ArrayList<KobalabBot>();
+        for (int seat = 0; seat < 4; seat++) if (active.playerAt(seat) instanceof KobalabBot bot) bots.add(bot);
+        table.handDisplayOrder(0);
+        table.recordPrivateClick(menuPlayer);
+
+        var outsider = new MenuPlayer(server, UUID.randomUUID());
+        PortMenus.settings(outsider, table);
+        var outsiderSettings = outsider.opened;
+        outsiderSettings.clicked(35, 0, ContainerInput.PICKUP, outsider);
+        require(outsider.opened == outsiderSettings && table.driver() == active,
+                "non-host opened or executed a reset");
+
+        PortMenus.settings(menuPlayer, table);
+        menuClick(35);
+        var denied = menuPlayer.opened;
+        menuPlayer.setPos(POS.getX() + 100, POS.getY(), POS.getZ());
+        denied.clicked(29, 0, ContainerInput.PICKUP, menuPlayer);
+        require(table.driver() == active, "distant host reset the table");
+        menuPlayer.setPos(POS.getX() + 0.5, POS.getY() + 0.5, POS.getZ() + 0.5);
+        require(table.claimSeat(2, outsider.getUUID()), "authorization fixture could not claim another seat");
+        table.releaseSeat(0);
+        denied.clicked(29, 0, ContainerInput.PICKUP, menuPlayer);
+        require(table.driver() == active, "confirmation bypassed changed host authorization");
+        table.releaseSeat(2);
+        require(table.claimSeat(0, host), "original host could not resume fixture");
+        pass("reset-revalidates-current-host-and-distance");
+
+        PortMenus.settings(menuPlayer, table);
+        menuClick(35);
+        var removed = menuPlayer.opened;
+        table.setRemoved();
+        removed.clicked(29, 0, ContainerInput.PICKUP, menuPlayer);
+        require(table.driver() == active, "removed table accepted a reset");
+        table.clearRemoved();
+        removed.clicked(29, 0, ContainerInput.PICKUP, menuPlayer);
+        require(table.driver() == active, "old confirmation survived table removal/reactivation");
+
+        PortMenus.settings(menuPlayer, table);
+        menuClick(35);
+        var stale = menuPlayer.opened;
+        table.endGame();
+        require(table.tryStartMatch(789L) == MahjongTableBlockEntity.StartMatchResult.STARTED,
+                "replacement match did not start");
+        var replacement = table.driver();
+        stale.clicked(29, 0, ContainerInput.PICKUP, menuPlayer);
+        require(table.driver() == replacement, "old confirmation reset a replacement match");
+        require(bots.stream().allMatch(KobalabBot::isClosed), "ending original fixture left an AI open");
+
+        require(table.claimSeat(1, returning), "replacement fixture could not reserve returning seat");
+        table.releaseSeat(1);
+
+        var resetSnapshot = table.exportRecordSnapshot(server.registryAccess());
+        resetSnapshot.putString("ResultAnimStage", "AWAITING_ADVANCE");
+        resetSnapshot.putInt("ResultAnimYakuIdx", 9);
+        load(server, resetSnapshot);
+        var resetDriver = table.driver();
+        var resetBots = new ArrayList<KobalabBot>();
+        for (int seat = 0; seat < 4; seat++) if (resetDriver.playerAt(seat) instanceof KobalabBot bot) resetBots.add(bot);
+        table.handDisplayOrder(0);
+        table.recordPrivateClick(menuPlayer);
+        PortMenus.settings(menuPlayer, table);
+        menuClick(35);
+        var confirmed = menuPlayer.opened;
+        menuClick(29);
+        require(table.driver() == null && table.humanSeatCount() == 0 && table.enabledSeatCount() == 4,
+                "confirmed active reset did not return to an empty lobby");
+        require(resetBots.stream().allMatch(KobalabBot::isClosed), "confirmed reset left AI controllers active");
+        require(table.returningSeat(host).isEmpty() && table.returningSeat(returning).isEmpty()
+                && !table.recentPrivateClick(menuPlayer), "reset retained reservations or private click state");
+        for (int seat = 0; seat < table.seats().size(); seat++) {
+            require(table.handDisplayOrder(seat).isEmpty() && table.handDisplaySlots(seat).isEmpty()
+                    && table.handDisplayGapStarts(seat).isEmpty() && !table.hasSeparatedDrawnTile(seat),
+                    "reset retained hand layout or exposed unavailable hand state at seat " + seat);
+        }
+        require(table.resultAnimStage() == MahjongTableBlockEntity.ResultAnimStage.NONE
+                && table.resultAnimYakuIdx() == 0, "reset retained hand layout or result animation");
+        var board = PublicTable.capture(table);
+        require(board.riichiSticks() == 0 && board.seats().stream().allMatch(seat -> seat.points() == 0
+                && seat.handCount() == 0 && seat.river().isEmpty() && seat.melds().isEmpty()),
+                "reset retained public score, supply or tile displays");
+        var persisted = table.exportRecordSnapshot(server.registryAccess());
+        require(!persisted.contains("Driver") && !persisted.contains("HumanPlayers")
+                && persisted.getListOrEmpty("ReturningSeats").isEmpty(), "reset saved obsolete match data");
+        require(table.getItem(135).is(Items.DIAMOND) && table.getItem(135).getCount() == 7
+                && !table.mintTilesFromNothing() && table.preset() == RuleSetPreset.MAHJONG_SOUL_4P
+                && table.defaultBotDifficulty() == BotDifficulty.HARD && table.botDifficulty(0) == BotDifficulty.EASY,
+                "active reset changed preserved inventory or settings");
+        long revision = table.matchRevision();
+        confirmed.clicked(29, 0, ContainerInput.PICKUP, menuPlayer);
+        require(table.matchRevision() == revision, "repeated confirmation executed reset twice");
+        require(table.claimSeat(0, outsider.getUUID()) && table.tryStartMatch(999L)
+                == MahjongTableBlockEntity.StartMatchResult.STARTED, "reset table could not be reused by another host");
+        confirmed.clicked(29, 0, ContainerInput.PICKUP, menuPlayer);
+        require(table.hasActiveMatch(), "old confirmed menu reset the new host's game");
+        table.endGame();
+        for (int seat = 0; seat < 4; seat++) table.releaseSeat(seat);
+
+        PortMenus.settings(menuPlayer, table);
+        menuClick(35);
+        var idleStale = menuPlayer.opened;
+        table.tryStartMatch(111L);
+        table.endGame();
+        long currentRevision = table.matchRevision();
+        idleStale.clicked(29, 0, ContainerInput.PICKUP, menuPlayer);
+        require(table.matchRevision() == currentRevision, "idle confirmation revived after an intervening match");
+        pass("confirmed-reset-clears-runtime-closes-ai-releases-seats-and-rejects-removed-stale-or-repeated-menus");
+        load(server, saved);
+        PortMenus.settings(menuPlayer, table);
+    }
+
     private static void menuClick(int slot) {
         require(menuPlayer.opened instanceof PortMenus.Actions, "settings menu was not captured");
         menuPlayer.opened.clicked(slot, 0, ContainerInput.PICKUP, menuPlayer);
@@ -265,15 +421,20 @@ public final class AiIntegrationTest implements ModInitializer {
     private static final class MenuPlayer extends ServerPlayer {
         AbstractContainerMenu opened;
         MenuPlayer(MinecraftServer server) {
+            this(server, UUID.fromString("bb4db14b-9c6e-4e90-aa6d-36d82f425c21"));
+        }
+        MenuPlayer(MinecraftServer server, UUID uuid) {
             super(server, server.overworld(), new GameProfile(
-                    UUID.fromString("bb4db14b-9c6e-4e90-aa6d-36d82f425c21"), "AiMenuTest"),
+                    uuid, "AiMenuTest"),
                     ClientInformation.createDefault());
             setPos(POS.getX() + 0.5, POS.getY() + 0.5, POS.getZ() + 0.5);
         }
         @Override public OptionalInt openMenu(MenuProvider provider) {
             opened = provider.createMenu(1, getInventory(), this);
+            if (opened != null) containerMenu = opened;
             return opened == null ? OptionalInt.empty() : OptionalInt.of(1);
         }
+        @Override public void sendSystemMessage(Component message, boolean overlay) {}
     }
 
     private static void checkActiveSaveAndRestore(MinecraftServer server) throws Exception {

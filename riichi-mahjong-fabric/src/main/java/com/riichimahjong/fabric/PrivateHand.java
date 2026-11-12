@@ -47,8 +47,7 @@ final class PrivateHand {
             var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer player,InteractionHand hand,Vec3 loc,boolean sneaking){if(hand==InteractionHand.MAIN_HAND&&valid(player))click(InteractKey.SeatSlot.AREA_HAND,index,sneaking);}});
             hit.setOverridePos(at.add(0,-.05*TableLayout.TILE_ENLARGEMENT,0));hit.setSize(.071f*TableLayout.TILE_ENLARGEMENT,.12f*TableLayout.TILE_ENLARGEMENT);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
         }
-        // Empty discard slots consume clicks without submitting a different tile
-        // or reaching the table's quick-discard action underneath.
+        // Empty discard slots consume clicks without submitting a different tile.
         if(!snapshot.revealed&&!snapshot.handSlots.isEmpty())for(int slot=0;slot<snapshot.handSlots.getLast();slot++){
             if(snapshot.handSlots.contains(slot))continue;
             var at=TableLayout.handAnchor(pos,dir,TableLayout.handAlong(slot,snapshot.handGapStarts),false);
