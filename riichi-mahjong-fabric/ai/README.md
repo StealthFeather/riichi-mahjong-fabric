@@ -1,5 +1,20 @@
 # Four-player AI worker
 
+<!-- timory-resource-repository:start -->
+## 材质包统一维护
+
+材质包独立维护于 [StealthFeather/Timory-ResourcePack](https://github.com/StealthFeather/Timory-ResourcePack)。GitHub 独立仓库是统一维护来源；主工作区 `TimoryResource/` 是现有构建脚本的兼容工作目录，独立检出位于 `projects/timory-resource-pack/`。
+
+**每次涉及材质包的设计、修改或生成（含贴图、模型、物品定义、语言、图集、动画和元数据），必须先从 GitHub 同步最新内容，再开始修改。** 在 Timory 主工作区根目录执行：
+
+```powershell
+git -C projects/timory-resource-pack fetch origin
+git -C projects/timory-resource-pack pull --ff-only origin main
+```
+
+首次使用先克隆该仓库；本地有未提交改动或分支分叉时先保留并合并，解决冲突后再修改。同步后比较并合并独立检出与 `TimoryResource/` 的差异；资源生成脚本同样遵循此顺序。保留其他项目资源、图集条目与许可证，禁止用旧快照或单项目包覆盖共享内容。验证后的材质包改动需提交并推送回独立仓库，具体流程见其 [README](https://github.com/StealthFeather/Timory-ResourcePack#readme)。
+<!-- timory-resource-repository:end -->
+
 The Mod starts `worker.cjs` as a local, persistent Node.js 22+ process. It sends one
 JSON request per line and receives `{id,index,engine}`. The index refers to the
 request's authoritative `legal` action list. An invalid request or strategy error

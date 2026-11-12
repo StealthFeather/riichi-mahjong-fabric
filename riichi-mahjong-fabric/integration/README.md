@@ -1,5 +1,20 @@
 # Isolated Minecraft integration addon
 
+<!-- timory-resource-repository:start -->
+## 材质包统一维护
+
+材质包独立维护于 [StealthFeather/Timory-ResourcePack](https://github.com/StealthFeather/Timory-ResourcePack)。GitHub 独立仓库是统一维护来源；主工作区 `TimoryResource/` 是现有构建脚本的兼容工作目录，独立检出位于 `projects/timory-resource-pack/`。
+
+**每次涉及材质包的设计、修改或生成（含贴图、模型、物品定义、语言、图集、动画和元数据），必须先从 GitHub 同步最新内容，再开始修改。** 在 Timory 主工作区根目录执行：
+
+```powershell
+git -C projects/timory-resource-pack fetch origin
+git -C projects/timory-resource-pack pull --ff-only origin main
+```
+
+首次使用先克隆该仓库；本地有未提交改动或分支分叉时先保留并合并，解决冲突后再修改。同步后比较并合并独立检出与 `TimoryResource/` 的差异；资源生成脚本同样遵循此顺序。保留其他项目资源、图集条目与许可证，禁止用旧快照或单项目包覆盖共享内容。验证后的材质包改动需提交并推送回独立仓库，具体流程见其 [README](https://github.com/StealthFeather/Timory-ResourcePack#readme)。
+<!-- timory-resource-repository:end -->
+
 The AI preview adds `riichi_ai_test run`. It requires only the isolated server marker, not a connected client. It validates real table settings/NBT, the actual settings menu through a captured `ServerPlayer.openMenu`, three-player fallback, save/restore, leave/rejoin, closed pending decisions and unload/reactivation. It then runs all three actual Node strategies through at least twelve accepted discards and records their separate engine counters in `riichi-ai-integration-results.json`. Success is `RIICHI_AI_INTEGRATION_PASS`. A headless menu test does not verify client rendering. Stop the disposable server normally after the report is written.
 
 This addon is kept outside `src/main` and is never part of the production JAR. It injects deterministic fixtures by reflection and changes a small area of its test world. **Install only in a disposable local test server.** It refuses to initialize unless the server working directory contains the marker file `riichi-integration-enabled`.

@@ -64,7 +64,7 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
             }
             // The allowlist also includes every tenpai hand at a drawn-round result.
             List<Integer> revealed=visibleHands.contains(i)?table.handDisplayOrder(i).stream().map(PublicTable::code).toList():List.of();
-            int count=p.currentHand().size(); // The public value is only the count.
+            int count=visibleHands.contains(i)?revealed.size():p.currentHand().size(); // Ron adds a result-only tile.
             boolean deposited=p.riichi()&&driver.snapshot().pendingRiichiCommit().orElse(-1)!=i;
             out.add(new Seat(owner,name,Math.floorMod(i-round.dealerSeat(),round.players().size()),p.points(),count,table.handDisplaySlots(i),table.handDisplayGapStarts(i),revealed,List.copyOf(river),List.copyOf(melds),p.kitaCount(),p.riichi(),deposited,table.hasSeparatedDrawnTile(i)));
         }

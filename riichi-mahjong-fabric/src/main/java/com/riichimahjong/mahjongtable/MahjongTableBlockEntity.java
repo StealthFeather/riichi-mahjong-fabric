@@ -7,14 +7,15 @@ import com.riichimahjong.cuterenderer.CuteClickHandler;
 import com.riichimahjong.cuterenderer.InteractKey;
 import com.riichimahjong.themahjongcompat.DriverNbt;
 import com.riichimahjong.fabric.HandDisplayState;
+import com.riichimahjong.fabric.WinningHandDisplay;
 import com.riichimahjong.ai.BotDifficulty;
 import com.riichimahjong.ai.KobalabBot;
+import com.riichimahjong.ai.RandomThinkingBot;
 import com.themahjong.TheMahjongTile;
 import com.themahjong.TheMahjongMatch;
 import com.themahjong.driver.MahjongPlayerInterface;
 import com.themahjong.driver.MatchPhase;
 import com.themahjong.driver.TheMahjongDriver;
-import com.themahjong.driver.bots.StupidActiveBot;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -118,6 +119,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     private final ReturningSeats returningSeats = new ReturningSeats();
     private final Map<UUID,Long> privateClicks = new HashMap<>();
     private final HandDisplayState handDisplay = new HandDisplayState();
+    @Nullable private WinningHandDisplay winningHandDisplay;
     @Nullable private TheMahjongDriver handDisplayDriver;
     private RuleSetPreset preset = RuleSetPreset.MAHJONG_SOUL_4P;
     private BotDifficulty defaultBotDifficulty = BotDifficulty.NORMAL;
@@ -168,22 +170,27 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
 
     public List<TheMahjongTile> handDisplayOrder(int seat) {
         updateHandDisplay();
-        return handDisplay.hand(seat);
+        return winningHandLayout(seat).map(WinningHandDisplay.Layout::order).orElseGet(() -> handDisplay.hand(seat));
     }
 
     public List<Integer> handDisplaySlots(int seat) {
         updateHandDisplay();
-        return handDisplay.slots(seat);
+        return winningHandLayout(seat).map(WinningHandDisplay.Layout::slots).orElseGet(() -> handDisplay.slots(seat));
     }
 
     public List<Integer> handDisplayGapStarts(int seat) {
         updateHandDisplay();
-        return handDisplay.gapStarts(seat);
+        return winningHandLayout(seat).map(WinningHandDisplay.Layout::gapStarts).orElseGet(() -> handDisplay.gapStarts(seat));
     }
 
     public boolean hasSeparatedDrawnTile(int seat) {
         updateHandDisplay();
-        return handDisplay.separated(seat);
+        return winningHandLayout(seat).map(layout -> !layout.gapStarts().isEmpty()).orElseGet(() -> handDisplay.separated(seat));
+    }
+
+    private Optional<WinningHandDisplay.Layout> winningHandLayout(int seat) {
+        if(winningHandDisplay==null||driver==null)return Optional.empty();
+        return driver.match().currentRound().flatMap(round -> winningHandDisplay.layout(round,driver.currentPhase(),seat));
     }
 
     public List<SeatInfo> seats() { return List.copyOf(seats); }
@@ -584,7 +591,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     private MahjongPlayerInterface buildBot(int seat, int playerCount, boolean redFives) {
-        return playerCount == 4 ? new KobalabBot(botDifficulty(seat), redFives) : StupidActiveBot.humanLike();
+        return playerCount == 4 ? new KobalabBot(botDifficulty(seat), redFives) : new RandomThinkingBot();
     }
 
     private boolean activeRedFives() {
@@ -645,6 +652,11 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             playAcceptedDiscardSound(sl, prevMatch);
         }
         MatchPhase nextPhase = driver.currentPhase();
+        if (!(prevPhase instanceof MatchPhase.RoundEnded) && nextPhase instanceof MatchPhase.RoundEnded) {
+            winningHandDisplay = WinningHandDisplay.capture(driver.winningTile(), nextPhase);
+        } else if (!(nextPhase instanceof MatchPhase.RoundEnded)) {
+            winningHandDisplay = null;
+        }
         updateHandDisplay();
 
         boolean playerStateChanged = false;
@@ -1023,6 +1035,9 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
 
         if (driver != null) {
             DriverNbt.writeDriver(out.child(NBT_DRIVER), driver);
+            if (winningHandDisplay != null && driver.currentPhase() instanceof MatchPhase.RoundEnded) {
+                winningHandDisplay.write(out.child("WinningHandDisplay"));
+            }
             out.putLong(NBT_RANDOM_SEED, randomSeed);
             var reservations=out.childrenList("ReturningSeats");
             returningSeats.snapshot().forEach((uuid,seat)->{
@@ -1099,6 +1114,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         }
 
         this.driver = null;
+        this.winningHandDisplay = null;
         this.randomSeed = 0L;
         returningSeats.clear();privateClicks.clear();
         Optional<ValueInput> driverIn = in.child(NBT_DRIVER);
@@ -1122,6 +1138,9 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
                     buildPlayersFromSeats(activeSeats, redFives),
                     new java.security.SecureRandom());
             this.driver.setAnimationsEnabled(true);
+            if (driver.currentPhase() instanceof MatchPhase.RoundEnded) {
+                winningHandDisplay = in.child("WinningHandDisplay").map(WinningHandDisplay::read).orElse(null);
+            }
 
             for (var entry:in.childrenListOrEmpty("ReturningSeats")) {
                 int seat=entry.getIntOr("Seat",-1);var uuid=entry.read("uuid",UUIDUtil.CODEC).orElse(null);

@@ -39,21 +39,29 @@ final class PrivateHand {
         // ManualAttachment keeps it alive without registering any chunk watchers.
         new ManualAttachment(holder,owner.level(),()->Vec3.atCenterOf(pos));
         if(!snapshot.revealed)for(int i=0;i<snapshot.hand.size();i++){
-            final int index=i;Vec3 at=TableLayout.handAnchor(pos,dir,TableLayout.handAlong(snapshot.handSlots.get(i),snapshot.handGapStarts),false);
+            Vec3 at=TableLayout.handAnchor(pos,dir,TableLayout.handAlong(snapshot.handSlots.get(i),snapshot.handGapStarts),false);
             var tile=PortViews.display(holder,PortViews.tileModel(snapshot.hand.get(i)),at,TableLayout.TILE_SCALE,PortViews.rotation(dir,false,false));tile.setVisibilityPredicate(p->p==owner);
             if(snapshot.buttons.stream().anyMatch(b->b instanceof MahjongTableHumanPlayer.TableButton.RiichiToggle r&&r.active())&&snapshot.riichiDiscards.contains(snapshot.hand.get(i))){
                 var mark=new TextDisplayElement(Component.literal("▼").withStyle(ChatFormatting.GREEN));mark.setOverridePos(at.add(0,.15*TableLayout.TILE_ENLARGEMENT,0));mark.setScale(new Vector3f(.18f*TableLayout.TILE_ENLARGEMENT));mark.setBillboardMode(Display.BillboardConstraints.CENTER);mark.setVisibilityPredicate(p->p==owner);holder.addElement(mark);
             }
-            var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer player,InteractionHand hand,Vec3 loc,boolean sneaking){if(hand==InteractionHand.MAIN_HAND&&valid(player))click(InteractKey.SeatSlot.AREA_HAND,index,sneaking);}});
-            hit.setOverridePos(at.add(0,-.05*TableLayout.TILE_ENLARGEMENT,0));hit.setSize(.071f*TableLayout.TILE_ENLARGEMENT,.12f*TableLayout.TILE_ENLARGEMENT);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
+            for(var cell:TileInteractionLayout.cells(at,TableLayout.TILE_SCALE,PortViews.rotation(dir,false,false))){
+                var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer player,InteractionHand hand,Vec3 loc,boolean sneaking){
+                    if(hand==InteractionHand.MAIN_HAND&&valid(player))PortViews.handleTileHit(player,table);
+                }});
+                cell.apply(hit);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
+            }
         }
         // Empty discard slots consume clicks without submitting a different tile
         // or reaching the table's quick-discard action underneath.
         if(!snapshot.revealed&&!snapshot.handSlots.isEmpty())for(int slot=0;slot<snapshot.handSlots.getLast();slot++){
             if(snapshot.handSlots.contains(slot))continue;
             var at=TableLayout.handAnchor(pos,dir,TableLayout.handAlong(slot,snapshot.handGapStarts),false);
-            var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer player,InteractionHand hand,Vec3 loc,boolean sneaking){if(player==owner&&hand==InteractionHand.MAIN_HAND)table.recordPrivateClick(owner);}});
-            hit.setOverridePos(at.add(0,-.05*TableLayout.TILE_ENLARGEMENT,0));hit.setSize(.071f*TableLayout.TILE_ENLARGEMENT,.12f*TableLayout.TILE_ENLARGEMENT);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
+            for(var cell:TileInteractionLayout.cells(at,TableLayout.TILE_SCALE,PortViews.rotation(dir,false,false))){
+                var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer player,InteractionHand hand,Vec3 loc,boolean sneaking){
+                    if(player==owner&&hand==InteractionHand.MAIN_HAND)PortViews.handleTileHit(player,table);
+                }});
+                cell.apply(hit);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
+            }
         }
         for(var button:buttonLayout){
             var text=Component.literal(button.text()).withStyle(style->style.withColor(ChatFormatting.YELLOW).withFont(new FontDescription.Resource(Identifier.withDefaultNamespace("uniform"))));

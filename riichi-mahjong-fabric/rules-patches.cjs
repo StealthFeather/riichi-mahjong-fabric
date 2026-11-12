@@ -10,6 +10,18 @@ module.exports=function patchDriver(source){
          '        commitPendingRiichi();\n        round = currentRound(); // Preserve the accepted deposit when a declaration discard is called.\n\n        for (int offset');
  replace('        claimDecisions.remove(seat);',
          '        // Keep an already accepted claim when its human controller leaves.');
+ // Preserve display metadata at the exact accepted action, including multiple actions in one advance().
+ replace('    private boolean animationsEnabled;',
+         `    private boolean animationsEnabled;
+    private TheMahjongRound.ActiveTile winningTile = TheMahjongRound.ActiveTile.none();
+    public TheMahjongRound.ActiveTile winningTile() {
+        return phase instanceof MatchPhase.RoundEnded ended && !ended.winResults().isEmpty()
+                ? winningTile : TheMahjongRound.ActiveTile.none();
+    }`);
+ replace('            round = round.declareWin(seat, seat, t.result());',
+         '            winningTile = round.activeTile();\n            round = round.declareWin(seat, seat, t.result());');
+ replace('    private void applyRonResolution(List<Integer> ronSeats) {\n        TheMahjongRound round = currentRound();',
+         '    private void applyRonResolution(List<Integer> ronSeats) {\n        TheMahjongRound round = currentRound();\n        winningTile = round.activeTile();');
  return source;
 };
 

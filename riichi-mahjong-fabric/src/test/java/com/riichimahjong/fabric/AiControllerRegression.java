@@ -77,7 +77,8 @@ public final class AiControllerRegression {
         var bot = new KobalabBot(BotDifficulty.NORMAL);
         long submitted = AiRuntime.metrics().get("submitted");
         check(bot.chooseAction(draw,.1).isEmpty(),"automatic draw did not preserve thinking delay");
-        check(bot.chooseAction(draw,.25).orElseThrow() instanceof PlayerAction.Draw,"automatic draw did not finish");
+        check(bot.chooseAction(draw,.39).isEmpty(),"automatic draw bypassed the minimum half-second delay");
+        check(bot.chooseAction(draw,1.01).orElseThrow() instanceof PlayerAction.Draw,"automatic draw did not finish within the random delay range");
         bot.close();
         check(bot.isClosed()&&bot.chooseAction(original,10).isEmpty(),"replaced controller can still submit an action");
         check(AiRuntime.metrics().get("submitted")==submitted,"automatic draw or closed bot launched the AI");

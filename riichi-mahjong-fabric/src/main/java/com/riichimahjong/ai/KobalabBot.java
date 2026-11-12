@@ -14,7 +14,7 @@ public final class KobalabBot implements MahjongPlayerInterface, AutoCloseable {
     private boolean closed;
     private DecisionRequest current;
     private CompletableFuture<Integer> pending;
-    private double elapsed;
+    private final BotThinkTime thinking=new BotThinkTime();
     private PlayerAction automatic;
 
     public KobalabBot(BotDifficulty difficulty) { this(difficulty, null); }
@@ -27,22 +27,20 @@ public final class KobalabBot implements MahjongPlayerInterface, AutoCloseable {
         if (closed || request.legalActions().isEmpty()) return Optional.empty();
         if (!Objects.equals(current, request)) {
             if (pending != null) pending.cancel(false);
-            current = request; elapsed = 0; automatic = forced(request); pending = null;
+            current = request; automatic = forced(request); pending = null;
             if (automatic == null) {
                 var snapshot = redFives == null ? AiSnapshot.create(request, difficulty) : AiSnapshot.create(request, difficulty, redFives);
                 pending = AiRuntime.choose(snapshot);
             }
         }
-        elapsed += Double.isFinite(deltaSeconds) ? Math.max(0, deltaSeconds) : 0;
+        boolean ready=thinking.ready(request,deltaSeconds);
         PlayerAction chosen = automatic;
         if (chosen == null && pending != null && pending.isDone() && !pending.isCancelled() && !pending.isCompletedExceptionally()) {
             int index = pending.getNow(-1);
             if (index >= 0 && index < request.legalActions().size()) chosen = request.legalActions().get(index);
         }
         if (chosen == null) return Optional.empty();
-        double seconds = chosen instanceof PlayerAction.DeclareRon || chosen instanceof PlayerAction.DeclareTsumo
-                || chosen instanceof PlayerAction.DeclareChankan || chosen instanceof PlayerAction.DiscardWithRiichi ? 1.0 : chosen instanceof PlayerAction.Pass ? 0.5 : 0.3;
-        return elapsed >= seconds ? Optional.of(chosen) : Optional.empty();
+        return ready ? Optional.of(chosen) : Optional.empty();
     }
 
     private static PlayerAction forced(DecisionRequest request) {

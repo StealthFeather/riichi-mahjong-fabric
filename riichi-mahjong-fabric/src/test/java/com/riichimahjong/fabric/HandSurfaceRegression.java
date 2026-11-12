@@ -52,9 +52,10 @@ public final class HandSurfaceRegression {
                     close(bottom,pos.getY()+felt);
                     if(!flat){
                         // Match the owner's interaction feet and confirm a low ray still selects the tile.
-                        close(at.y-.05*TableLayout.TILE_ENLARGEMENT,bottom);
-                        if(at.y-.05*TableLayout.TILE_ENLARGEMENT+.12*TableLayout.TILE_ENLARGEMENT<top)
-                            throw new AssertionError("Interaction does not cover standing hand");
+                        for(var cell:TileInteractionLayout.cells(at,TableLayout.TILE_SCALE,PortViews.rotation(dir,false,false))){
+                            close(cell.feet().y,bottom);
+                            close(cell.feet().y+cell.height(),top);
+                        }
                         var end=new Vec3(at.x,bottom+.01,at.z);
                         var start=end.add(dir.getStepX()*.5,0,dir.getStepZ()*.5);
                         if(TableHitTest.tile(start,end,at,TableLayout.TILE_SCALE,PortViews.rotation(dir,false,false)).isEmpty())

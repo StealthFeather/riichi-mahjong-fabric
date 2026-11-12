@@ -124,7 +124,7 @@ public final class PortViews {
         if(table.recentPrivateClick(player))return true;
         var view=VIEWS.get(new Key(player.level(),table.getBlockPos()));
         if(view==null)return false;
-        Vec3 start=player.getEyePosition(),end=start.add(player.getLookAngle().scale(8));
+        Vec3 start=player.getEyePosition(),end=tileRayEnd(player,start);
         var privateHand=view.hands.get(player.getUUID());
         if(privateHand!=null&&privateHand.handleButtonHit(start,end))return true;
         var pos=table.getBlockPos();
@@ -146,13 +146,18 @@ public final class PortViews {
         }
         return true;
     }
+    private static Vec3 tileRayEnd(ServerPlayer player,Vec3 start){
+        var end=start.add(player.getLookAngle().scale(8));
+        var hit=player.level().clip(new ClipContext(start,end,ClipContext.Block.COLLIDER,ClipContext.Fluid.NONE,player));
+        return hit.getType()==net.minecraft.world.phys.HitResult.Type.MISS?end:hit.getLocation();
+    }
     private static final class View {
         final ServerLevel level;final BlockPos pos;final BlockState state;final ElementHolder holder=new ElementHolder();
         final Map<String,ItemDisplayElement> tiles=new HashMap<>();final Set<String> used=new HashSet<>();
         private record Visual(int code,Vec3 position,float scale,Quaternionf rotation,UUID hiddenFrom){}
         final Map<String,Visual> sent=new HashMap<>();
         final Map<UUID,PrivateHand> hands=new HashMap<>();final TextDisplayElement label=new TextDisplayElement();
-        final Map<String,InteractionElement> hits=new HashMap<>();PublicTable previous;
+        final Map<String,List<InteractionElement>> hits=new HashMap<>();PublicTable previous;
         final Map<Integer,TextDisplayElement> seatLabels=new HashMap<>();
         final Map<Integer,InteractionElement> seatHits=new HashMap<>();
         final TableHud hud;
@@ -292,9 +297,37 @@ public final class PortViews {
             var board=be.board();if(board==null)return;used.clear();Set<String> liveHits=new HashSet<>();float scale=(float)((2.0/17)/(11.0/16));double gx=1.0/17,gz=(14.0/16)*scale/2,layerHeight=(9.0/16)*scale;
             for(int i=0;i<be.slotCount();i++)if(be.tileAt(i)!=null){var slot=board.slots().get(i);double x=.5-board.width()*gx/2+(slot.x()-board.minX()+1)*gx;double z=.5-board.depth()*gz/2+(slot.z()-board.minZ()+1)*gz+.0625*scale;double y=.0625+slot.y()*layerHeight+layerHeight/2;var at=new Vec3(pos.getX()+x,pos.getY()+y,pos.getZ()+z);String key="solitaire/"+i;
                 tile(key,MahjongTileItems.codeForTile(be.tileAt(i)),at,scale,rotation(Direction.SOUTH,true,false),null);
-                if(be.isFree(i)){liveHits.add(key);if(!hits.containsKey(key)){final int index=i;var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer p,InteractionHand hand,Vec3 loc,boolean sneak){if(hand==InteractionHand.MAIN_HAND&&near(p,level,pos)&&be.isFree(index))be.onCuteClick(p,new InteractKey.Slot(index));}});hit.setOverridePos(at.add(0,-layerHeight/2,0));hit.setSize((float)(2*gx-.006),(float)layerHeight);holder.addElement(hit);hits.put(key,hit);}}
+                if(be.isFree(i)){
+                    liveHits.add(key);
+                    var cells=TileInteractionLayout.cells(at,scale,rotation(Direction.SOUTH,true,false));
+                    var previousHits=hits.get(key);
+                    if(previousHits!=null&&previousHits.size()!=cells.size()){
+                        previousHits.forEach(holder::removeElement);hits.remove(key);
+                    }
+                    if(!hits.containsKey(key)){
+                        final int index=i;var elements=new ArrayList<InteractionElement>();
+                        for(var cell:cells){
+                            var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer p,InteractionHand hand,Vec3 loc,boolean sneak){
+                                if(hand==InteractionHand.MAIN_HAND&&near(p,level,pos)&&be.isFree(index)&&solitaireTarget(p).equals("solitaire/"+index))be.onCuteClick(p,new InteractKey.Slot(index));
+                            }});
+                            cell.apply(hit);hit.setResponse(true);holder.addElement(hit);elements.add(hit);
+                        }
+                        hits.put(key,List.copyOf(elements));
+                    }else{
+                        for(int cell=0;cell<cells.size();cell++)cells.get(cell).apply(hits.get(key).get(cell));
+                    }
+                }
             }
-            for(var it=hits.entrySet().iterator();it.hasNext();){var e=it.next();if(!liveHits.contains(e.getKey())){holder.removeElement(e.getValue());it.remove();}}label.setText(Component.literal(board.name()+" · 剩余 "+be.remainingTiles()+"张\n右键单张牌配对 · 右键底座获取提示"));cleanup();
+            for(var it=hits.entrySet().iterator();it.hasNext();){var e=it.next();if(!liveHits.contains(e.getKey())){e.getValue().forEach(holder::removeElement);it.remove();}}label.setText(Component.literal(board.name()+" · 剩余 "+be.remainingTiles()+"张\n右键单张牌配对 · 右键底座获取提示"));cleanup();
+        }
+        String solitaireTarget(ServerPlayer player){
+            var start=player.getEyePosition();var end=tileRayEnd(player,start);
+            String chosen="";double nearest=Double.MAX_VALUE;
+            for(var entry:sent.entrySet())if(entry.getKey().startsWith("solitaire/")){
+                var visual=entry.getValue();var hit=TableHitTest.tile(start,end,visual.position(),visual.scale(),visual.rotation());
+                if(hit.isPresent()&&start.distanceToSqr(hit.get())<nearest){nearest=start.distanceToSqr(hit.get());chosen=entry.getKey();}
+            }
+            return chosen;
         }
         void renderAltar(MahjongAltarBlockEntity altar){used.clear();for(int i=0;i<altar.getContainerSize();i++){var stack=altar.getItem(i);if(stack.isEmpty())continue;String key="altar/"+i;used.add(key);var d=tiles.get(key);var at=new Vec3(pos.getX()+.25+(i%3)*.25,pos.getY()+.85,pos.getZ()+.25+(i/3)*.25);if(d==null){d=new ItemDisplayElement(stack);d.setOverridePos(at);d.setScale(new Vector3f(.25f));holder.addElement(d);tiles.put(key,d);}else d.setItem(stack);}cleanup();}
         void destroy(){hands.values().forEach(PrivateHand::destroy);hands.clear();if(hud!=null)hud.destroy();if(collision!=null)collision.destroy();holder.destroy();}
