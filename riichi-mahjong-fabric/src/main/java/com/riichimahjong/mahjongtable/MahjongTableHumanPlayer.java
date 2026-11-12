@@ -374,22 +374,8 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
 
     public void onTableRightClick(TheMahjongDriver driver, MatchPhase phase, int seatIndex,
                                   ServerPlayer sender) {
-        TheMahjongRound round = driver.match().currentRound().orElse(null);
-        if (phase instanceof MatchPhase.AwaitingDiscard ad && ad.seat() == seatIndex) {
-            if (round != null
-                    && round.activeTile() instanceof TheMahjongRound.ActiveTile.Drawn drawn) {
-                tryDiscard(sender, drawn.tile(), driver, seatIndex);
-            } else {
-                hint(sender, "riichi_mahjong.hint.player.choose_discard");
-            }
-        } else if (phase instanceof MatchPhase.AwaitingClaims) {
-            // A table/block fallback may open the prompt, but only its explicit
-            // token-bearing confirmation button may ever accept a skipped win.
-            selectTableButton(new TableButton.SubmitAction(PlayerAction.Pass.INSTANCE),driver,seatIndex,sender);
-        } else if (phase instanceof MatchPhase.AwaitingDiscard
-                || phase instanceof MatchPhase.AwaitingDraw) {
-            hint(sender, "riichi_mahjong.hint.player.wait_turn");
-        }
+        // A missed hand/button click can fall through to the table underneath.
+        // Only an explicit hand or current button hit may choose a player action.
     }
 
     private void tryDiscard(ServerPlayer sender, TheMahjongTile tile,

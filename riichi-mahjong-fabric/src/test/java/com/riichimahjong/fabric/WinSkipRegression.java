@@ -38,16 +38,41 @@ public final class WinSkipRegression {
         check(rig.driver.legalActions(1).stream().anyMatch(a->a instanceof PlayerAction.DeclareRon),"ron fixture lacks a legal win");
         return rig;
     }
-    private static Rig chankanRig() {
+    private static Rig kakanRig() {
         var hand=new ArrayList<TheMahjongTile>();for(int rank=1;rank<=9;rank++)hand.add(tile(0,rank));
         hand.add(tile(3,1));hand.add(tile(4,1));
         var pon=new TheMahjongMeld.Pon(Collections.nCopies(3,tile(4,1)),0,3,0);
         var source=new TheMahjongPlayer(25000,TheMahjongPlayer.RiichiState.NONE,false,hand,List.of(pon),List.of(),List.of());
         var base=driver(List.of(source,player(waiting(1)),player(waiting(2)),player(waiting(0))),Collections.nCopies(20,tile(4,2))).currentRound();
-        var rig=rig(base);
+        return rig(base);
+    }
+    private static Rig chankanRig() {
+        var rig=kakanRig();
         var kakan=rig.driver.legalActions(0).stream().filter(a->a instanceof PlayerAction.Kakan).findFirst().orElseThrow();
         act(rig.driver,0,kakan);
         check(rig.driver.legalActions(1).stream().anyMatch(a->a instanceof PlayerAction.DeclareChankan),"chankan fixture lacks a legal win");
+        return rig;
+    }
+    private static Rig callRig() {
+        var source=new ArrayList<>(waiting(0));source.add(tile(0,5));
+        var caller=List.of(tile(0,3),tile(0,4),tile(0,5),tile(0,5),tile(0,5),
+                tile(1,1),tile(1,2),tile(1,4),tile(1,6),tile(2,2),tile(2,5),tile(3,2),tile(4,2));
+        var rig=rig(driver(List.of(player(source),player(caller),player(waiting(2)),player(waiting(0))),
+                Collections.nCopies(20,tile(4,2))).currentRound());
+        act(rig.driver,0,new PlayerAction.Discard(tile(0,5)));
+        var legal=rig.driver.legalActions(1);
+        check(legal.stream().anyMatch(a->a instanceof PlayerAction.Chi)
+                &&legal.stream().anyMatch(a->a instanceof PlayerAction.Pon)
+                &&legal.stream().anyMatch(a->a instanceof PlayerAction.Daiminkan)
+                &&legal.stream().noneMatch(a->a instanceof PlayerAction.DeclareRon),"chi/pon/open-kan fixture is invalid");
+        return rig;
+    }
+    private static Rig ankanRig() {
+        var hand=List.of(tile(0,1),tile(0,1),tile(0,1),tile(0,1),tile(0,2),tile(0,3),tile(0,4),
+                tile(1,2),tile(1,3),tile(1,4),tile(2,5),tile(2,6),tile(3,1),tile(4,2));
+        var rig=rig(driver(List.of(player(hand),player(waiting(1)),player(waiting(2)),player(waiting(0))),
+                Collections.nCopies(20,tile(4,2))).currentRound());
+        check(rig.driver.legalActions(0).stream().anyMatch(a->a instanceof PlayerAction.Ankan),"concealed-kan fixture is invalid");
         return rig;
     }
     private static List<TableButton> buttons(Rig rig,int seat) {
@@ -60,6 +85,44 @@ public final class WinSkipRegression {
     private static boolean select(Rig rig,int seat,TableButton button) {
         return rig.humans.get(seat).selectTableButton(button,rig.driver,seat,null);
     }
+    private static void assertTableMissUnchanged(Rig rig,int seat) {
+        var human=rig.humans.get(seat);var before=buttons(rig,seat);
+        var round=rig.driver.currentRound();var phase=rig.driver.currentPhase();
+        var legal=List.copyOf(rig.driver.legalActions(seat));var riichi=human.riichiPending();
+        check(!human.hasQueued(),"miss fixture already has a queued action");
+        for(int repeat=0;repeat<3;repeat++) {
+            human.onTableRightClick(rig.driver,rig.driver.currentPhase(),seat,null);
+            check(!human.hasQueued(),"table miss queued a pass, discard or button action");
+            check(buttons(rig,seat).equals(before),"table miss opened/closed a prompt or changed buttons");
+            check(human.riichiPending()==riichi,"table miss changed riichi selection");
+            rig.driver.advance(.05);
+            check(rig.driver.currentRound()==round&&rig.driver.currentPhase().equals(phase),"table miss advanced the round or phase");
+            check(rig.driver.legalActions(seat).equals(legal),"table miss changed legal actions");
+        }
+    }
+    private static void missedButtons() {
+        for(var type:List.of(PlayerAction.Chi.class,PlayerAction.Pon.class,PlayerAction.Daiminkan.class)) {
+            var rig=callRig();assertTableMissUnchanged(rig,1);
+            var choice=buttons(rig,1).stream().filter(b->b instanceof TableButton.SubmitAction s&&type.isInstance(s.action())).findFirst().orElseThrow();
+            check(select(rig,1,choice)&&rig.humans.get(1).hasQueued(),"explicit call button stopped working after a miss: "+type.getSimpleName());
+        }
+        for(var rig:List.of(ronRig(),chankanRig())) {
+            assertTableMissUnchanged(rig,1);
+            var win=buttons(rig,1).stream().filter(b->b instanceof TableButton.SubmitAction s
+                    &&(s.action() instanceof PlayerAction.DeclareRon||s.action() instanceof PlayerAction.DeclareChankan)).findFirst().orElseThrow();
+            check(select(rig,1,win)&&rig.humans.get(1).hasQueued(),"explicit claim-win button stopped working after a miss");
+        }
+        for(var rig:List.of(tsumoRig(),ankanRig(),kakanRig())) {
+            assertTableMissUnchanged(rig,0);
+            var choice=buttons(rig,0).stream().filter(b->b instanceof TableButton.SubmitAction s
+                    &&(s.action() instanceof PlayerAction.DeclareTsumo||s.action() instanceof PlayerAction.Ankan||s.action() instanceof PlayerAction.Kakan)).findFirst().orElseThrow();
+            check(select(rig,0,choice)&&rig.humans.get(0).hasQueued(),"explicit tsumo/self-kan button stopped working after a miss");
+        }
+        var rig=tsumoRig();
+        check(select(rig,0,button(rig,0,TableButton.RiichiToggle.class)),"riichi fixture lacks a toggle");
+        assertTableMissUnchanged(rig,0);
+        assertTableMissUnchanged(rig,1);
+    }
     private static void assertPrompt(Rig rig,int seat) {
         var visible=buttons(rig,seat);
         check(visible.size()==2&&visible.get(0) instanceof TableButton.ConfirmSkip&&visible.get(1) instanceof TableButton.CancelSkip,
@@ -70,7 +133,7 @@ public final class WinSkipRegression {
         for(var rig:List.of(ronRig(),chankanRig())) {
             check(select(rig,1,pass()),"first skip was not handled");assertPrompt(rig,1);
             var first=button(rig,1,TableButton.ConfirmSkip.class);
-            for(int repeat=0;repeat<3;repeat++)rig.humans.get(1).onTableRightClick(rig.driver,rig.driver.currentPhase(),1,null);
+            assertTableMissUnchanged(rig,1);
             assertPrompt(rig,1);
             check(button(rig,1,TableButton.ConfirmSkip.class).equals(first),"block fallback replaced/accepted the prompt");
             check(select(rig,1,button(rig,1,TableButton.CancelSkip.class)),"return did not cancel");
@@ -91,11 +154,13 @@ public final class WinSkipRegression {
         act(rig.driver,0,new PlayerAction.Discard(tile(4,2)));
         var legal=rig.driver.legalActions(1);
         check(legal.stream().anyMatch(a->a instanceof PlayerAction.Pon)&&legal.stream().noneMatch(a->a instanceof PlayerAction.DeclareRon),"plain pon fixture is invalid");
+        assertTableMissUnchanged(rig,1);
         check(select(rig,1,pass())&&rig.humans.get(1).hasQueued(),"non-winning claim skip stopped being single-click");
     }
     private static void tsumoAndDiscard() {
         var rig=tsumoRig();var human=rig.humans.get(0);
         var win=buttons(rig,0).stream().filter(b->b instanceof TableButton.SubmitAction s&&s.action() instanceof PlayerAction.DeclareTsumo).findFirst().orElseThrow();
+        assertTableMissUnchanged(rig,0);
         select(rig,0,button(rig,0,TableButton.SkipTsumo.class));assertPrompt(rig,0);
         select(rig,0,button(rig,0,TableButton.CancelSkip.class));
         check(buttons(rig,0).contains(win),"return failed to restore tsumo");
@@ -105,13 +170,16 @@ public final class WinSkipRegression {
         check(buttons(rig,0).stream().noneMatch(b->b instanceof TableButton.SkipTsumo||b instanceof TableButton.SubmitAction s&&s.action() instanceof PlayerAction.DeclareTsumo),
                 "confirmed skip did not hide this tsumo opportunity");
         check(!select(rig,0,win),"hidden tsumo action remained clickable");
+        assertTableMissUnchanged(rig,0);
         human.onCuteClick(new InteractKey.SeatSlot((byte)0,InteractKey.SeatSlot.AREA_HAND,(short)0),rig.driver,0,null);
         check(human.hasQueued(),"confirmed tsumo skip blocked a normal discard");
 
         var pending=tsumoRig();select(pending,0,button(pending,0,TableButton.SkipTsumo.class));
         var old=button(pending,0,TableButton.ConfirmSkip.class);
-        pending.humans.get(0).onTableRightClick(pending.driver,pending.driver.currentPhase(),0,null);
-        check(pending.humans.get(0).hasQueued(),"a pending tsumo prompt blocked an ordinary table-right-click discard");
+        assertTableMissUnchanged(pending,0);
+        check(button(pending,0,TableButton.ConfirmSkip.class).equals(old),"table miss replaced the pending tsumo confirmation");
+        pending.humans.get(0).onCuteClick(new InteractKey.SeatSlot((byte)0,InteractKey.SeatSlot.AREA_HAND,(short)0),pending.driver,0,null);
+        check(pending.humans.get(0).hasQueued(),"a pending tsumo prompt blocked an explicit hand-tile discard");
         check(!select(pending,0,old),"old tsumo confirmation overwrote a discard");
     }
     private static void expiryAndIndependence() {
@@ -136,6 +204,7 @@ public final class WinSkipRegression {
         h.clearOccupant();check(!select(fresh,0,pending),"cleared occupant retained a confirmation");
     }
     public static void main(String[] args) {
+        missedButtons();System.out.println("PASS: missed chi/pon/open-kan/ron/chankan/tsumo/self-kan buttons preserve state; explicit buttons remain available");
         claimConfirmation();System.out.println("PASS: ron/chankan skips require explicit confirmation; return and block fallback are safe");
         ordinaryPass();System.out.println("PASS: non-winning claim skips remain single-click");
         tsumoAndDiscard();System.out.println("PASS: tsumo skip confirms locally without illegal Pass; normal discards remain available");

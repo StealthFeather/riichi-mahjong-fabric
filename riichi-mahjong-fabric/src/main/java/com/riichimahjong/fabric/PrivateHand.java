@@ -51,8 +51,7 @@ final class PrivateHand {
                 cell.apply(hit);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
             }
         }
-        // Empty discard slots consume clicks without submitting a different tile
-        // or reaching the table's quick-discard action underneath.
+        // Empty discard slots consume clicks without submitting a different tile.
         if(!snapshot.revealed&&!snapshot.handSlots.isEmpty())for(int slot=0;slot<snapshot.handSlots.getLast();slot++){
             if(snapshot.handSlots.contains(slot))continue;
             var at=TableLayout.handAnchor(pos,dir,TableLayout.handAlong(slot,snapshot.handGapStarts),false);
