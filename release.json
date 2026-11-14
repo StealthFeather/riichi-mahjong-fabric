@@ -1,0 +1,65 @@
+{
+  "version": "0.4.2+fabric.26.3.24",
+  "jarSha256": "b13b4ffc252d5a0e2f523a197319e5e266f16f086df4a2166e9aee0b07aaa71d",
+  "deployment": "completed",
+  "githubUpload": "immutable-git-assets",
+  "resourcePackChanged": false,
+  "resourcePackSha256": "887bb8ae32ff8157cebe423af6452c22ad5010fe16f6b1fc299d21c80a5e7a27",
+  "resourcePackReusedFrom": "0.4.2+fabric.26.3.23 (unchanged 26.3.19 resource pack)",
+  "checks": {
+    "compiled": true,
+    "javaRegressionClasses": 24,
+    "nodeAiTests": 10,
+    "windTileLabelsEastSouthWestNorth": true,
+    "allPriorRegressionsRetained": true,
+    "hostOnlyMenuAndInventoryCodeReviewed": true,
+    "windPlateRoutingRegression": true,
+    "startCommandOpensMenuCodeReviewed": true
+  },
+  "clientVisualTest": false,
+  "serverStartupTest": true,
+  "realServerMenuInteractionTest": false,
+  "fullMultiplayerGameTest": false,
+  "sourceCommit": "fc8f643df5a2e8c4a67dd6a8527e808b8a2bd2e1",
+  "deployedAt": "2026-11-15T01:32:55.902228+08:00",
+  "servers": [
+    {
+      "name": "Timroy_SC",
+      "checks": {
+        "newVersionLoaded": true,
+        "startupReady": true,
+        "statusPing": true,
+        "testedJarMatchesSha256": true,
+        "onlyOneMahjongJar": true,
+        "otherModsUnchanged": true,
+        "propertiesUnchanged": true,
+        "startupErrorCount": 0,
+        "consoleListResponded": true,
+        "mahjongCommandResponded": true
+      },
+      "minecraftVersion": "26.3",
+      "primeBackupSnapshot": 4,
+      "backupDirectoryName": "riichi-mahjong-20261115-012707-26.3.24"
+    },
+    {
+      "name": "Timory_sc_tr",
+      "checks": {
+        "newVersionLoaded": true,
+        "startupReady": true,
+        "statusPing": true,
+        "testedJarMatchesSha256": true,
+        "onlyOneMahjongJar": true,
+        "otherModsUnchanged": true,
+        "propertiesUnchanged": true,
+        "startupErrorCount": 0,
+        "consoleListResponded": true,
+        "mahjongCommandResponded": true
+      },
+      "minecraftVersion": "26.3",
+      "primeBackupSnapshot": 3,
+      "backupDirectoryName": "riichi-mahjong-20261115-012707-26.3.24"
+    }
+  ],
+  "assetBranch": "codex/release-assets-26.3.24",
+  "nativeAssetUpload": "proxy CONNECT HTTP 403"
+}
