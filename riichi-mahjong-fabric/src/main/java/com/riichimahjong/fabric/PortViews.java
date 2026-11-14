@@ -86,7 +86,8 @@ public final class PortViews {
         // Polymer can request a view while serializing a chunk off the server thread.
         level.getServer().execute(()->PENDING.put(key,LOAD_RETRY_TICKS));
     }
-    static ItemStack model(String path){var stack=new ItemStack(Items.PAPER);stack.set(DataComponents.ITEM_MODEL,Identifier.fromNamespaceAndPath("riichi_mahjong",path));return stack;}
+    static ItemStack model(String path){return model(path,false);}
+    static ItemStack model(String path,boolean glint){var stack=new ItemStack(Items.PAPER);stack.set(DataComponents.ITEM_MODEL,Identifier.fromNamespaceAndPath("riichi_mahjong",path));if(glint)stack.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE,true);return stack;}
     static String tileModel(int code){return code<0?"bridge/tile_back":"bridge/"+BuiltInRegistries.ITEM.getKey(MahjongTileItems.itemForCode(code)).getPath();}
     static Direction outward(int seat,BlockState state){
         Direction facing=state.hasProperty(BaseMultipartBlock.FACING)?state.getValue(BaseMultipartBlock.FACING):Direction.NORTH;
@@ -99,10 +100,13 @@ public final class PortViews {
     }
     static Vec3 anchor(BlockPos pos,Direction outward,double along,double height,double distance){var line=outward.getCounterClockWise();return new Vec3(pos.getX()+.5+line.getStepX()*along+outward.getStepX()*distance,pos.getY()+height,pos.getZ()+.5+line.getStepZ()*along+outward.getStepZ()*distance);}
     static ItemDisplayElement display(ElementHolder holder,String model,Vec3 pos,float scale,Quaternionf rotation){
-        return display(holder,model,pos,scale,rotation,null);
+        return display(holder,model,pos,scale,rotation,false);
     }
-    private static ItemDisplayElement display(ElementHolder holder,String model,Vec3 pos,float scale,Quaternionf rotation,UUID hideFrom){
-        var d=new ItemDisplayElement(model(model));d.setItemDisplayContext(ItemDisplayContext.NONE);d.setOverridePos(pos);d.setScale(new Vector3f(scale));d.setLeftRotation(rotation);d.setRightRotation(new Quaternionf().rotationY((float)Math.PI));d.setDisplaySize(3,3);
+    static ItemDisplayElement display(ElementHolder holder,String model,Vec3 pos,float scale,Quaternionf rotation,boolean glint){
+        return display(holder,model,pos,scale,rotation,null,glint);
+    }
+    private static ItemDisplayElement display(ElementHolder holder,String model,Vec3 pos,float scale,Quaternionf rotation,UUID hideFrom,boolean glint){
+        var d=new ItemDisplayElement(model(model,glint));d.setItemDisplayContext(ItemDisplayContext.NONE);d.setOverridePos(pos);d.setScale(new Vector3f(scale));d.setLeftRotation(rotation);d.setRightRotation(new Quaternionf().rotationY((float)Math.PI));d.setDisplaySize(3,3);
         // addElement immediately spawns for existing watchers. Set the audience first:
         // Polymer 0.18.7 cannot retract a GenericEntityElement via its predicate alone.
         if(hideFrom!=null)d.setVisibilityPredicate(player->!player.getUUID().equals(hideFrom));
@@ -154,7 +158,8 @@ public final class PortViews {
     private static final class View {
         final ServerLevel level;final BlockPos pos;final BlockState state;final ElementHolder holder=new ElementHolder();
         final Map<String,ItemDisplayElement> tiles=new HashMap<>();final Set<String> used=new HashSet<>();
-        private record Visual(int code,Vec3 position,float scale,Quaternionf rotation,UUID hiddenFrom){}
+        private record Visual(int code,Vec3 position,float scale,Quaternionf rotation,UUID hiddenFrom,boolean glint){}
+        Set<Integer> glowingTiles=Set.of();
         final Map<String,Visual> sent=new HashMap<>();
         final Map<UUID,PrivateHand> hands=new HashMap<>();final TextDisplayElement label=new TextDisplayElement();
         final Map<String,List<InteractionElement>> hits=new HashMap<>();PublicTable previous;
@@ -181,14 +186,15 @@ public final class PortViews {
             return state.hasProperty(BaseMultipartBlock.FACING)?rotation(state.getValue(BaseMultipartBlock.FACING),false,false):new Quaternionf();
         }
         void tile(String slot,int code,Vec3 at,float scale,Quaternionf rotation,UUID hideFrom){
-            used.add(slot);var visual=new Visual(code,at,scale,rotation,hideFrom);var old=sent.put(slot,visual);if(visual.equals(old))return;
+            boolean glint=code>=0&&glowingTiles.contains(code);
+            used.add(slot);var visual=new Visual(code,at,scale,rotation,hideFrom,glint);var old=sent.put(slot,visual);if(visual.equals(old))return;
             var d=tiles.get(slot);
             if(d!=null&&(old==null||!Objects.equals(old.hiddenFrom(),hideFrom))){
                 // removeElement explicitly removes the old ID from every client,
                 // including a newly seated owner who previously saw this public tile.
                 holder.removeElement(d);d=null;
             }
-            if(d==null){d=display(holder,tileModel(code),at,scale,rotation,hideFrom);tiles.put(slot,d);}else{if(old==null||old.code()!=code)d.setItem(model(tileModel(code)));d.setOverridePos(at);d.setScale(new Vector3f(scale));d.setLeftRotation(rotation);}
+            if(d==null){d=display(holder,tileModel(code),at,scale,rotation,hideFrom,glint);tiles.put(slot,d);}else{if(old==null||old.code()!=code||old.glint()!=glint)d.setItem(model(tileModel(code),glint));d.setOverridePos(at);d.setScale(new Vector3f(scale));d.setLeftRotation(rotation);}
         }
         void tile(String key,int code,Direction dir,double along,double height,double distance,boolean flat,boolean down,boolean sideways,UUID hide){var q=rotation(dir,flat,down);if(sideways)q.rotateLocalY((float)Math.PI/2);tile(key,code,TableLayout.anchor(pos,dir,along,height,distance),TableLayout.TILE_SCALE,q,hide);}
         void cleanup(){for(var it=tiles.entrySet().iterator();it.hasNext();){var e=it.next();if(!used.contains(e.getKey())){holder.removeElement(e.getValue());sent.remove(e.getKey());it.remove();}}}
@@ -232,6 +238,7 @@ public final class PortViews {
             }
         }
         void renderTable(PublicTable board){
+            glowingTiles=board.glowingTiles();
             used.clear();boolean active=board.seats().stream().anyMatch(s->s.handCount()>0);
             if(active){
                 int dealt=122-board.liveWall();

@@ -9,7 +9,7 @@ import com.themahjong.compat.DrawSettlement;
 
 /** The sole allowlist passed to the public tile renderer. No round, wall tiles, seed or legal actions. */
 public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<Integer> dora,List<Integer> ura,
-                          String label,String roundLabel,int turnSeat,int riichiSticks,MatchPhase.Stage stage,double progress) {
+                          Set<Integer> glowingTiles,String label,String roundLabel,int turnSeat,int riichiSticks,MatchPhase.Stage stage,double progress) {
     public record Tile(int code,boolean sideways,boolean stacked,boolean faceDown){
         Tile(int code,boolean sideways){this(code,sideways,false,false);}
         Tile(int code,boolean sideways,boolean stacked){this(code,sideways,stacked,false);}
@@ -48,10 +48,7 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
         var infos=table.seats();var out=new ArrayList<Seat>();
         MatchPhase phase=driver==null?null:driver.currentPhase();
         Set<Integer> visibleHands=revealedSeats(phase,round);
-        Set<Integer> winners=new HashSet<>();boolean ura=false;
-        if(phase instanceof MatchPhase.RoundEnded ended&&!ended.winResults().isEmpty()&&round!=null){
-            for(var win:ended.winResults())for(int i=0;i<win.pointDeltas().size();i++)if(win.pointDeltas().get(i)>0){winners.add(i);if(round.players().get(i).riichi())ura=true;}
-        }
+        boolean ura=DoraGlint.uraVisible(round,phase);
         for(int i=0;i<infos.size();i++){
             var info=infos.get(i);UUID owner=info.occupant().orElse(null);var player=owner==null?null:table.getLevel().getPlayerByUUID(owner);
             String name=player==null?(owner==null?(round==null?"空位":"BOT"):"离线玩家"):player.getName().getString();
@@ -86,6 +83,6 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
         if(phase instanceof MatchPhase.Dealing)roundLabel+=" · 配牌中";
         if(phase instanceof MatchPhase.MatchEnded)roundLabel+=" · 对局结束";
         int turn=phase instanceof MatchPhase.AwaitingDiscard d?d.seat():phase instanceof MatchPhase.AwaitingDraw d?d.seat():-1;
-        return new PublicTable(List.copyOf(out),round==null?0:round.liveWall().size(),round==null?0:Math.max(0,4-round.rinshanTiles().size()),dora,uras,label,roundLabel,turn,round==null?0:round.riichiSticks(),stage,progress);
+        return new PublicTable(List.copyOf(out),round==null?0:round.liveWall().size(),round==null?0:Math.max(0,4-round.rinshanTiles().size()),dora,uras,DoraGlint.tiles(round,phase),label,roundLabel,turn,round==null?0:round.riichiSticks(),stage,progress);
     }
 }

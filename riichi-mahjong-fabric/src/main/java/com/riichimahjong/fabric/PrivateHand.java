@@ -20,7 +20,7 @@ import org.joml.Vector3f;
 
 /** A manual attachment has no chunk audience: exactly one watcher and a predicate per element. */
 final class PrivateHand {
-    record Snapshot(Object driver,Object round,Object phase,List<Integer> hand,List<Integer> handSlots,List<Integer> handGapStarts,List<MahjongTableHumanPlayer.TableButton> buttons,List<Integer> riichiDiscards,boolean queued,boolean drawnTile,boolean revealed){}
+    record Snapshot(Object driver,Object round,Object phase,List<Integer> hand,List<Integer> handSlots,List<Integer> handGapStarts,List<MahjongTableHumanPlayer.TableButton> buttons,List<Integer> riichiDiscards,Set<Integer> glowingTiles,boolean queued,boolean drawnTile,boolean revealed){}
     final ServerPlayer owner;Snapshot snapshot;final ElementHolder holder=new ElementHolder();
     final MahjongTableBlockEntity table;final int seat;long nextPrompt;String lastPrompt="";
     final List<TableButtonLayout.Button> buttonLayout;
@@ -29,7 +29,7 @@ final class PrivateHand {
         int count=table.handDisplayOrder(seat).size();if(d.currentPhase() instanceof MatchPhase.Dealing dealing){double fraction=switch(dealing.stage()){case WALL_BUILDING->0;case DEALING_HANDS->Math.min(1,dealing.elapsed()/dealing.stage().buildDuration());case DORA_FLIP->1;};count=(int)Math.round(count*fraction);}
         boolean queued=d.playerAt(seat) instanceof MahjongTableHumanPlayer h&&h.hasQueued();
         var discards=d.legalActions(seat).stream().filter(a->a instanceof PlayerAction.DiscardWithRiichi).map(a->PublicTable.code(((PlayerAction.DiscardWithRiichi)a).tile())).toList();
-        return new Snapshot(d,r,d.currentPhase(),table.handDisplayOrder(seat).stream().limit(count).map(PublicTable::code).toList(),table.handDisplaySlots(seat).stream().limit(count).toList(),table.handDisplayGapStarts(seat),queued?List.of():List.copyOf(MahjongTableHumanPlayer.tableButtons(d,seat,table.riichiPendingForSeat(seat))),discards,queued,table.hasSeparatedDrawnTile(seat),PublicTable.revealedSeats(d.currentPhase(),r).contains(seat));
+        return new Snapshot(d,r,d.currentPhase(),table.handDisplayOrder(seat).stream().limit(count).map(PublicTable::code).toList(),table.handDisplaySlots(seat).stream().limit(count).toList(),table.handDisplayGapStarts(seat),queued?List.of():List.copyOf(MahjongTableHumanPlayer.tableButtons(d,seat,table.riichiPendingForSeat(seat))),discards,DoraGlint.tiles(r,d.currentPhase()),queued,table.hasSeparatedDrawnTile(seat),PublicTable.revealedSeats(d.currentPhase(),r).contains(seat));
     }
     PrivateHand(MahjongTableBlockEntity table,ServerPlayer owner,int seat,Snapshot snapshot){
         this.table=table;this.owner=owner;this.seat=seat;this.snapshot=snapshot;
@@ -40,7 +40,7 @@ final class PrivateHand {
         new ManualAttachment(holder,owner.level(),()->Vec3.atCenterOf(pos));
         if(!snapshot.revealed)for(int i=0;i<snapshot.hand.size();i++){
             Vec3 at=TableLayout.handAnchor(pos,dir,TableLayout.handAlong(snapshot.handSlots.get(i),snapshot.handGapStarts),false);
-            var tile=PortViews.display(holder,PortViews.tileModel(snapshot.hand.get(i)),at,TableLayout.TILE_SCALE,PortViews.rotation(dir,false,false));tile.setVisibilityPredicate(p->p==owner);
+            var tile=PortViews.display(holder,PortViews.tileModel(snapshot.hand.get(i)),at,TableLayout.TILE_SCALE,PortViews.rotation(dir,false,false),snapshot.glowingTiles.contains(snapshot.hand.get(i)));tile.setVisibilityPredicate(p->p==owner);
             if(snapshot.buttons.stream().anyMatch(b->b instanceof MahjongTableHumanPlayer.TableButton.RiichiToggle r&&r.active())&&snapshot.riichiDiscards.contains(snapshot.hand.get(i))){
                 var mark=new TextDisplayElement(Component.literal("▼").withStyle(ChatFormatting.GREEN));mark.setOverridePos(at.add(0,.15*TableLayout.TILE_ENLARGEMENT,0));mark.setScale(new Vector3f(.18f*TableLayout.TILE_ENLARGEMENT));mark.setBillboardMode(Display.BillboardConstraints.CENTER);mark.setVisibilityPredicate(p->p==owner);holder.addElement(mark);
             }
@@ -81,7 +81,7 @@ final class PrivateHand {
         if(table.seatOfPlayer(owner.getUUID()).orElse(-1)!=seat||table.driver()!=snapshot.driver)return false;
         return table.driver().match().currentRound().isPresent()&&snapshot.equals(snapshot(table,seat));
     }
-    boolean sameVisuals(Snapshot other){return snapshot.driver==other.driver&&snapshot.hand.equals(other.hand)&&snapshot.handSlots.equals(other.handSlots)&&snapshot.handGapStarts.equals(other.handGapStarts)&&snapshot.buttons.equals(other.buttons)&&snapshot.riichiDiscards.equals(other.riichiDiscards)&&snapshot.revealed==other.revealed&&snapshot.drawnTile==other.drawnTile;}
+    boolean sameVisuals(Snapshot other){return snapshot.driver==other.driver&&snapshot.hand.equals(other.hand)&&snapshot.handSlots.equals(other.handSlots)&&snapshot.handGapStarts.equals(other.handGapStarts)&&snapshot.buttons.equals(other.buttons)&&snapshot.riichiDiscards.equals(other.riichiDiscards)&&snapshot.glowingTiles.equals(other.glowingTiles)&&snapshot.revealed==other.revealed&&snapshot.drawnTile==other.drawnTile;}
     boolean handleButtonHit(Vec3 start,Vec3 end){
         if(!PortViews.near(owner,owner.level(),table.getBlockPos())||table.isRemoved()||table.getLevel()!=owner.level())return false;
         var dir=PortViews.outward(seat,table.getBlockState());

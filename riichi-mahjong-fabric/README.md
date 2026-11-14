@@ -1,23 +1,8 @@
 # Riichi Mahjong
 
-<!-- timory-resource-repository:start -->
-## 材质包统一维护
+日本立直麻将、3D 牌桌、私有手牌与原版客户端适配。当前本地构建：**0.4.2+fabric.26.3.21**（暂未部署或上传 GitHub），仅安装到 Fabric 服务端。
 
-材质包独立维护于 [StealthFeather/Timory-ResourcePack](https://github.com/StealthFeather/Timory-ResourcePack)。GitHub 独立仓库是统一维护来源；主工作区 `TimoryResource/` 是现有构建脚本的兼容工作目录，独立检出位于 `projects/timory-resource-pack/`。
-
-**每次涉及材质包的设计、修改或生成（含贴图、模型、物品定义、语言、图集、动画和元数据），必须先从 GitHub 同步最新内容，再开始修改。** 在 Timory 主工作区根目录执行：
-
-```powershell
-git -C projects/timory-resource-pack fetch origin
-git -C projects/timory-resource-pack pull --ff-only origin main
-```
-
-首次使用先克隆该仓库；本地有未提交改动或分支分叉时先保留并合并，解决冲突后再修改。同步后比较并合并独立检出与 `TimoryResource/` 的差异；资源生成脚本同样遵循此顺序。保留其他项目资源、图集条目与许可证，禁止用旧快照或单项目包覆盖共享内容。验证后的材质包改动需提交并推送回独立仓库，具体流程见其 [README](https://github.com/StealthFeather/Timory-ResourcePack#readme)。
-<!-- timory-resource-repository:end -->
-
-日本立直麻将、3D 牌桌、私有手牌与原版客户端适配。当前版本：**0.4.2+fabric.26.3.20**，仅安装到 Fabric 服务端。
-
-本版修复流局连庄与本场结转，添加吃、碰、杠和立直音效，并隐藏鸣牌响应期间的公共等待提示。保留 26.3.19 的四麻三级 AI、TP 返回显示恢复、跳过和牌确认、手牌空槽延迟整理及交互布局。变更见 [26.3.20 说明](docs/26.3.20.md)。
+本版为实际宝牌和赤宝牌添加原版附魔光效，暗手牌的牌面及光效仅本人可见。保留 26.3.20 的流局连庄与本场修复、吃碰杠立直音效和隐藏鸣牌等待提示，以及四麻三级 AI、TP 返回显示恢复、跳过和牌确认、手牌空槽延迟整理及交互布局。变更见 [26.3.21 说明](docs/26.3.21.md)。
 
 ## 3×3 牌桌
 
@@ -27,13 +12,15 @@ git -C projects/timory-resource-pack pull --ff-only origin main
 
 ## 安装与操作
 
-需要 Minecraft 26.3、Fabric Loader 0.19.5、Fabric API 0.163.0+26.3、Java 25；四麻 AI 需要服务端可执行 Node.js 22+。Polymer 和固定版本 AI 源码已内嵌。玩家使用原版客户端并接受包含麻将资产的 TimoryResource。本次音效均使用原版声音，连庄和等待提示调整不修改资产，无需更新资源包。
+需要 Minecraft 26.3、Fabric Loader 0.19.5、Fabric API 0.163.0+26.3、Java 25；四麻 AI 需要服务端可执行 Node.js 22+。Polymer 和固定版本 AI 源码已内嵌。玩家使用原版客户端并接受包含麻将资产的 TimoryResource。宝牌光效使用原版组件，沿用 26.3.20 的原版音效，无需更新资源包。
 
-从 [26.3.20 Release](https://github.com/StealthFeather/riichi-mahjong-fabric/releases/tag/v0.4.2%2Bfabric.26.3.20) 下载 `riichi-mahjong-0.4.2+fabric.26.3.20.jar`。停服备份后替换服务端旧版麻将 JAR，再正常开服，保留当前 TimoryResource 资源包。
+本地构建产物为 `riichi-mahjong-0.4.2+fabric.26.3.21.jar`，当前暂未部署或上传；已发布版本见 [GitHub Releases](https://github.com/StealthFeather/riichi-mahjong-fabric/releases)。需要安装时，停服备份后替换服务端旧版麻将 JAR，再正常开服，保留当前 TimoryResource 资源包。
 
 `/mahjong` 查看操作，管理员 `/mahjong give` 领物品。右键桌边入座，潜行右键中央开局，右键自己的牌出牌；吃碰杠、立直与胡牌使用本人桌沿按钮。跳过可和牌机会需要确认。主动离座使用 `/mahjong leave`；离座后 BOT 暂代，右键桌子或 `/mahjong join` 可接回原座位。
 
 扳手右键中央或 `/mahjong menu` 打开设置，支持四麻/三麻规则预设；四麻可选择初级、中级或高级 AI。完整暗牌仅保存在服务端，牌面只发送给所属玩家。
+
+实际宝牌及赤宝牌的附魔光效覆盖本人暗手、公开弃牌、副露及结果摊牌，开杠新翻宝牌后自动刷新。里宝牌仅在立直赢家结算公开里指示牌后参与高亮。本人暗手牌的牌面和光效只发送给本人；他人与旁观者看到的暗手、牌墙和暗杠外侧保持无光效牌背。
 
 牌的交互体积按模型实际显示边界生成，手牌及单人配对麻将的宽、高、厚度均与显示对齐。四麻全部 AI 难度与三麻机器人每次决策随机等待 0.5–1.5 秒。
 
@@ -54,7 +41,7 @@ node test.cjs
 
 构建器兼容 Timory 工作区与独立源码归档，需配置 JDK、Minecraft 和 Polymer 依赖。配置方式见 [BUILDING.md](BUILDING.md)。**不要重新运行 `prepare.cjs`、`adapt.cjs` 或 `resources.cjs`**，以免覆盖已移植内容及版本元数据。
 
-JAR 位于 `build/libs/`，回归结果和 JAR SHA-256 位于 `build/verification.json`。本版验证包含 17 组 Java 回归及 10 项 Node AI 测试；服务器部署与启动验证见发布附件，未进行真实客户端试听、视觉或完整联机验收。
+JAR 位于 `build/libs/`，回归结果和 JAR SHA-256 位于 `build/verification.json`。本版验证包含 18 组 Java 回归及 10 项 Node AI 测试，新增覆盖指示牌循环、赤宝牌、开杠翻牌、里宝牌公开条件及原版光效组件；本版尚未执行服务器部署及真实客户端可见性、试听、视觉或完整联机验收。
 
 可选打包入口为 `node package.cjs`，默认输出至工作区 `deploy/`；用 `RIICHI_RELEASE_DIR` 可指定其他目录。`install-local.cjs` 仅供正常停服后的主测试服安装，构建与打包不会自动部署。
 
