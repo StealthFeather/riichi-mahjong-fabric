@@ -21,14 +21,14 @@ public final class TableSeating {
         var seats=table.seats();
         if(seat<0||seat>=seats.size())return message(player,"没有这个座位。");
         var info=seats.get(seat);
-        if(!info.enabled())return message(player,wind(seat)+"家座位已关闭，请在牌桌设置中启用。");
+        if(!info.enabled())return message(player,wind(seat)+"家座位已关闭，请让桌主在菜单中启用。");
         if(info.occupant().filter(id->!id.equals(player.getUUID())).isPresent())return message(player,wind(seat)+"家已有玩家，请选择其他空位。");
         if(table.seatOfPlayer(player.getUUID()).orElse(-1)==seat){
             message(player,"你已入座："+wind(seat)+"家。");return true;
         }
         if(table.hasActiveMatch()&&!table.canClaimSeat(seat,player.getUUID()))return message(player,"此座位为其他玩家保留，或你已有原座位。请右键桌子或 /mahjong join 接回原座位。");
         if(!table.claimSeat(seat,player.getUUID()))return message(player,"入座失败，座位状态已变化，请重新选择。");
-        message(player,table.hasActiveMatch()?"已接管："+wind(seat)+"家，保留当前手牌与分数。":"已入座："+wind(seat)+"家。潜行右键桌子中央开始对局，/mahjong leave 离座。");return true;
+        message(player,table.hasActiveMatch()?"已接管："+wind(seat)+"家，保留当前手牌与分数。":"已入座："+wind(seat)+"家。桌主潜行右键中心风盘打开菜单后点击“开始对局”，/mahjong leave 离座。");return true;
     }
     public static boolean joinNearest(ServerPlayer player,MahjongTableBlockEntity table){
         if(!available(player,table))return false;

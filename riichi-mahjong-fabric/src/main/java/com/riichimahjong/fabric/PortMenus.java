@@ -26,10 +26,10 @@ import net.minecraft.world.item.*;
 public final class PortMenus {
     public static void register(){
         CommandRegistrationCallback.EVENT.register((d,access,env)->{
-            var root=Commands.literal("mahjong").executes(c->{c.getSource().sendSuccess(()->Component.literal("立直麻将：右键桌边或座位文字入座，也可 /mahjong join；潜行右键中央开局。右键自己的单张手牌出牌；吃碰杠、立直、胡牌看经验条上方提示并点击本人按钮。仅 /mahjong leave 离座；普通右键桌子或 /mahjong join 接回原座位。/mahjong menu 打开设置。管理员 /mahjong give 获得原版物品。"),false);return 1;});
+            var root=Commands.literal("mahjong").executes(c->{c.getSource().sendSuccess(()->Component.literal("立直麻将：右键桌边或座位文字入座，也可 /mahjong join；桌主潜行右键中心风盘打开菜单，再点击开始对局。右键自己的单张手牌出牌；吃碰杠、立直、胡牌看经验条上方提示并点击本人按钮。仅 /mahjong leave 离座；普通右键桌子或 /mahjong join 接回原座位。仅桌主可用 /mahjong menu 打开菜单；/mahjong start 同样打开菜单。管理员 /mahjong give 获得原版物品。"),false);return 1;});
             root.then(Commands.literal("join").executes(c->{var p=c.getSource().getPlayerOrException();return TableSeating.joinNearest(p,nearest(p))?1:0;}).then(Commands.argument("seat",IntegerArgumentType.integer(1,4)).executes(c->{var p=c.getSource().getPlayerOrException();return TableSeating.join(p,nearest(p),IntegerArgumentType.getInteger(c,"seat")-1)?1:0;})));
             root.then(Commands.literal("menu").executes(c->{var p=c.getSource().getPlayerOrException();settings(p,nearest(p));return 1;}));
-            root.then(Commands.literal("start").executes(c->{var p=c.getSource().getPlayerOrException();var t=nearest(p);if(host(p,t))t.tryStartMatchWithAutoSeating(new java.security.SecureRandom().nextLong());return 1;}));
+            root.then(Commands.literal("start").executes(c->{var p=c.getSource().getPlayerOrException();settings(p,nearest(p));return 1;}));
             root.then(Commands.literal("next").executes(c->{var p=c.getSource().getPlayerOrException();var t=nearest(p);if(t.seatOfPlayer(p.getUUID()).isPresent())t.advanceRoundAfterResult();return 1;}));
             root.then(Commands.literal("leave").executes(c->{var p=c.getSource().getPlayerOrException();return TableSeating.leave(p,nearest(p))?1:0;}));
             root.then(Commands.literal("give").requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS)).executes(c->{items(c.getSource().getPlayerOrException(),0);return 1;}));
@@ -42,13 +42,21 @@ public final class PortMenus {
         for(var pos:BlockPos.betweenClosed(center.offset(-8,-4,-8),center.offset(8,4,8))){if(!p.level().hasChunkAt(pos))continue;if(p.level().getBlockEntity(pos) instanceof MahjongTableBlockEntity table){double d=pos.distToCenterSqr(p.position());if(d<distance){best=table;distance=d;}}}
         if(best==null)throw new IllegalArgumentException("请靠近原版麻将桌。");return best;
     }
-    static boolean host(ServerPlayer p,MahjongTableBlockEntity table){return table.isHost(p.getUUID());}
+    static boolean host(ServerPlayer p,MahjongTableBlockEntity table){return table.owner().filter(p.getUUID()::equals).isPresent();}
     static boolean tableMenuValid(ServerPlayer p,MahjongTableBlockEntity table){return table.getLevel()==p.level()&&!table.isRemoved()&&PortViews.near(p,p.level(),table.getBlockPos())&&p.level().hasChunkAt(table.getBlockPos())&&p.level().getBlockEntity(table.getBlockPos())==table;}
     static ItemStack icon(Item item,String text){var s=new ItemStack(item);s.set(DataComponents.CUSTOM_NAME,Component.literal(text));return s;}
     static void open(ServerPlayer p,String title,BooleanSupplier valid,Consumer<Actions> setup){p.openMenu(new SimpleMenuProvider((id,inv,player)->{var menu=new Actions(id,inv,valid);setup.accept(menu);return menu;},Component.literal(title)));}
     public static void settings(ServerPlayer p,MahjongTableBlockEntity table){
+        if(!tableMenuValid(p,table)){
+            p.sendSystemMessage(Component.literal("请靠近有效的麻将桌再打开菜单。"),true);
+            return;
+        }
+        if(!table.claimHostIfUnowned(p)){
+            p.sendSystemMessage(Component.literal("只有桌主可以打开牌桌菜单。"),true);
+            return;
+        }
         var driver=table.driver();long revision=table.matchRevision();
-        open(p,"立直麻将 · 原版设置",()->tableMenuValid(p,table)&&table.driver()==driver&&table.matchRevision()==revision,menu->{
+        open(p,"立直麻将 · 原版设置",()->tableMenuValid(p,table)&&host(p,table)&&table.driver()==driver&&table.matchRevision()==revision,menu->{
             var presets=RuleSetPreset.values();String[] names={"雀魂四麻","天凤四麻","WRC 四麻","雀魂三麻","天凤三麻"};
             for(int i=0;i<presets.length;i++){final int n=i;menu.button(i,icon(table.preset()==presets[i]?Items.EMERALD:Items.PAPER,names[i]),()->{if(host(p,table))table.selectPreset(presets[n]);settings(p,table);});}
             boolean fourPlayer=table.effectivePreset().playerCount()==4;
@@ -64,10 +72,20 @@ public final class PortMenus {
                     settings(p,table);
                 });
             }
-            menu.button(18,icon(Items.EMERALD,table.hasActiveMatch()?"结束对局（需确认）":"开始对局（空位由 BOT 补齐）"),()->{
+            String matchAction=!table.hasActiveMatch()?"开始对局（空位由 BOT 补齐）"
+                    :table.isDriverTerminal()?"开始新对局（先确认结束终盘）":"结束对局（需确认）";
+            menu.button(18,icon(Items.EMERALD,matchAction),()->{
                 if(!host(p,table)){p.sendSystemMessage(Component.literal("只有桌主可以开始或结束对局。"),true);return;}
                 if(table.hasActiveMatch())confirmTableAction(p,table,TableAction.END);
-                else{table.tryStartMatchWithAutoSeating(new java.security.SecureRandom().nextLong());p.closeContainer();}
+                else{
+                    var result=table.tryStartMatchWithAutoSeating(new java.security.SecureRandom().nextLong());
+                    if(result==MahjongTableBlockEntity.StartMatchResult.STARTED)p.closeContainer();
+                    else{
+                        p.sendSystemMessage(Component.literal(result==MahjongTableBlockEntity.StartMatchResult.SEATS_MISMATCH_PRESET
+                                ?"座位配置与规则不一致，请重新选择规则预设或启用对应座位。":"牌桌状态已变化，请在菜单中重新操作。"),true);
+                        settings(p,table);
+                    }
+                }
             });
             menu.button(19,icon(Items.CHEST,"无限供牌："+table.mintTilesFromNothing()),()->{if(host(p,table)&&!table.hasActiveMatch())table.setMintTilesFromNothing(!table.mintTilesFromNothing());settings(p,table);});
             menu.button(20,icon(Items.ENDER_EYE,"摸牌使用私有显示，右键单张牌打出"),()->{});
@@ -79,7 +97,7 @@ public final class PortMenus {
         });
     }
     private enum TableAction {
-        END("结束对局","结束当前对局，清空比分与供托","保留当前入座玩家，可重新开局","对局已结束。"),
+        END("结束对局","结束当前对局，清空比分与供托","保留当前入座玩家，返回菜单后可开始新对局","对局已结束，可在菜单中点击“开始对局”。"),
         RESET("重置牌桌","结束当前牌局，清空比分与供托","释放所有座位，重新入座后开局","牌桌已重置，可重新入座开局。");
         final String label,description,seats,success;
         TableAction(String label,String description,String seats,String success){this.label=label;this.description=description;this.seats=seats;this.success=success;}
@@ -122,7 +140,8 @@ public final class PortMenus {
         });
     }
     public static AbstractContainerMenu inventoryMenu(int id,Inventory inv,MahjongTableBlockEntity table,int page){return new InventoryPage(id,inv,table,page);}
-    static void inventory(ServerPlayer p,MahjongTableBlockEntity table,int page){if(!table.hasActiveMatch())p.openMenu(new SimpleMenuProvider((id,inv,player)->inventoryMenu(id,inv,table,page),Component.literal("牌桌库存 · "+(page+1)+" / 4")));}
+    static boolean inventoryValid(ServerPlayer p,MahjongTableBlockEntity table){return tableMenuValid(p,table)&&host(p,table)&&!table.hasActiveMatch();}
+    static void inventory(ServerPlayer p,MahjongTableBlockEntity table,int page){if(inventoryValid(p,table))p.openMenu(new SimpleMenuProvider((id,inv,player)->inventoryMenu(id,inv,table,page),Component.literal("牌桌库存 · "+(page+1)+" / 4")));}
     static final class Actions extends ChestMenu {
         final Map<Integer,Runnable> actions=new HashMap<>();final BooleanSupplier valid;
         Actions(int id,Inventory inv,BooleanSupplier valid){super(MenuType.GENERIC_9x6,id,inv,new SimpleContainer(54),6);this.valid=valid;}
@@ -132,21 +151,21 @@ public final class PortMenus {
         @Override public boolean stillValid(Player p){return valid.getAsBoolean();}
     }
     static final class InventoryPage extends ChestMenu {
-        final MahjongTableBlockEntity table;final int page;
-        InventoryPage(int id,Inventory inv,MahjongTableBlockEntity table,int page){super(MenuType.GENERIC_9x6,id,inv,new PagedContainer(table,page),6);this.table=table;this.page=page;}
-        @Override public boolean stillValid(Player p){return table.stillValid(p);}
-        @Override public void clicked(int slot,int button,ContainerInput type,Player player){if(!stillValid(player))return;if(slot>=45&&slot<54){if(player instanceof ServerPlayer p){if(slot==45&&page>0)inventory(p,table,page-1);if(slot==53&&page<3)inventory(p,table,page+1);if(slot==49)settings(p,table);}return;}super.clicked(slot,button,type,player);}
+        final MahjongTableBlockEntity table;final int page;final long revision;
+        InventoryPage(int id,Inventory inv,MahjongTableBlockEntity table,int page){super(MenuType.GENERIC_9x6,id,inv,new PagedContainer(table,page),6);this.table=table;this.page=page;this.revision=table.matchRevision();}
+        @Override public boolean stillValid(Player p){return p instanceof ServerPlayer player&&inventoryValid(player,table)&&table.matchRevision()==revision;}
+        @Override public void clicked(int slot,int button,ContainerInput type,Player player){if(player.containerMenu!=this||!stillValid(player))return;if(slot>=45&&slot<54){if(player instanceof ServerPlayer p){if(slot==45&&page>0)inventory(p,table,page-1);if(slot==53&&page<3)inventory(p,table,page+1);if(slot==49)settings(p,table);}return;}super.clicked(slot,button,type,player);}
         @Override public ItemStack quickMoveStack(Player player,int slot){return ItemStack.EMPTY;}
     }
     static final class PagedContainer implements Container {
-        final MahjongTableBlockEntity table;final int offset;PagedContainer(MahjongTableBlockEntity table,int page){this.table=table;offset=page*45;}
+        final MahjongTableBlockEntity table;final int offset;final long revision;PagedContainer(MahjongTableBlockEntity table,int page){this.table=table;offset=page*45;revision=table.matchRevision();}
         int index(int slot){return slot>=0&&slot<45&&offset+slot<136?offset+slot:-1;}
         public int getContainerSize(){return 54;}public boolean isEmpty(){return table.isEmpty();}
         public ItemStack getItem(int slot){int i=index(slot);if(i>=0)return table.getItem(i);return switch(slot){case 45->icon(Items.ARROW,"上一页");case 49->icon(Items.BOOK,"设置");case 53->icon(Items.ARROW,"下一页");default->ItemStack.EMPTY;};}
         public ItemStack removeItem(int slot,int count){int i=index(slot);return i<0?ItemStack.EMPTY:table.removeItem(i,count);}
         public ItemStack removeItemNoUpdate(int slot){int i=index(slot);return i<0?ItemStack.EMPTY:table.removeItemNoUpdate(i);}
         public void setItem(int slot,ItemStack stack){int i=index(slot);if(i>=0)table.setItem(i,stack);}
-        public void setChanged(){table.setChanged();}public boolean stillValid(Player p){return table.stillValid(p);}
+        public void setChanged(){table.setChanged();}public boolean stillValid(Player p){return p instanceof ServerPlayer player&&inventoryValid(player,table)&&table.matchRevision()==revision;}
         public boolean canPlaceItem(int slot,ItemStack stack){return index(slot)>=0&&!table.hasActiveMatch();}
         public void clearContent(){}
     }

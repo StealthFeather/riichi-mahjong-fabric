@@ -46,7 +46,9 @@ final class PrivateHand {
             }
             for(var cell:TileInteractionLayout.cells(at,TableLayout.TILE_SCALE,PortViews.rotation(dir,false,false))){
                 var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer player,InteractionHand hand,Vec3 loc,boolean sneaking){
-                    if(hand==InteractionHand.MAIN_HAND&&valid(player))PortViews.handleTileHit(player,table);
+                    if(hand!=InteractionHand.MAIN_HAND||player!=owner
+                            ||PortViews.routeWindPlateUse(player,table,sneaking))return;
+                    if(valid(player))PortViews.handleTileHit(player,table);
                 }});
                 cell.apply(hit);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
             }
@@ -57,7 +59,9 @@ final class PrivateHand {
             var at=TableLayout.handAnchor(pos,dir,TableLayout.handAlong(slot,snapshot.handGapStarts),false);
             for(var cell:TileInteractionLayout.cells(at,TableLayout.TILE_SCALE,PortViews.rotation(dir,false,false))){
                 var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer player,InteractionHand hand,Vec3 loc,boolean sneaking){
-                    if(player==owner&&hand==InteractionHand.MAIN_HAND)PortViews.handleTileHit(player,table);
+                    if(player!=owner||hand!=InteractionHand.MAIN_HAND
+                            ||PortViews.routeWindPlateUse(player,table,sneaking))return;
+                    PortViews.handleTileHit(player,table);
                 }});
                 cell.apply(hit);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
             }
@@ -70,7 +74,10 @@ final class PrivateHand {
             int cells=(int)Math.ceil(button.width()/button.depth());
             for(int cell=0;cell<cells;cell++){
                 double along=button.along()-button.width()/2+button.depth()/2+(cells==1?0:cell*(button.width()-button.depth())/(cells-1));
-                var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer p,InteractionHand h,Vec3 loc,boolean sneak){if(h==InteractionHand.MAIN_HAND&&p==owner){Vec3 start=p.getEyePosition();handleButtonHit(start,start.add(p.getLookAngle().scale(8)));}}});
+                var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer p,InteractionHand h,Vec3 loc,boolean sneak){
+                    if(h!=InteractionHand.MAIN_HAND||p!=owner||PortViews.routeWindPlateUse(p,table,sneak))return;
+                    Vec3 start=p.getEyePosition();handleButtonHit(start,start.add(p.getLookAngle().scale(8)));
+                }});
                 hit.setOverridePos(TableLayout.anchor(pos,dir,along,TableButtonLayout.HEIGHT-.003,TableButtonLayout.EDGE_DISTANCE));hit.setSize((float)button.depth()*TableLayout.TILE_ENLARGEMENT,.006f*TableLayout.TILE_ENLARGEMENT);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
             }
         }
@@ -150,7 +157,8 @@ final class PrivateHand {
     }
     private static String tiles(List<TheMahjongTile> tiles){return tiles.stream().map(PrivateHand::tileName).reduce((a,b)->a+" "+b).orElse("");}
     private static String tileName(TheMahjongTile tile){
+        if(tile.suit()==TheMahjongTile.Suit.WIND)return switch(TheMahjongTile.Wind.fromTileRank(tile.rank())){case EAST->"东";case SOUTH->"南";case WEST->"西";case NORTH->"北";};
         if(tile.suit()==TheMahjongTile.Suit.DRAGON)return switch(TheMahjongTile.Dragon.fromTileRank(tile.rank())){case HAKU->"白";case HATSU->"发";case CHUN->"中";};
-        return (tile.redDora()?"赤":"")+tile.rank()+switch(tile.suit()){case MANZU->"万";case PINZU->"筒";case SOUZU->"条";case WIND->"风";default->throw new IllegalArgumentException("unsupported tile suit");};
+        return (tile.redDora()?"赤":"")+tile.rank()+switch(tile.suit()){case MANZU->"万";case PINZU->"筒";case SOUZU->"条";default->throw new IllegalArgumentException("unsupported tile suit");};
     }
 }

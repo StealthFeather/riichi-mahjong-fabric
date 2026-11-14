@@ -124,7 +124,15 @@ public final class PortViews {
         }
         return true;
     }
+    /** Entity callbacks carry the click's sneak state separately from the player's latest input. */
+    static boolean routeWindPlateUse(ServerPlayer player,MahjongTableBlockEntity table,boolean sneaking){
+        boolean previous=player.isShiftKeyDown();player.setShiftKeyDown(sneaking);
+        try{return MahjongTableBlock.routeWindPlateUse(player,table);}
+        finally{player.setShiftKeyDown(previous);}
+    }
     public static boolean handleTileHit(ServerPlayer player,MahjongTableBlockEntity table){
+        // A centre gesture takes precedence over stale hand/button entities and click suppression.
+        if(MahjongTableBlock.routeWindPlateUse(player,table))return true;
         if(table.recentPrivateClick(player))return true;
         var view=VIEWS.get(new Key(player.level(),table.getBlockPos()));
         if(view==null)return false;
@@ -229,7 +237,8 @@ public final class PortViews {
                 if(!active&&!seatHits.containsKey(seat)){
                     var hit=new InteractionElement(new VirtualElement.InteractionHandler(){
                         @Override public void interact(ServerPlayer p,InteractionHand hand,Vec3 loc,boolean sneak){
-                            if(hand==InteractionHand.MAIN_HAND)TableSeating.join(p,table,index);
+                            if(hand!=InteractionHand.MAIN_HAND||routeWindPlateUse(p,table,sneak))return;
+                            TableSeating.join(p,table,index);
                         }
                     });
                     hit.setOverridePos(TableLayout.anchor(pos,dir,0,.4,1.25));hit.setSize(.72f*TableLayout.TILE_ENLARGEMENT,.85f*TableLayout.TILE_ENLARGEMENT);

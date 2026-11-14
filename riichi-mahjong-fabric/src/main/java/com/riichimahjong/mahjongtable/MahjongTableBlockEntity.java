@@ -298,6 +298,16 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
                         getBlockPos().getZ() + .5) <= 64;
     }
 
+    /** The first menu opener claims an unowned table; existing ownership never changes here. */
+    public boolean claimHostIfUnowned(ServerPlayer player) {
+        if (!validMenuActor(player)) return false;
+        if (ownership.claimIfAbsent(player.getUUID())) {
+            matchRevision++;
+            markChangedAndSynced();
+        }
+        return ownership.isHost(player.getUUID());
+    }
+
     public boolean takeOverHost(ServerPlayer player, UUID expectedOwner, long expectedRevision) {
         if (!validMenuActor(player) || matchRevision != expectedRevision
                 || !ownership.takeOver(player.getUUID(), expectedOwner, this::playerOnline)) return false;

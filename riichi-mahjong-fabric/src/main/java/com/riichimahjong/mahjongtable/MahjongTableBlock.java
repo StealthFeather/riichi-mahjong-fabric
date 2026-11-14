@@ -6,11 +6,11 @@ import com.mojang.serialization.MapCodec;
 import com.riichimahjong.common.BaseMultipartBlock;
 import com.riichimahjong.mahjongtable.record.MahjongTableRecordItem;
 import com.riichimahjong.fabric.PortEvents;
+import com.riichimahjong.fabric.TableCentreInteraction;
 
 
 import java.util.List;
 import java.util.OptionalInt;
-import java.util.Random;
 import org.jspecify.annotations.Nullable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -133,18 +133,7 @@ public class MahjongTableBlock extends BaseMultipartBlock {
             return InteractionResult.PASS;
         }
 
-        if (isMaster(state) && player.isShiftKeyDown() && player instanceof ServerPlayer serverPlayer
-                && !serverPlayer.isSpectator() && serverPlayer.level() == level
-                && serverPlayer.distanceToSqr(master.getX() + .5, master.getY() + .5,
-                        master.getZ() + .5) <= 64
-                && level.getBlockState(pos) == state && table.hasOfflineHost()
-                && com.riichimahjong.fabric.TableOwnership.hitsCentre(master,serverPlayer.getEyePosition(),
-                        serverPlayer.getEyePosition().add(serverPlayer.getLookAngle().scale(8)))) {
-            var owner = table.owner().orElseThrow();
-            if (table.takeOverHost(serverPlayer,owner,table.matchRevision())) {
-                serverPlayer.sendSystemMessage(Component.literal("已取得麻将桌的桌主权限。"),true);
-            }
-            // Taking ownership is the only action performed by this click.
+        if (player instanceof ServerPlayer serverPlayer && routeWindPlateUse(serverPlayer,table)) {
             return InteractionResult.CONSUME;
         }
 
@@ -176,34 +165,9 @@ public class MahjongTableBlock extends BaseMultipartBlock {
                 com.riichimahjong.fabric.TableSeating.joinNearest(sp,table);
                 return InteractionResult.CONSUME;
             }
-            if (holdsWrench(player) && isMaster(state)) {
-                if (!requireHost(player,table)) return InteractionResult.CONSUME;
-                table.endGame();
-                return InteractionResult.CONSUME;
-            }
-
             if (table.isInResultPhase()) {
                 if (player instanceof ServerPlayer sp && !holdsWrench(player)) {
-                    if (isMaster(state)) {
-                        table.advanceRoundAfterResult();
-                    } else {
-                        sp.sendSystemMessage(
-                                Component.literal("Click the table centre to start the next round."),
-                                true);
-                    }
-                }
-                return InteractionResult.CONSUME;
-            }
-
-            if (table.isDriverTerminal() && isMaster(state) && player.isShiftKeyDown()
-                    && !holdsWrench(player)) {
-                if (!requireHost(player,table)) return InteractionResult.CONSUME;
-                table.endGame();
-                MahjongTableBlockEntity.StartMatchResult result =
-                        table.tryStartMatchWithAutoSeating(new Random().nextLong());
-                Component warning = warningFor(result, table);
-                if (warning != null) {
-                    player.sendSystemMessage(warning);
+                    sp.sendSystemMessage(Component.literal("普通右键桌面中心风盘继续下一局。"),true);
                 }
                 return InteractionResult.CONSUME;
             }
@@ -218,13 +182,10 @@ public class MahjongTableBlock extends BaseMultipartBlock {
         int partZ = state.getValue(PART_Z);
         boolean center = isMaster(state);
         boolean wrench = holdsWrench(player);
-        boolean shift = player.isShiftKeyDown();
 
         if (wrench) {
             if (center) {
-                if (player instanceof ServerPlayer serverPlayer) {
-                    com.riichimahjong.fabric.PortMenus.settings(serverPlayer,table);
-                }
+                // Only an actual wind-plate hit above opens settings, never this synthetic centre.
                 return InteractionResult.CONSUME;
             }
             OptionalInt seat = seatForCell(partX, partZ, state.getValue(FACING));
@@ -235,16 +196,6 @@ public class MahjongTableBlock extends BaseMultipartBlock {
             return InteractionResult.CONSUME;
         }
 
-        if (shift && center) {
-                if (!requireHost(player,table)) return InteractionResult.CONSUME;
-                MahjongTableBlockEntity.StartMatchResult result =
-                        table.tryStartMatchWithAutoSeating(new Random().nextLong());
-                Component warning = warningFor(result, table);
-                if (warning != null) {
-                    player.sendSystemMessage(warning);
-                }
-            return InteractionResult.CONSUME;
-        }
         if (player instanceof ServerPlayer sp) {
             if(center){
                 com.riichimahjong.fabric.TableSeating.joinNearest(sp,table);
@@ -254,6 +205,41 @@ public class MahjongTableBlock extends BaseMultipartBlock {
             }
         }
         return InteractionResult.CONSUME;
+    }
+
+    /** Shared by block and virtual tile/button interactions; callers filter the main hand first. */
+    public static boolean routeWindPlateUse(ServerPlayer player, MahjongTableBlockEntity table) {
+        var level = player.level();
+        var master = table.getBlockPos();
+        if (table.getLevel() != level || player.isSpectator() || table.isRemoved()
+                || player.distanceToSqr(master.getX()+.5,master.getY()+.5,master.getZ()+.5) > 64
+                || !level.hasChunkAt(master)) return false;
+        var state = level.getBlockState(master);
+        if (!(state.getBlock() instanceof MahjongTableBlock) || !isMaster(state)
+                || level.getBlockEntity(master) != table) return false;
+        var action = TableCentreInteraction.resolve(
+                TableCentreInteraction.hitsWindPlate(master,player.getEyePosition(),
+                        player.getEyePosition().add(player.getLookAngle().scale(8))),
+                player.isShiftKeyDown(),table.hasActiveMatch(),table.seatOfPlayer(player.getUUID()).isPresent());
+        if (action == TableCentreInteraction.Action.NONE) return false;
+        if (action == TableCentreInteraction.Action.MENU) {
+            if (table.hasOfflineHost()) {
+                var owner = table.owner().orElseThrow();
+                if (table.takeOverHost(player,owner,table.matchRevision())) {
+                    player.sendSystemMessage(Component.literal("已取得麻将桌的桌主权限。"),true);
+                }
+            }
+            // The settings entry claims an unowned table before checking its strict host predicate.
+            if (table.owner().isEmpty() || requireHost(player,table)) {
+                com.riichimahjong.fabric.PortMenus.settings(player,table);
+            }
+        } else if (action == TableCentreInteraction.Action.ADVANCE) {
+            // The table itself accepts this only after its result animation is finished.
+            table.advanceRoundAfterResult();
+        } else {
+            com.riichimahjong.fabric.TableSeating.joinNearest(player,table);
+        }
+        return true;
     }
 
     private static boolean requireHost(Player player, MahjongTableBlockEntity table) {
@@ -311,18 +297,6 @@ public class MahjongTableBlock extends BaseMultipartBlock {
 
     private static boolean isWrench(ItemStack stack) {
         return stack.is(com.riichimahjong.registry.ModItems.MAHJONG_WRENCH.get()) || stack.is(WRENCH_TAG_FORGE) || stack.is(WRENCH_TAG_COMMON);
-    }
-
-    @Nullable
-    private static Component warningFor(
-            MahjongTableBlockEntity.StartMatchResult result,
-            MahjongTableBlockEntity table) {
-        return switch (result) {
-            case STARTED, NOT_IDLE -> null;
-            case SEATS_MISMATCH_PRESET -> Component.translatable(
-                    "riichi_mahjong.warn.table.seats_mismatch_preset",
-                    Component.translatable(table.effectivePreset().langKey()));
-        };
     }
 
     public static OptionalInt seatForCell(int partX, int partZ, Direction facing) {

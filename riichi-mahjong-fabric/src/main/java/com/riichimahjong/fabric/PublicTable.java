@@ -85,13 +85,13 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
                 int limit=table.resultAnimStage()==MahjongTableBlockEntity.ResultAnimStage.SHOW_HEADER?0:table.resultAnimStage()==MahjongTableBlockEntity.ResultAnimStage.SHOW_YAKU_LINES?table.resultAnimYakuIdx()+1:Integer.MAX_VALUE;
                 var yaku=new ArrayList<String>();w.yaku().forEach(y->yaku.add(y.toString()));w.yakuman().forEach(y->yaku.add(y.toString()));
                 for(int j=0;j<Math.min(limit,yaku.size());j++)label+="\n"+yaku.get(j);
-                if(table.resultAnimStage()==MahjongTableBlockEntity.ResultAnimStage.AWAITING_ADVANCE)label+="\n点击中央继续下一局";
+                if(table.resultAnimStage()==MahjongTableBlockEntity.ResultAnimStage.AWAITING_ADVANCE)label+="\n右键中心风盘继续下一局";
             }
         }
         var dora=round==null?List.<Integer>of():round.doraIndicators().stream().limit(round.revealedDoraCount()).map(PublicTable::code).toList();
         var uras=round!=null&&ura?round.uraDoraIndicators().stream().limit(round.revealedDoraCount()).map(PublicTable::code).toList():List.<Integer>of();
         var stage=phase instanceof MatchPhase.Dealing d?d.stage():null;double progress=phase instanceof MatchPhase.Dealing d?Math.min(1,d.elapsed()/d.stage().buildDuration()):1;
-        String roundLabel=round==null?"立直麻将 · 右键桌边入座 · 潜行右键中央开局":TableSeating.wind(round.roundWind().ordinal())+round.handNumber()+"局 · "+round.honba()+"本场 · 供托 "+round.riichiSticks()+" · 余牌 "+round.liveWall().size();
+        String roundLabel=round==null?"立直麻将 · 右键桌边入座 · 桌主潜行右键中心风盘打开菜单，再点开始对局":TableSeating.wind(round.roundWind().ordinal())+round.handNumber()+"局 · "+round.honba()+"本场 · 供托 "+round.riichiSticks()+" · 余牌 "+round.liveWall().size();
         if(phase instanceof MatchPhase.Dealing)roundLabel+=" · 配牌中";
         if(phase instanceof MatchPhase.MatchEnded)roundLabel+=" · 对局结束";
         int turn=phase instanceof MatchPhase.AwaitingDiscard d?d.seat():phase instanceof MatchPhase.AwaitingDraw d?d.seat():-1;
