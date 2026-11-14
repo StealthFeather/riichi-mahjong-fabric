@@ -844,30 +844,18 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     public void advanceRoundAfterResult() {
         if (driver == null) return;
         if (resultAnimStage != ResultAnimStage.AWAITING_ADVANCE) return;
-        if (!(driver.currentPhase() instanceof MatchPhase.RoundEnded re)) {
+        if (!(driver.currentPhase() instanceof MatchPhase.RoundEnded)) {
             clearResultAnimState();
             markChangedAndSynced();
             return;
         }
-        boolean renchan = computeRenchan(re);
-        int nextHonba = 0;
+        var next = com.riichimahjong.fabric.RoundProgression.next(driver);
         clearResultAnimState();
         try {
-            driver.advanceRound(renchan, nextHonba);
+            driver.advanceRound(next.renchan(), next.nextHonba());
         } catch (Exception ignored) {
         }
         markChangedAndSynced();
-    }
-
-    private boolean computeRenchan(MatchPhase.RoundEnded re) {
-        var roundOpt = driver.match().currentRound();
-        if (roundOpt.isEmpty() || re.winResults().isEmpty()) return false;
-        var primary = re.winResults().get(0);
-        int winnerSeat = -1;
-        for (int i = 0; i < primary.pointDeltas().size(); i++) {
-            if (primary.pointDeltas().get(i) > 0) { winnerSeat = i; break; }
-        }
-        return winnerSeat >= 0 && winnerSeat == roundOpt.get().dealerSeat();
     }
 
     private void clearResultAnimState() {

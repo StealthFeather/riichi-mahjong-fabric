@@ -31,6 +31,7 @@ public final class DriverNbt {
         TheMahjongDriver.Snapshot snap = driver.snapshot();
         writePhase(out.child("phase"), snap.phase());
         out.putBoolean("lastDrawWasRinshan", snap.lastDrawWasRinshan());
+        out.putBoolean("abortiveDraw", snap.abortiveDraw());
         if (snap.pendingRiichiCommit().isPresent()) {
             out.putInt("pendingRiichiCommit", snap.pendingRiichiCommit().getAsInt());
         }
@@ -50,8 +51,13 @@ public final class DriverNbt {
         OptionalInt pendingRiichiCommit = in.getInt("pendingRiichiCommit")
                 .map(OptionalInt::of)
                 .orElseGet(OptionalInt::empty);
+        // Older saves lack the reason; a remaining live wall identifies their abortive draws.
+        // A legacy last-tile abort cannot be recovered, so new saves always persist the flag.
+        boolean legacyAbortive = phase instanceof MatchPhase.RoundEnded ended && ended.winResults().isEmpty()
+                && match.currentRound().map(round -> !round.liveWall().isEmpty()).orElse(false);
+        boolean abortiveDraw = in.getBooleanOr("abortiveDraw", legacyAbortive);
         TheMahjongDriver.Snapshot snapshot = new TheMahjongDriver.Snapshot(
-                phase, lastDrawWasRinshan, pendingRiichiCommit);
+                phase, lastDrawWasRinshan, pendingRiichiCommit, abortiveDraw);
         return new TheMahjongDriver(match, players, random, snapshot);
     }
 

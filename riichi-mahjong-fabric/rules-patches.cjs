@@ -13,6 +13,10 @@ module.exports=function patchDriver(source){
  // Preserve display metadata at the exact accepted action, including multiple actions in one advance().
  replace('    private boolean animationsEnabled;',
          `    private boolean animationsEnabled;
+    private boolean abortiveDraw;
+    public boolean abortiveDraw() {
+        return phase instanceof MatchPhase.RoundEnded ended && ended.winResults().isEmpty() && abortiveDraw;
+    }
     private TheMahjongRound.ActiveTile winningTile = TheMahjongRound.ActiveTile.none();
     public TheMahjongRound.ActiveTile winningTile() {
         return phase instanceof MatchPhase.RoundEnded ended && !ended.winResults().isEmpty()
@@ -22,6 +26,28 @@ module.exports=function patchDriver(source){
          '            winningTile = round.activeTile();\n            round = round.declareWin(seat, seat, t.result());');
  replace('    private void applyRonResolution(List<Integer> ronSeats) {\n        TheMahjongRound round = currentRound();',
          '    private void applyRonResolution(List<Integer> ronSeats) {\n        TheMahjongRound round = currentRound();\n        winningTile = round.activeTile();');
+ // Keep the reason separate: a last-tile abortive draw also has an empty live wall.
+ replace('        this.lastDrawWasRinshan = snapshot.lastDrawWasRinshan();',
+         '        this.lastDrawWasRinshan = snapshot.lastDrawWasRinshan();\n        this.abortiveDraw = snapshot.abortiveDraw();');
+ replace(`            OptionalInt pendingRiichiCommit) {
+    }`, `            OptionalInt pendingRiichiCommit,
+            boolean abortiveDraw) {
+        public Snapshot(MatchPhase phase, boolean lastDrawWasRinshan, OptionalInt pendingRiichiCommit) {
+            this(phase, lastDrawWasRinshan, pendingRiichiCommit, false);
+        }
+    }`);
+ replace('        return new Snapshot(phase, lastDrawWasRinshan, pendingRiichiCommit);',
+         '        return new Snapshot(phase, lastDrawWasRinshan, pendingRiichiCommit, abortiveDraw);');
+ const abort='            round = round.abortiveDraw(rules());';
+ if(source.split(abort).length!==3)throw Error('Upstream driver patch no longer matches: explicit abortive draws');
+ source=source.replaceAll(abort,abort+'\n            abortiveDraw = true;');
+ replace(`        if (round.state() == TheMahjongRound.State.ENDED) {
+            phase = new MatchPhase.RoundEnded(List.of());`,
+         `        if (round.state() == TheMahjongRound.State.ENDED) {
+            abortiveDraw = true;
+            phase = new MatchPhase.RoundEnded(List.of());`);
+ replace('        match = match.advanceRound(random, renchan, nextHonba);',
+         '        match = match.advanceRound(random, renchan, nextHonba);\n        abortiveDraw = false;');
  return source;
 };
 

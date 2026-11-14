@@ -15,6 +15,7 @@ const result={version,passed:true,regressionClasses:regressions,checks:['success
 result.checks.push('random-bot-thinking-0.5-to-1.5-seconds','tile-client-interaction-matches-visible-model','winning-tile-rightmost-with-one-third-gap','grounded-standing-and-revealed-hands','tile-hit-before-table','returning-seat-reservations','human-rejoin-after-bot');
 result.checks.push('missed-click-no-pass-or-discard','missed-click-preserves-win-confirmation','explicit-button-and-hand-actions');
 result.checks.push('three-level-real-kobalab-ai','ai-private-information-boundary','ai-missing-node-and-timeout-fallback','ai-invalid-response-rejection','ai-stale-decision-cancellation');
+result.checks.push('exhaustive-draw-dealer-tenpai-continuation','draw-and-dealer-win-honba','abortive-draw-reason-save-reload','multi-ron-dealer-continuation');
 result.ai={nodeWorkerTests:true,pinnedAi:'@kobalab/majiang-ai@1.3.0',pinnedCore:'@kobalab/majiang-core@1.3.4',fourPlayerOnly:true,difficultyStrengthCalibrated:false};
 result.jarSha256=crypto.createHash('sha256').update(fs.readFileSync(jarPath)).digest('hex');
 fs.writeFileSync(p.join(project,'build/verification.json'),JSON.stringify(result,null,2)+'\n');
