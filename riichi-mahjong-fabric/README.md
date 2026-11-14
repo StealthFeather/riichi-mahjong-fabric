@@ -1,6 +1,6 @@
 # Riichi Mahjong
 
-日本立直麻将、3D 牌桌、私有手牌与原版客户端适配。当前本地构建：**0.4.2+fabric.26.3.23**（暂未部署或上传 GitHub），仅安装到 Fabric 服务端。
+日本立直麻将、3D 牌桌、私有手牌与原版客户端适配。当前正式版：**0.4.2+fabric.26.3.23**，仅安装到 Fabric 服务端。
 
 本版新增离线座位 AI 接替、菜单结束对局二次确认和离线桌主接管。保留 26.3.22 的立直横放标记继承、终盘主动展示及主手持镐拆桌要求（创造模式同样适用）。保留 26.3.21 的实际宝牌和赤宝牌原版附魔光效，未公开暗手的牌面及光效仅本人可见。保留 26.3.20 的流局连庄与本场修复、吃碰杠立直音效和隐藏鸣牌等待提示，以及四麻三级 AI、TP 返回显示恢复、跳过和牌确认、手牌空槽延迟整理及交互布局。变更见 [26.3.23 说明](docs/26.3.23.md)。
 
@@ -12,9 +12,9 @@
 
 ## 安装与操作
 
-需要 Minecraft 26.3、Fabric Loader 0.19.5、Fabric API 0.163.0+26.3、Java 25；四麻 AI 需要服务端可执行 Node.js 22+。Polymer 和固定版本 AI 源码已内嵌。玩家使用原版客户端并接受包含麻将资产的 TimoryResource。宝牌光效使用原版组件，沿用 26.3.20 的原版音效，无需更新资源包。
+需要 Minecraft 26.3、Fabric Loader 0.19.5、Fabric API 0.163.0+26.3、Java 25；四麻 AI 需要服务端可执行 Node.js 22+。Polymer 和固定版本 AI 源码已内嵌。玩家使用原版客户端并接受包含麻将资产的 TimoryResource。宝牌光效使用原版组件，沿用 26.3.20 的原版音效，无需更新资源包。资源包附件原样复用 26.3.19 的完整发布包，与 SC / TR 当前资源包 SHA-1 一致，保留包内高清物品图标；从 26.3.19 升级无需换包，首次安装可使用此附件。
 
-本地构建产物为 `riichi-mahjong-0.4.2+fabric.26.3.23.jar`，当前暂未部署或上传；已发布版本见 [GitHub Releases](https://github.com/StealthFeather/riichi-mahjong-fabric/releases)。需要安装时，停服备份后替换服务端旧版麻将 JAR，再正常开服，保留当前 TimoryResource 资源包。
+从 [26.3.23 Release](https://github.com/StealthFeather/riichi-mahjong-fabric/releases/tag/v0.4.2%2Bfabric.26.3.23) 下载 `riichi-mahjong-0.4.2+fabric.26.3.23.jar`。停服备份后替换服务端旧版麻将 JAR，再正常开服，保留当前 TimoryResource 资源包。
 
 `/mahjong` 查看操作，管理员 `/mahjong give` 领物品。右键桌边入座，桌主潜行右键中央开局，右键自己的牌出牌；吃碰杠、立直与胡牌使用本人桌沿按钮。跳过可和牌机会需要确认。主动离座使用 `/mahjong leave`；离座后 BOT 暂代，右键桌子或 `/mahjong join` 可接回原座位。
 
@@ -51,7 +51,7 @@ node test.cjs
 
 构建器兼容 Timory 工作区与独立源码归档，需配置 JDK、Minecraft 和 Polymer 依赖。配置方式见 [BUILDING.md](BUILDING.md)。**不要重新运行 `prepare.cjs`、`adapt.cjs` 或 `resources.cjs`**，以免覆盖已移植内容及版本元数据。
 
-JAR 位于 `build/libs/`，回归结果和 JAR SHA-256 位于 `build/verification.json`。本版验证包含 23 组 Java 回归及 10 项 Node AI 测试，保留指示牌循环、赤宝牌、开杠翻牌、里宝牌公开条件及原版光效组件检查，保留立直牌河横放继承、终盘主动公开及存档生命周期、动态镐子标签和九个桌体部件检查，新增离线目标、座位保留撤销、机器人替换保留规则状态、桌主接管及持久化、中心点击几何和过期快照回归；本版尚未部署服务器，确认页的真实服务器容器点击及客户端交互尚未实测，也未进行真实客户端可见性、试听、视觉或完整联机验收。
+JAR 位于 `build/libs/`，回归结果和 JAR SHA-256 位于 `build/verification.json`。本版验证包含 23 组 Java 回归及 10 项 Node AI 测试，保留指示牌循环、赤宝牌、开杠翻牌、里宝牌公开条件及原版光效组件检查，保留立直牌河横放继承、终盘主动公开及存档生命周期、动态镐子标签和九个桌体部件检查，新增离线目标、座位保留撤销、机器人替换保留规则状态、桌主接管及持久化、中心点击几何和过期快照回归；SC 与 TR 已安装本版并重启，均通过版本加载、状态连接、控制台 list 与麻将命令检查，启动 ERROR 为 0；所用 JAR 与回归验证的 SHA-256 一致。确认页的真实服务器容器点击及客户端交互尚未实测，也未进行真实客户端可见性、试听、视觉或完整联机验收。
 
 可选打包入口为 `node package.cjs`，默认输出至工作区 `deploy/`；用 `RIICHI_RELEASE_DIR` 可指定其他目录。`install-local.cjs` 仅供正常停服后的主测试服安装，构建与打包不会自动部署。
 
