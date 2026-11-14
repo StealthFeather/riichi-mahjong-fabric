@@ -160,6 +160,9 @@ public final class AiRuntime {
         status = "AI 已关闭";
     }
 
+    /** Shared vendored runtime; callers must extract and launch it off the server thread. */
+    public static Path analysisWorkerPath() throws Exception { return workerPath(); }
+
     private static synchronized Path workerPath() throws Exception {
         String configured = System.getProperty("riichi.ai.worker", "");
         if (!configured.isBlank()) return Path.of(configured).toAbsolutePath().normalize();

@@ -26,8 +26,18 @@ public final class DriverNbt {
     private DriverNbt() {}
 
     public static void writeDriver(ValueOutput out, TheMahjongDriver driver) {
+        writeDriver(out,driver,false);
+    }
+
+    /** Write directly without traversing completed hands; ordinary world saves stay unchanged. */
+    public static void writeReplayDriver(ValueOutput out, TheMahjongDriver driver) {
+        writeDriver(out,driver,true);
+    }
+
+    private static void writeDriver(ValueOutput out, TheMahjongDriver driver,boolean replay) {
         out.putInt("v", VERSION);
-        MatchNbt.writeMatch(out.child("match"), driver.match());
+        if(replay)MatchNbt.writeReplayMatch(out.child("match"),driver.match());
+        else MatchNbt.writeMatch(out.child("match"), driver.match());
         TheMahjongDriver.Snapshot snap = driver.snapshot();
         writePhase(out.child("phase"), snap.phase());
         out.putBoolean("lastDrawWasRinshan", snap.lastDrawWasRinshan());

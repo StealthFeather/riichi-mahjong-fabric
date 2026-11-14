@@ -16,6 +16,15 @@ public final class MatchNbt {
     private MatchNbt() {}
 
     public static void writeMatch(ValueOutput out, TheMahjongMatch match) {
+        writeMatch(out,match,true);
+    }
+
+    /** Replay frames already contain each previous hand in earlier frames. */
+    public static void writeReplayMatch(ValueOutput out, TheMahjongMatch match) {
+        writeMatch(out,match,false);
+    }
+
+    private static void writeMatch(ValueOutput out, TheMahjongMatch match,boolean completed) {
         out.putInt("v", VERSION);
         out.putInt("playerCount", match.playerCount());
         out.putInt("startingPoints", match.startingPoints());
@@ -44,9 +53,11 @@ public final class MatchNbt {
         out.putBoolean("kitaDeclineCausesFuriten", match.ruleSet().kitaDeclineCausesFuriten());
         out.putBoolean("sanchahouAbortive", match.ruleSet().sanchahouAbortive());
 
-        ValueOutput.ValueOutputList completedRounds = out.childrenList("completedRounds");
-        for (TheMahjongRound round : match.completedRounds()) {
-            writeRound(completedRounds.addChild(), round);
+        if(completed) {
+            ValueOutput.ValueOutputList completedRounds = out.childrenList("completedRounds");
+            for (TheMahjongRound round : match.completedRounds()) {
+                writeRound(completedRounds.addChild(), round);
+            }
         }
 
         match.currentRound().ifPresent(round -> writeRound(out.child("currentRound"), round));

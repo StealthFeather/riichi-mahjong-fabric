@@ -10,3 +10,6 @@ run/
 .idea/
 .vscode/
 riichi-mahjong-fabric/config/
+
+# Minecraft bootstrap in standalone regression tests
+logs/

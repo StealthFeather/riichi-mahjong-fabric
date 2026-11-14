@@ -133,6 +133,18 @@ public class MahjongTableBlock extends BaseMultipartBlock {
             return InteractionResult.PASS;
         }
 
+        ItemStack held = player.getItemInHand(hand);
+        if (held.getItem() instanceof MahjongTableRecordItem record && player instanceof ServerPlayer sp) {
+            if (!record.isPredefinedFixtureForRouting()) {
+                com.riichimahjong.replay.ReplayMenus.overview(sp);
+            } else if (table.state() != MahjongTableBlockEntity.State.IDLE) {
+                sp.sendSystemMessage(Component.literal("请先结束当前对局再载入练习牌谱。"), true);
+            } else if (requireHost(player, table)) {
+                record.applyToTable(sp, table, held);
+            }
+            return InteractionResult.CONSUME;
+        }
+
         if (player instanceof ServerPlayer serverPlayer && routeWindPlateUse(serverPlayer,table)) {
             return InteractionResult.CONSUME;
         }
@@ -141,24 +153,6 @@ public class MahjongTableBlock extends BaseMultipartBlock {
                 && com.riichimahjong.fabric.PortViews.handleTileHit(sp, table)) {
             return InteractionResult.CONSUME;
         }
-        ItemStack held = player.getItemInHand(hand);
-        if (held.getItem() instanceof MahjongTableRecordItem record && player instanceof ServerPlayer sp) {
-            if (table.state() != MahjongTableBlockEntity.State.IDLE) {
-                sp.sendSystemMessage(
-                        Component.literal("End the current match before using a table record."), true);
-                return InteractionResult.CONSUME;
-            }
-            boolean filled = record.isPredefinedFixtureForRouting()
-                    || MahjongTableRecordItem.hasRecordedTableState(held);
-            if (filled) {
-                if (!requireHost(player,table)) return InteractionResult.CONSUME;
-                record.applyToTable(sp, table, held);
-            } else {
-                record.recordFromTable(sp, table, held);
-            }
-            return InteractionResult.CONSUME;
-        }
-
         if (table.state() == MahjongTableBlockEntity.State.GAME) {
             if (!holdsWrench(player) && player instanceof ServerPlayer sp
                     && table.seatOfPlayer(sp.getUUID()).isEmpty()) {

@@ -267,6 +267,44 @@ function decide(snapshot) {
   throw new Error('No strategy action');
 }
 
+
+/** Relative decision quality, never a win probability. Keep the strategy's defensive choice first. */
+function analyze(snapshot) {
+  const input = { ...snapshot, difficulty: 'HARD' };
+  validate(input);
+  if (input.phase !== 'discard') throw new Error('Analysis requires a discard decision');
+  const player = makePlayer(input);
+  const info = [];
+  const selected = player.select_dapai(info)?.slice(0, 2);
+  const allowed = [...new Set(input.legal.filter(a => ['Discard', 'DiscardWithRiichi'].includes(a.type)).map(a => tile(a.tile)))];
+  if (!allowed.length || !allowed.includes(selected)) throw new Error('Analysis returned an illegal recommendation');
+  const paishu = player._suanpai.get_paishu();
+  const danger = player._suanpai.suan_weixian_all(player.shoupai._bingpai);
+  const baseline = Majiang.Util.xiangting(player.shoupai);
+  const candidates = allowed.map(p => {
+    const hand = player.shoupai.clone().dapai(p + (p === input.drawn ? '_' : ''));
+    const shanten = Majiang.Util.xiangting(hand);
+    const entry = info.find(i => i.p === p && !i.m);
+    const value = Math.max(0, Number(entry?.ev ?? player.eval_shoupai(hand, paishu)) || 0);
+    const risk = Math.max(0, Number(danger && danger(p)) || 0);
+    // Increasing shanten is expensive; opponent riichi risk discounts attacking value.
+    const utility = value * Math.exp(-3 * Math.max(0, shanten - baseline)) / (1 + risk / 3.2);
+    return { tile: p, value, risk, shanten, utility };
+  });
+  const best = Math.max(...candidates.map(c => c.utility), 0);
+  for (const c of candidates) {
+    // select_dapai includes hard defense thresholds that cannot be represented by EV alone.
+    c.relative = c.tile === selected ? 99 : best > 0 ? Math.min(99, 99 * c.utility / best) : c.risk === 0 ? 99 : 0;
+    c.score = Math.max(0, Math.min(99, Math.round(c.relative)));
+  }
+  candidates.sort((a, b) => Number(b.tile === selected) - Number(a.tile === selected) || b.score - a.score || b.utility - a.utility || a.tile.localeCompare(b.tile));
+  return { id: snapshot.id, engine: Names.HARD, selected,
+    // All scores are retained for grading the actual action, even if it was not a top-three recommendation.
+    scores: candidates.map(({ tile, score, value, risk, shanten }) => ({ tile, score, value, risk, shanten })),
+    candidates: candidates.filter(c => c.relative >= 1).slice(0, 3).map(({ tile, score, value, risk, shanten }) => ({ tile, score, value, risk, shanten })),
+  };
+}
+
 if (require.main === module) {
   const input = require('node:readline').createInterface({ input: process.stdin, crlfDelay: Infinity });
   input.on('line', line => {
@@ -274,11 +312,11 @@ if (require.main === module) {
     try {
       if (Buffer.byteLength(line, 'utf8') > 256 * 1024) throw new Error('Request too large');
       request = JSON.parse(line);
-      process.stdout.write(JSON.stringify(decide(request)) + '\n');
+      process.stdout.write(JSON.stringify(request.mode === 'analysis' ? analyze(request) : decide(request)) + '\n');
     } catch (error) {
       process.stdout.write(JSON.stringify({ id: request?.id ?? null, index: -1, error: error.message }) + '\n');
     }
   });
 }
 
-module.exports = { decide, makePlayer, meldNotation, legalMeld, Names };
+module.exports = { decide, analyze, makePlayer, meldNotation, legalMeld, Names };

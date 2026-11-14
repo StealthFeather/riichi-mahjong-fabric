@@ -47,6 +47,7 @@ public final class PortMenus {
     static ItemStack icon(Item item,String text){var s=new ItemStack(item);s.set(DataComponents.CUSTOM_NAME,Component.literal(text));return s;}
     static void open(ServerPlayer p,String title,BooleanSupplier valid,Consumer<Actions> setup){p.openMenu(new SimpleMenuProvider((id,inv,player)->{var menu=new Actions(id,inv,valid);setup.accept(menu);return menu;},Component.literal(title)));}
     public static void settings(ServerPlayer p,MahjongTableBlockEntity table){
+        if(table.replay()!=null){com.riichimahjong.replay.ReplayMenus.controls(p,table);return;}
         if(!tableMenuValid(p,table)){
             p.sendSystemMessage(Component.literal("请靠近有效的麻将桌再打开菜单。"),true);
             return;
@@ -92,7 +93,7 @@ public final class PortMenus {
             menu.button(21,icon(Items.COMPARATOR,"默认四麻 AI："+table.defaultBotDifficulty().label()+aiLock),()->{if(host(p,table)&&fourPlayer)table.setDefaultBotDifficulty(table.defaultBotDifficulty().next());settings(p,table);});
             menu.button(22,icon(Items.PAPER,fourPlayer?"初级 → 中级 → 高级；座位可单独设置":"三麻使用原版 BOT；难度配置仅适用于四麻"),()->{});
             menu.button(27,icon(Items.BARREL,"牌桌库存 · 136 槽分页"),()->inventory(p,table,0));
-            menu.button(28,icon(Items.BOOK,"领取空白牌谱"),()->{p.getInventory().add(new ItemStack(ModItems.MAHJONG_TABLE_RECORD.get()));p.closeContainer();});
+            menu.button(28,icon(Items.BOOK,"领取牌谱"),()->{p.getInventory().add(new ItemStack(ModItems.MAHJONG_TABLE_RECORD.get()));p.closeContainer();});
             menu.button(35,icon(Items.BARRIER,"重置牌桌（需确认"+(host(p,table)?"":" · 仅桌主")+"）"),()->{if(host(p,table))confirmTableReset(p,table);else p.sendSystemMessage(Component.literal("只有桌主可以重置牌桌。"),true);});
         });
     }

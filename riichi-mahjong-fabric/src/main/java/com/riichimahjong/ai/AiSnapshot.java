@@ -22,8 +22,18 @@ public final class AiSnapshot {
     }
 
     public static JsonObject create(DecisionRequest request, BotDifficulty difficulty, boolean redFives) {
+        return createInternal(request,difficulty,redFives,false);
+    }
+
+    /** Three-player analysis uses the existing Java fallback policy, never the four-player Node engine. */
+    public static JsonObject createAnalysis(DecisionRequest request, boolean redFives) {
+        return createInternal(request,BotDifficulty.HARD,redFives,true);
+    }
+
+    private static JsonObject createInternal(DecisionRequest request, BotDifficulty difficulty, boolean redFives, boolean analysis) {
         var round = request.round();
-        if (round.players().size() != 4) throw new IllegalArgumentException("Kobalab AI supports four players only");
+        int playerCount=round.players().size();
+        if (playerCount != 4 && !(analysis && playerCount == 3)) throw new IllegalArgumentException("Kobalab AI supports four players only");
         var out = new JsonObject();
         out.addProperty("difficulty", difficulty.name());
         out.addProperty("seat", request.seat());
@@ -58,7 +68,7 @@ public final class AiSnapshot {
         out.add("riichi", riichi);
         out.add("melds", melds);
         var rivers = new JsonArray();
-        for (int seat = 0; seat < 4; seat++) {
+        for (int seat = 0; seat < playerCount; seat++) {
             var river = new JsonArray();
             var discards = round.players().get(seat).discards();
             for (int index = 0; index < discards.size(); index++) {

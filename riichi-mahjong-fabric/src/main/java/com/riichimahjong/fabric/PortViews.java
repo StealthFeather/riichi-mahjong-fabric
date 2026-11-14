@@ -138,6 +138,8 @@ public final class PortViews {
         if(view==null)return false;
         Vec3 start=player.getEyePosition(),end=tileRayEnd(player,start);
         var privateHand=view.hands.get(player.getUUID());
+        if(view.replayView!=null&&view.replayView.owner==player&&view.replayView.handleButtonHit(start,end))return true;
+        if(table.replay()!=null)return true;
         if(privateHand!=null&&privateHand.handleButtonHit(start,end))return true;
         var pos=table.getBlockPos();
         var surface=TableLayout.surface(pos);
@@ -173,6 +175,7 @@ public final class PortViews {
         final Map<String,List<InteractionElement>> hits=new HashMap<>();PublicTable previous;
         final Map<Integer,TextDisplayElement> seatLabels=new HashMap<>();
         final Map<Integer,InteractionElement> seatHits=new HashMap<>();
+        ReplayView replayView;
         final TableHud hud;
         final TableCollision.Registration collision;
         View(ServerLevel level,LevelChunk chunk,BlockPos pos,BlockState state){
@@ -301,6 +304,18 @@ public final class PortViews {
             }cleanup();
         }
         void updatePrivate(MahjongTableBlockEntity table){
+            if(table.replay()!=null){
+                hands.values().forEach(PrivateHand::destroy);hands.clear();
+                var player=table.owner().map(level.getServer().getPlayerList()::getPlayer).orElse(null);
+                if(player!=null&&near(player,level,pos)){
+                    if(replayView==null||replayView.owner!=player||!replayView.sameState()){
+                        if(replayView!=null)replayView.destroy();replayView=new ReplayView(table,player);
+                    }
+                    replayView.tick();
+                }else if(replayView!=null){replayView.destroy();replayView=null;}
+                return;
+            }
+            if(replayView!=null){replayView.destroy();replayView=null;}
             Set<UUID> keep=new HashSet<>();var driver=table.driver();var round=driver==null?null:driver.match().currentRound().orElse(null);
             if(round!=null)for(int seat=0;seat<table.seats().size();seat++){
                 UUID uuid=table.seats().get(seat).occupant().orElse(null);if(uuid==null||seat>=round.players().size())continue;ServerPlayer player=level.getServer().getPlayerList().getPlayer(uuid);if(player==null||!near(player,level,pos))continue;
@@ -346,6 +361,6 @@ public final class PortViews {
             return chosen;
         }
         void renderAltar(MahjongAltarBlockEntity altar){used.clear();for(int i=0;i<altar.getContainerSize();i++){var stack=altar.getItem(i);if(stack.isEmpty())continue;String key="altar/"+i;used.add(key);var d=tiles.get(key);var at=new Vec3(pos.getX()+.25+(i%3)*.25,pos.getY()+.85,pos.getZ()+.25+(i/3)*.25);if(d==null){d=new ItemDisplayElement(stack);d.setOverridePos(at);d.setScale(new Vector3f(.25f));holder.addElement(d);tiles.put(key,d);}else d.setItem(stack);}cleanup();}
-        void destroy(){hands.values().forEach(PrivateHand::destroy);hands.clear();if(hud!=null)hud.destroy();if(collision!=null)collision.destroy();holder.destroy();}
+        void destroy(){if(replayView!=null)replayView.destroy();hands.values().forEach(PrivateHand::destroy);hands.clear();if(hud!=null)hud.destroy();if(collision!=null)collision.destroy();holder.destroy();}
     }
 }

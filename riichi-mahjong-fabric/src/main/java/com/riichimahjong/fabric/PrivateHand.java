@@ -24,6 +24,7 @@ final class PrivateHand {
     final ServerPlayer owner;Snapshot snapshot;final ElementHolder holder=new ElementHolder();
     final MahjongTableBlockEntity table;final int seat;long nextPrompt;String lastPrompt="";
     final List<TableButtonLayout.Button> buttonLayout;
+    final TableEdgeButtons edgeButtons;
     static Snapshot snapshot(MahjongTableBlockEntity table,int seat){
         var d=table.driver();var r=d.match().currentRound().orElseThrow();
         int count=table.handDisplayOrder(seat).size();if(d.currentPhase() instanceof MatchPhase.Dealing dealing){double fraction=switch(dealing.stage()){case WALL_BUILDING->0;case DEALING_HANDS->Math.min(1,dealing.elapsed()/dealing.stage().buildDuration());case DORA_FLIP->1;};count=(int)Math.round(count*fraction);}
@@ -33,7 +34,7 @@ final class PrivateHand {
     }
     PrivateHand(MahjongTableBlockEntity table,ServerPlayer owner,int seat,Snapshot snapshot){
         this.table=table;this.owner=owner;this.seat=seat;this.snapshot=snapshot;
-        this.buttonLayout=TableButtonLayout.arrange(snapshot.buttons.stream().map(PrivateHand::label).toList());
+
         var dir=PortViews.outward(seat,table.getBlockState());var pos=table.getBlockPos();
         // Polymer removes unattached holders from the player's tracking list every tick.
         // ManualAttachment keeps it alive without registering any chunk watchers.
@@ -66,21 +67,10 @@ final class PrivateHand {
                 cell.apply(hit);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
             }
         }
-        for(var button:buttonLayout){
-            var text=Component.literal(button.text()).withStyle(style->style.withColor(ChatFormatting.YELLOW).withFont(new FontDescription.Resource(Identifier.withDefaultNamespace("uniform"))));
-            var display=new TextDisplayElement(text);display.setOverridePos(button.textPosition(pos,dir));display.setScale(new Vector3f(button.scale()*TableLayout.TILE_ENLARGEMENT));display.setBillboardMode(Display.BillboardConstraints.FIXED);display.setLeftRotation(TableLayout.textRotation(dir));display.setLineWidth(1000);display.setBackground(0xD0333333);display.setDisplaySize(2,2);display.setVisibilityPredicate(p->p==owner);holder.addElement(display);
-            // Vanilla interaction boxes have a square footprint. Overlapping squares
-            // exactly cover this text rectangle; the ray-plane check handles its edge.
-            int cells=(int)Math.ceil(button.width()/button.depth());
-            for(int cell=0;cell<cells;cell++){
-                double along=button.along()-button.width()/2+button.depth()/2+(cells==1?0:cell*(button.width()-button.depth())/(cells-1));
-                var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer p,InteractionHand h,Vec3 loc,boolean sneak){
-                    if(h!=InteractionHand.MAIN_HAND||p!=owner||PortViews.routeWindPlateUse(p,table,sneak))return;
-                    Vec3 start=p.getEyePosition();handleButtonHit(start,start.add(p.getLookAngle().scale(8)));
-                }});
-                hit.setOverridePos(TableLayout.anchor(pos,dir,along,TableButtonLayout.HEIGHT-.003,TableButtonLayout.EDGE_DISTANCE));hit.setSize((float)button.depth()*TableLayout.TILE_ENLARGEMENT,.006f*TableLayout.TILE_ENLARGEMENT);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
-            }
-        }
+        edgeButtons=new TableEdgeButtons(holder,table,owner,seat,
+                snapshot.buttons.stream().map(PrivateHand::label).toList(),()->valid(owner),
+                index->click(InteractKey.SeatSlot.AREA_BUTTON,index,false));
+        buttonLayout=edgeButtons.layout;
         holder.startWatching(owner);
     }
     boolean valid(ServerPlayer player){
@@ -89,19 +79,7 @@ final class PrivateHand {
         return table.driver().match().currentRound().isPresent()&&snapshot.equals(snapshot(table,seat));
     }
     boolean sameVisuals(Snapshot other){return snapshot.driver==other.driver&&snapshot.hand.equals(other.hand)&&snapshot.handSlots.equals(other.handSlots)&&snapshot.handGapStarts.equals(other.handGapStarts)&&snapshot.buttons.equals(other.buttons)&&snapshot.riichiDiscards.equals(other.riichiDiscards)&&snapshot.glowingTiles.equals(other.glowingTiles)&&snapshot.revealed==other.revealed&&snapshot.drawnTile==other.drawnTile;}
-    boolean handleButtonHit(Vec3 start,Vec3 end){
-        if(!PortViews.near(owner,owner.level(),table.getBlockPos())||table.isRemoved()||table.getLevel()!=owner.level())return false;
-        var dir=PortViews.outward(seat,table.getBlockState());
-        for(var button:buttonLayout){var hit=button.hit(table.getBlockPos(),dir,start,end);
-            if(hit.isEmpty()||!PortViews.clearButtonRay(owner,table,start,hit.orElseThrow()))continue;
-            // A just-expired visible button still consumes its click.
-            table.recordPrivateClick(owner);
-            if(valid(owner))click(InteractKey.SeatSlot.AREA_BUTTON,button.index(),false);
-            else owner.sendSystemMessage(Component.literal("操作已过期，请点击当前手牌或本人面前的按钮。"),true);
-            return true;
-        }
-        return false;
-    }
+    boolean handleButtonHit(Vec3 start,Vec3 end){return edgeButtons.handleHit(start,end);}
     boolean handleEmptySlotHit(Vec3 start,Vec3 end){
         return handleEmptySlotHit(start,end,Double.MAX_VALUE);
     }

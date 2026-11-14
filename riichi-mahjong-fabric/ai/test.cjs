@@ -136,3 +136,52 @@ test('a three-player or inconsistent snapshot is rejected explicitly', () => {
   const bad = fixture({ rivers: [[{ tile: 'z5' }, { tile: 'z5' }, { tile: 'z5' }], [], [], []] });
   assert.throws(() => makePlayer(bad), /Inconsistent public tile counts/);
 });
+
+test('analysis uses the existing hard strategy and grades only legal distinct discards', () => {
+  const { analyze } = require('./worker.cjs');
+  const s = fixture();
+  const result = analyze(s);
+  assert.equal(result.id, s.id);
+  assert.equal(result.engine, Names.HARD);
+  assert.ok(result.candidates.length >= 1 && result.candidates.length <= 3);
+  assert.equal(result.candidates[0].tile, 'z4');
+  assert.equal(result.candidates[0].score, 99);
+  assert.equal(result.scores.length, new Set(s.legal.map(a => a.tile)).size);
+  assert.equal(new Set(result.candidates.map(a => a.tile)).size, result.candidates.length);
+  for (const score of result.scores) {
+    assert.ok(s.legal.some(a => a.tile === score.tile));
+    assert.ok(Number.isInteger(score.score) && score.score >= 0 && score.score <= 99);
+    assert.ok(Number.isFinite(score.value) && Number.isFinite(score.risk));
+  }
+  assert.ok(result.candidates.every(c => c.score >= 1));
+  assert.deepEqual(analyze(structuredClone(s)), result);
+});
+
+test('analysis preserves the strategy defensive choice rather than sorting attacking EV', () => {
+  const { analyze } = require('./worker.cjs');
+  const hand = ['m2', 'm4', 'm6', 'p1', 'p4', 'p8', 's1', 's5', 's9', 'z1', 'z2', 'z3', 'z4', 'z7'];
+  const s = fixture({ hand, drawn: 'z7', doraIndicators: ['p9'], riichi: [false, true, false, false],
+    rivers: [[], [{ tile: 'z4', riichi: true, called: false }], [], []],
+    legal: hand.map((tile, index) => ({ index, type: 'Discard', tile })) });
+  const result = analyze(s);
+  assert.equal(result.candidates[0].tile, s.legal.find(a => a.index === decide(s).index).tile);
+  assert.equal(result.candidates[0].tile, 'z4');
+  assert.equal(result.candidates[0].score, 99);
+});
+
+test('analysis JSON-line protocol coexists with normal bot decisions and survives invalid phases', () => {
+  const a = fixture({ mode: 'analysis', id: 701 });
+  const b = fixture({ id: 702 });
+  const c = fixture({ mode: 'analysis', id: 703, phase: 'claim', drawn: null,
+    lastDiscard: { seat: 1, tile: 'z4' }, legal: [{ index: 0, type: 'Pass' }] });
+  const run = spawnSync(process.execPath, [require.resolve('./worker.cjs')], {
+    input: [a, c, b].map(s => JSON.stringify(s)).join('\n') + '\n', encoding: 'utf8', timeout: 20000,
+  });
+  assert.equal(run.status, 0, run.stderr);
+  const replies = run.stdout.trim().split('\n').map(line => JSON.parse(line));
+  assert.equal(replies[0].candidates[0].tile, 'z4');
+  assert.equal(replies[1].id, 703);
+  assert.equal(replies[1].index, -1);
+  assert.equal(replies[2].id, 702);
+  assert.ok(Number.isInteger(replies[2].index));
+});

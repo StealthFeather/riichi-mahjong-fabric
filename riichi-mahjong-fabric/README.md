@@ -1,8 +1,14 @@
 # Riichi Mahjong
 
-日本立直麻将、3D 牌桌、私有手牌与原版客户端适配。当前正式版：**0.4.2+fabric.26.3.24**，仅安装到 Fabric 服务端。
+日本立直麻将、3D 牌桌、私有手牌与原版客户端适配。当前试验分支版：**0.4.2+fabric.26.3.25-replay.1**，仅安装到 Fabric 服务端。
 
 本版统一中心风盘的桌主菜单入口与菜单内开局，鸣牌风牌名称显示为“东、南、西、北”。保留 26.3.23 的离线座位 AI 接替、菜单结束对局二次确认和离线桌主接管。保留 26.3.22 的立直横放标记继承、终盘主动展示及主手持镐拆桌要求（创造模式同样适用）。保留 26.3.21 的实际宝牌和赤宝牌原版附魔光效，未公开暗手的牌面及光效仅本人可见。保留 26.3.20 的流局连庄与本场修复、吃碰杠立直音效和隐藏鸣牌等待提示，以及四麻三级 AI、TP 返回显示恢复、跳过和牌确认、手牌空槽延迟整理及交互布局。变更见 [26.3.24 说明](docs/26.3.24.md)。
+
+## 牌谱回放与分析试验版
+
+分支 `codex/mahjong-replay-analysis` 基于 26.3.24，新增完整对局数据库归档、玩家概况与牌谱日历、桌面逐步回放，以及相对最优 0–99 分 AI 分析。主手右键“牌谱” → 我的牌谱 → 红中日期 → 选择记录；发财切换分析，载入自己附近的空闲牌桌，点击桌沿按钮播放或前后逐步查看。
+
+数据库只读复用 `config/timory_quest_server.json`，新增麻将专用表。详细用法、评分公式、数据库结构、恢复和验证说明见 [26.3.25-replay.1](docs/26.3.25-replay.1.md)。此分支没有合并或部署到正式服；后面的 26.3.24 发布记录描述其基线。
 
 ## 3×3 牌桌
 
@@ -51,7 +57,7 @@ node test.cjs
 
 构建器兼容 Timory 工作区与独立源码归档，需配置 JDK、Minecraft 和 Polymer 依赖。配置方式见 [BUILDING.md](BUILDING.md)。**不要重新运行 `prepare.cjs`、`adapt.cjs` 或 `resources.cjs`**，以免覆盖已移植内容及版本元数据。
 
-JAR 位于 `build/libs/`，回归结果和 JAR SHA-256 位于 `build/verification.json`。本版通过 24 组 Java 回归及 10 项 Node AI 测试，保留所有原有规则、AI、展示和权限检查，新增真实中心风盘交互分流、风牌名称回归。SC 与 TR 已安装本版并重启，均确认加载 26.3.24，通过 Minecraft 状态连接及控制台 list、mahjong 命令检查，启动 ERROR 为 0；JAR 的 SHA-256 与回归验证一致，其他 Mod 和 server.properties 保持不变。部署前完整存档快照为 SC PrimeBackup #4、TR #3，旧 JAR 与配置另行备份。真实客户端可见性、试听、画面、菜单容器交互和完整联机牌局尚未实测。
+JAR 位于 `build/libs/`，回归结果和 JAR SHA-256 位于 `build/verification.json`。另运行 `node test-replay-database.cjs /path/to/h2-2.3.232.jar` 验证独立测试数据库；结果位于 `build/replay-database-verification.json`。本分支尚未部署，也未进行真实客户端视觉或菜单交互验收。
 
 可选打包入口为 `node package.cjs`，默认输出至工作区 `deploy/`；用 `RIICHI_RELEASE_DIR` 可指定其他目录。`install-local.cjs` 仅供正常停服后的主测试服安装，构建与打包不会自动部署。
 

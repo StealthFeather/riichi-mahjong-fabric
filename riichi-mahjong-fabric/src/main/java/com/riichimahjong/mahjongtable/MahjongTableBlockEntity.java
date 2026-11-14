@@ -10,6 +10,11 @@ import com.riichimahjong.fabric.HandDisplayState;
 import com.riichimahjong.fabric.ResultHandReveals;
 import com.riichimahjong.fabric.TableOwnership;
 import com.riichimahjong.fabric.WinningHandDisplay;
+import com.riichimahjong.replay.ReplayRecord;
+import com.riichimahjong.replay.ReplayArchiveQueue;
+import com.riichimahjong.replay.ReplayRecorder;
+import com.riichimahjong.replay.ReplaySession;
+import com.riichimahjong.replay.ReplayStore;
 import com.riichimahjong.ai.BotDifficulty;
 import com.riichimahjong.ai.KobalabBot;
 import com.riichimahjong.ai.RandomThinkingBot;
@@ -139,6 +144,11 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
 
     @Nullable
     private TheMahjongDriver driver;
+    @Nullable private ReplayRecorder replayRecorder;
+    @Nullable private ReplaySession replay;
+    private long appliedReplayRevision=-1;
+    private final ReplayArchiveQueue replayArchives=new ReplayArchiveQueue();
+    private long nextArchiveAttempt;
 
     // A live confirmation must not survive a reset, reload, seat/host change or new hand.
     private transient long matchRevision;
@@ -173,6 +183,86 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     public TheMahjongDriver driver() { return driver; }
 
     public long matchRevision() { return matchRevision; }
+
+    @Nullable public ReplaySession replay() { return replay; }
+
+    /** Loading history never overwrites the destination table's inventory, preset or seats. */
+    public boolean startReplay(ReplayRecord record,ServerPlayer requester,boolean analysis) {
+        if(!validMenuActor(requester)||!isHost(requester.getUUID())||driver!=null||!record.completed())return false;
+        if(seats.stream().anyMatch(s->s.occupant().filter(id->!id.equals(requester.getUUID())).isPresent()))return false;
+        try {
+            var session=new ReplaySession(record,requester.getUUID(),analysis);
+            // Validate the first frame before changing table state.
+            var restored=session.frame().restore(level.registryAccess());
+            replay=session;driver=restored;replayRecorder=null;appliedReplayRevision=-1;
+            applyReplayFrame();matchRevision++;markChangedAndSynced();return true;
+        } catch(RuntimeException error) {
+            if(replay!=null)clearMatchState();
+            System.getLogger("riichi_mahjong/replay").log(System.Logger.Level.WARNING,"Cannot load replay "+record.id(),error);
+            requester.sendSystemMessage(Component.literal("牌谱数据无法读取。"),true);return false;
+        }
+    }
+
+    public void stopReplay() {
+        if(replay==null)return;
+        clearMatchState();markChangedAndSynced();
+    }
+
+    public boolean controlReplay(ServerPlayer player,ReplaySession.Control action) {
+        if(replay==null||!validMenuActor(player)||!isHost(player.getUUID()))return false;
+        if(action==ReplaySession.Control.EXIT){stopReplay();return true;}
+        replay.control(action);applyReplayFrame();markChangedAndSynced();return true;
+    }
+
+    private void applyReplayFrame() {
+        if(replay==null||appliedReplayRevision==replay.revision())return;
+        var frame=replay.frame();
+        driver=frame.restore(level.registryAccess());
+        var in=TagValueInput.create(ProblemReporter.DISCARDING,level.registryAccess(),frame.driver());
+        winningHandDisplay=in.child("ReplayWinningHand").map(WinningHandDisplay::read).orElse(null);
+        handDisplay.clear();handDisplayDriver=null;resultHandReveals.clear();
+        resultAnimStage=driver.currentPhase() instanceof MatchPhase.RoundEnded?ResultAnimStage.SHOW_FINAL:ResultAnimStage.NONE;
+        resultAnimYakuIdx=0;appliedReplayRevision=replay.revision();
+    }
+
+    private List<ReplayRecord.Participant> recordingParticipants(int count) {
+        var people=new ArrayList<ReplayRecord.Participant>();
+        for(int seat=0;seat<count;seat++) {
+            UUID uuid=seats.get(seat).occupant().orElse(null);
+            var player=uuid==null?null:level.getServer().getPlayerList().getPlayer(uuid);
+            people.add(new ReplayRecord.Participant(seat,uuid,player==null?(uuid==null?"BOT":"离线玩家"):player.getName().getString(),0));
+        }
+        return people;
+    }
+
+    private void beginRecording(RuleSetPreset rules) {
+        replayRecorder=new ReplayRecorder(rules.name(),recordingParticipants(driver.match().playerCount()));
+        attachRecordingObserver();
+    }
+
+    private void attachRecordingObserver() {
+        if(driver==null||replayRecorder==null||replay!=null)return;
+        driver.setStateObserver(observed->{
+            if(observed!=driver||replayRecorder==null||replay!=null)return;
+            try {
+                replayRecorder.capture(observed);
+                if(observed.currentPhase() instanceof MatchPhase.MatchEnded&&!replayRecorder.finished()) {
+                    replayArchives.offer(replayRecorder.finish(observed));
+                    flushReplayArchives();
+                }
+                setChanged();
+            } catch(RuntimeException error) {
+                System.getLogger("riichi_mahjong/replay").log(System.Logger.Level.ERROR,"Replay recording failed; match remains playable",error);
+                replayRecorder=null;
+            }
+        });
+    }
+
+    private void flushReplayArchives() {
+        if(!(level instanceof ServerLevel sl)||replayArchives.isEmpty())return;
+        replayArchives.pump(ReplayStore::archive,sl.getServer()::execute,this::setChanged);
+        nextArchiveAttempt=sl.getGameTime()+100;
+    }
 
     private boolean updateHandDisplay() {
         if (handDisplayDriver != driver) { handDisplay.clear(); handDisplayDriver = driver; }
@@ -327,7 +417,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     /** Permanently turn this offline assignment into an ordinary, unreserved AI seat. */
     public boolean replaceOfflineWithAI(ServerPlayer player, int seat, UUID expectedOccupant,
             @Nullable TheMahjongDriver expectedDriver, long expectedRevision) {
-        if (!validMenuActor(player) || !isHost(player.getUUID())
+        if (replay!=null || !validMenuActor(player) || !isHost(player.getUUID())
                 || !OfflineSeats.matches(driver, matchRevision, expectedDriver, expectedRevision,
                         seat, expectedOccupant, offlineSeatCandidates())) return false;
         // Leaving has already installed a BOT. Keep that controller and any accepted claim decision.
@@ -345,6 +435,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     public OptionalInt returningSeat(UUID uuid) { return returningSeats.seat(uuid); }
 
     public boolean canClaimSeat(int seat, UUID uuid) {
+        if (replay!=null) return false;
         if (seat < 0 || seat >= seats.size()) return false;
         if (!seats.get(seat).enabled()) return false;
         if (seats.get(seat).occupant().filter(id->!id.equals(uuid)).isPresent()) return false;
@@ -367,6 +458,10 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             if (prev != seat) seats.set(prev, SeatInfo.open());
         });
         seats.set(seat, SeatInfo.claimed(uuid));
+        if(replayRecorder!=null&&driver!=null&&level!=null) {
+            var person=level.getServer().getPlayerList().getPlayer(uuid);
+            replayRecorder.remember(seat,uuid,person==null?"离线玩家":person.getName().getString());
+        }
         ownership.claimIfAbsent(uuid);
         matchRevision++;
         markChangedAndSynced();
@@ -374,6 +469,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     public void releaseSeat(int seat) {
+        if (replay!=null) return;
         if (seat < 0 || seat >= seats.size()) return;
         SeatInfo info = seats.get(seat);
         if (info.occupant().isPresent()) {
@@ -422,6 +518,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     private void onRisingEdge() {
+        if (replay!=null) return;
         if (driver == null) {
             tryStartMatch(new Random().nextLong());
         } else {
@@ -452,6 +549,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         this.randomSeed = seed;
         this.driver = new TheMahjongDriver(match, buildPlayersFromSeats(activeSeats, match.tileSet().tiles().stream().anyMatch(TheMahjongTile::redDora)), new java.security.SecureRandom());
         this.driver.setAnimationsEnabled(true);
+        beginRecording(effective);
         this.driver.startMatch();
         matchRevision++;
         markChangedAndSynced();
@@ -608,6 +706,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     private void clearMatchState() {
+        replay=null;replayRecorder=null;appliedReplayRevision=-1;
         resultHandReveals.clear();
         winningHandDisplay = null;
         closeBotPlayers();
@@ -630,6 +729,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     public List<MahjongTableHumanPlayer.TableButton> tableButtonsForSeat(int seat) {
+        if (replay!=null) return List.of();
         if (driver == null || seat < 0 || seat >= driver.match().playerCount()
                 || !(driver.playerAt(seat) instanceof MahjongTableHumanPlayer)) return List.of();
         if (ResultHandReveals.canReveal(driver)) {
@@ -640,6 +740,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     public boolean showHand(ServerPlayer player, TheMahjongDriver expectedDriver, TheMahjongRound expectedRound) {
+        if (replay!=null) return false;
         if (!(level instanceof ServerLevel) || player.level() != level || player.isSpectator() || isRemoved()
                 || driver == null || driver != expectedDriver
                 || player.distanceToSqr(getBlockPos().getX() + .5, getBlockPos().getY() + .5,
@@ -655,6 +756,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
 
     @Override
     public void onCuteClick(ServerPlayer player, InteractKey key) {
+        if (replay!=null) return;
         if (driver == null) return;
         int seat = seatOfOccupant(player.getUUID());
         if (seat < 0) return;
@@ -710,6 +812,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     public void onTableRightClick(ServerPlayer player) {
+        if (replay!=null) return;
         if (driver == null) return;
 
         if (level != null && level.getGameTime() == lastCuteClickGameTime) return;
@@ -795,6 +898,11 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     private void serverTick() {
+        if(level instanceof ServerLevel sl&&sl.getGameTime()>=nextArchiveAttempt)flushReplayArchives();
+        if(replay!=null) {
+            if(replay.tick()){applyReplayFrame();markChangedAndSynced();}
+            return;
+        }
         if (driver == null) return;
         if (!(level instanceof ServerLevel sl)) return;
 
@@ -986,6 +1094,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     public void advanceRoundAfterResult() {
+        if (replay!=null) return;
         if (driver == null) return;
         if (resultAnimStage != ResultAnimStage.AWAITING_ADVANCE) return;
         if (!(driver.currentPhase() instanceof MatchPhase.RoundEnded)) {
@@ -1175,6 +1284,8 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         super.saveAdditional(out);
 
         ownership.write(out);
+        // Independent of the live match: ending/resetting a table must not discard an unacknowledged archive.
+        replayArchives.write(out.child("ReplayArchives"));
         out.putBoolean(NBT_LAST_POWERED, lastPowered);
         out.putString(NBT_PRESET, preset.name());
         out.putString(NBT_BOT_DIFFICULTY, defaultBotDifficulty.name());
@@ -1203,8 +1314,9 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             entry.store(NBT_INVENTORY_ITEM, ItemStack.CODEC, stack);
         }
 
-        if (driver != null) {
+        if (driver != null && replay==null) {
             DriverNbt.writeDriver(out.child(NBT_DRIVER), driver);
+            if(replayRecorder!=null)out.store("ReplayRecording",CompoundTag.CODEC,replayRecorder.toNbt());
             resultHandReveals.write(out.child("ShownHands"), driver);
             if (winningHandDisplay != null && driver.currentPhase() instanceof MatchPhase.RoundEnded) {
                 winningHandDisplay.write(out.child("WinningHandDisplay"));
@@ -1229,6 +1341,8 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     @Override
     protected void loadAdditional(ValueInput in) {
         super.loadAdditional(in);
+        replay=null;replayRecorder=null;appliedReplayRevision=-1;nextArchiveAttempt=0;
+        replayArchives.read(in.childOrEmpty("ReplayArchives"));
 
         matchRevision++;
         closeBotPlayers();
@@ -1334,6 +1448,14 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
                         && driver.playerAt(seat) instanceof MahjongTableHumanPlayer h) {
                     h.readNbt(entry);
                 }
+            }
+            // A pre-feature save has no complete action history: never mislabel it a full replay.
+            try {
+                replayRecorder=in.read("ReplayRecording",CompoundTag.CODEC).map(ReplayRecorder::fromNbt).orElse(null);
+                attachRecordingObserver();
+            } catch(RuntimeException error) {
+                replayRecorder=null;
+                System.getLogger("riichi_mahjong/replay").log(System.Logger.Level.WARNING,"Cannot resume replay recording",error);
             }
         }
     }

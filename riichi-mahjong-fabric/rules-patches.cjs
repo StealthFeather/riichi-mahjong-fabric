@@ -10,6 +10,26 @@ module.exports=function patchDriver(source){
          '        commitPendingRiichi();\n        round = currentRound(); // Preserve the accepted deposit when a declaration discard is called.\n\n        for (int offset');
  replace('        claimDecisions.remove(seat);',
          '        // Keep an already accepted claim when its human controller leaves.');
+ // Observe each accepted state inside advance(), which can process several actions per tick.
+ replace('    private boolean animationsEnabled;',
+         `    private boolean animationsEnabled;
+    private java.util.function.Consumer<TheMahjongDriver> stateObserver = driver -> {};
+    public void setStateObserver(java.util.function.Consumer<TheMahjongDriver> observer) {
+        stateObserver = java.util.Objects.requireNonNull(observer);
+    }`);
+ replace(`        while (progress) {
+            progress = advanceOnce(deltaSeconds, polledThisFrame);
+        }`, `        while (progress) {
+            TheMahjongMatch beforeMatch = match;
+            MatchPhase beforePhase = phase;
+            progress = advanceOnce(deltaSeconds, polledThisFrame);
+            if (beforeMatch != match || !beforePhase.equals(phase)) stateObserver.accept(this);
+        }`);
+ const roundStart='                : new MatchPhase.AwaitingDraw(round.currentTurnSeat(), false);';
+ if(source.split(roundStart).length!==3)throw Error('Upstream driver patch no longer matches: replay round starts');
+ source=source.replaceAll(roundStart,roundStart+'\n        stateObserver.accept(this);');
+ replace('            broadcast(new MatchEvent.MatchEnded());',
+         '            broadcast(new MatchEvent.MatchEnded());\n            stateObserver.accept(this);');
  // Preserve display metadata at the exact accepted action, including multiple actions in one advance().
  replace('    private boolean animationsEnabled;',
          `    private boolean animationsEnabled;

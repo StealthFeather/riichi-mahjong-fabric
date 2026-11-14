@@ -17,5 +17,6 @@ result.checks.push('missed-click-no-pass-or-discard','missed-click-preserves-win
 result.checks.push('three-level-real-kobalab-ai','ai-private-information-boundary','ai-missing-node-and-timeout-fallback','ai-invalid-response-rejection','ai-stale-decision-cancellation');
 result.checks.push('exhaustive-draw-dealer-tenpai-continuation','draw-and-dealer-win-honba','abortive-draw-reason-save-reload','multi-ron-dealer-continuation');
 result.ai={nodeWorkerTests:true,pinnedAi:'@kobalab/majiang-ai@1.3.0',pinnedCore:'@kobalab/majiang-core@1.3.4',fourPlayerOnly:true,difficultyStrengthCalibrated:false};
+result.checks.push('complete-natural-match-replay-3p-4p','accepted-action-history-and-restart-continuity','durable-archive-ack-and-recovery','playback-step-round-perspective-and-speed','replay-independent-ai-analysis-and-cache','relative-discard-and-per-round-quality-scores');
 result.jarSha256=crypto.createHash('sha256').update(fs.readFileSync(jarPath)).digest('hex');
 fs.writeFileSync(p.join(project,'build/verification.json'),JSON.stringify(result,null,2)+'\n');

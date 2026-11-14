@@ -35,6 +35,15 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
         var driver=table.driver();
         if(driver==null)return Set.of();
         var round=driver.match().currentRound().orElse(null);
+        if(table.replay()!=null){
+            var session=table.replay();var visible=new HashSet<Integer>();
+            if(round!=null)for(int seat=0;seat<round.players().size();seat++)
+                if(session.showAll()||seat==session.perspective()
+                        ||session.analysisEnabled()&&driver.currentPhase() instanceof MatchPhase.AwaitingDiscard d&&d.seat()==seat)
+                    visible.add(seat);
+            visible.addAll(revealedSeats(driver.currentPhase(),round));
+            return Set.copyOf(visible);
+        }
         return revealedSeats(driver.currentPhase(),round,table.voluntarilyShownSeats());
     }
     static Set<Integer> revealedSeats(MatchPhase phase,TheMahjongRound round,Set<Integer> choices){
@@ -65,6 +74,10 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
         for(int i=0;i<infos.size();i++){
             var info=infos.get(i);UUID owner=info.occupant().orElse(null);var player=owner==null?null:table.getLevel().getPlayerByUUID(owner);
             String name=player==null?(owner==null?(round==null?"空位":"BOT"):"离线玩家"):player.getName().getString();
+            if(table.replay()!=null){
+                var participant=table.replay().record().participantAt(i);
+                owner=null;name=participant==null?"空位":participant.name();
+            }
             if(round==null||i>=round.players().size()){out.add(new Seat(owner,info.enabled()?name:"关闭",i,0,0,List.of(),List.of(),List.of(),List.of(),List.of(),0,false,false,false));continue;}
             var p=round.players().get(i);var river=RiverDisplay.capture(round.players(),i);
             var melds=new ArrayList<Meld>();for(var meld:p.melds()){
@@ -82,10 +95,10 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
             if(ended.winResults().isEmpty())label+="\n流局";
             for(var w:ended.winResults()){
                 label+="\n"+w.han()+"番 "+w.fu()+"符  宝牌 "+w.doraCount();
-                int limit=table.resultAnimStage()==MahjongTableBlockEntity.ResultAnimStage.SHOW_HEADER?0:table.resultAnimStage()==MahjongTableBlockEntity.ResultAnimStage.SHOW_YAKU_LINES?table.resultAnimYakuIdx()+1:Integer.MAX_VALUE;
+                int limit=table.replay()!=null?Integer.MAX_VALUE:table.resultAnimStage()==MahjongTableBlockEntity.ResultAnimStage.SHOW_HEADER?0:table.resultAnimStage()==MahjongTableBlockEntity.ResultAnimStage.SHOW_YAKU_LINES?table.resultAnimYakuIdx()+1:Integer.MAX_VALUE;
                 var yaku=new ArrayList<String>();w.yaku().forEach(y->yaku.add(y.toString()));w.yakuman().forEach(y->yaku.add(y.toString()));
                 for(int j=0;j<Math.min(limit,yaku.size());j++)label+="\n"+yaku.get(j);
-                if(table.resultAnimStage()==MahjongTableBlockEntity.ResultAnimStage.AWAITING_ADVANCE)label+="\n右键中心风盘继续下一局";
+                if(table.replay()==null&&table.resultAnimStage()==MahjongTableBlockEntity.ResultAnimStage.AWAITING_ADVANCE)label+="\n右键中心风盘继续下一局";
             }
         }
         var dora=round==null?List.<Integer>of():round.doraIndicators().stream().limit(round.revealedDoraCount()).map(PublicTable::code).toList();
@@ -94,6 +107,11 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
         String roundLabel=round==null?"立直麻将 · 右键桌边入座 · 桌主潜行右键中心风盘打开菜单，再点开始对局":TableSeating.wind(round.roundWind().ordinal())+round.handNumber()+"局 · "+round.honba()+"本场 · 供托 "+round.riichiSticks()+" · 余牌 "+round.liveWall().size();
         if(phase instanceof MatchPhase.Dealing)roundLabel+=" · 配牌中";
         if(phase instanceof MatchPhase.MatchEnded)roundLabel+=" · 对局结束";
+        if(table.replay()!=null){
+            var session=table.replay();
+            roundLabel="牌谱回放 · "+(session.index()+1)+"/"+session.record().frames().size()+" · "+roundLabel;
+            label+="\n"+session.frame().label()+" · "+(session.playing()?"播放":"暂停")+" · "+session.speed()+"倍速";
+        }
         int turn=phase instanceof MatchPhase.AwaitingDiscard d?d.seat():phase instanceof MatchPhase.AwaitingDraw d?d.seat():-1;
         return new PublicTable(List.copyOf(out),round==null?0:round.liveWall().size(),round==null?0:Math.max(0,4-round.rinshanTiles().size()),dora,uras,DoraGlint.tiles(round,phase),label,roundLabel,turn,round==null?0:round.riichiSticks(),stage,progress);
     }

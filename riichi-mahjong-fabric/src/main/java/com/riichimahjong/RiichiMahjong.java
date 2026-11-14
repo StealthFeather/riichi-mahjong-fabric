@@ -18,9 +18,16 @@ public final class RiichiMahjong implements ModInitializer {
         com.riichimahjong.mahjongtable.MahjongTableBlock.registerEvents();
         com.riichimahjong.mahjongaltar.MahjongAltarBlockEntity.registerEvents();
         PortViews.register();PortMenus.register();
+        net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents.SERVER_STARTED.register(
+                com.riichimahjong.replay.ReplayStore::start);
+        net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents.SERVER_STOPPING.register(
+                server -> com.riichimahjong.replay.ReplayStore.close());
         FabricAutomation.register();com.riichimahjong.yakugenerator.EnergyPushPlatform.register();
         net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents.SERVER_STOPPED.register(
-                server -> com.riichimahjong.ai.AiRuntime.shutdown());
+                server -> {
+                    com.riichimahjong.replay.ReplayAnalysis.shutdown();
+                    com.riichimahjong.ai.AiRuntime.shutdown();
+                });
         eu.pb4.polymer.resourcepack.api.PolymerResourcePackUtils.addModAssets(MOD_ID);
     }
 }
