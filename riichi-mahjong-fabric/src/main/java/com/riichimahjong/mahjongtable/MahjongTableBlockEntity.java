@@ -13,6 +13,7 @@ import com.riichimahjong.ai.KobalabBot;
 import com.riichimahjong.ai.RandomThinkingBot;
 import com.themahjong.TheMahjongTile;
 import com.themahjong.TheMahjongMatch;
+import com.themahjong.TheMahjongMeld;
 import com.themahjong.driver.MahjongPlayerInterface;
 import com.themahjong.driver.MatchPhase;
 import com.themahjong.driver.TheMahjongDriver;
@@ -684,7 +685,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         boolean animating = resultAnimStage != ResultAnimStage.NONE;
         if (!animating) {
             driver.advance(SECONDS_PER_TICK);
-            playAcceptedDiscardSound(sl, prevMatch);
+            playAcceptedActionSounds(sl, prevMatch);
         }
         MatchPhase nextPhase = driver.currentPhase();
         if (!(prevPhase instanceof MatchPhase.RoundEnded) && nextPhase instanceof MatchPhase.RoundEnded) {
@@ -719,7 +720,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     private static final long RESULT_ANIM_HEADER_TICKS = 20L;
     private static final long RESULT_ANIM_YAKU_TICKS   = 10L;
 
-    private void playAcceptedDiscardSound(ServerLevel level, TheMahjongMatch previous) {
+    private void playAcceptedActionSounds(ServerLevel level, TheMahjongMatch previous) {
         var before = previous.currentRound().orElse(null);
         var after = driver.match().currentRound().orElse(null);
         if (before == null || after == null || before.players().size() != after.players().size()) return;
@@ -729,6 +730,22 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             if (after.players().get(seat).discards().size() > before.players().get(seat).discards().size()) {
                 level.playSound(null, getBlockPos(), net.minecraft.sounds.SoundEvents.STONE_PLACE,
                         net.minecraft.sounds.SoundSource.AMBIENT, 1.0f, 2.0f);
+            }
+            // Play once when the riichi declaration discard is accepted.
+            if (!before.players().get(seat).riichi() && after.players().get(seat).riichi()) {
+                level.playSound(null, getBlockPos(), net.minecraft.sounds.SoundEvents.GOAT_HORN_SOUND_VARIANTS.get(2).value(),
+                        net.minecraft.sounds.SoundSource.AMBIENT, 1.0f, 1.0f);
+            }
+            // Kakan replaces a Pon without increasing the meld count.
+            for (var meld : after.players().get(seat).melds()) {
+                if (before.players().get(seat).melds().contains(meld)) continue;
+                var sound = switch (meld) {
+                    case TheMahjongMeld.Chi chi -> net.minecraft.sounds.SoundEvents.PLAYER_BURP;
+                    case TheMahjongMeld.Pon pon -> net.minecraft.sounds.SoundEvents.END_PORTAL_FRAME_FILL;
+                    default -> net.minecraft.sounds.SoundEvents.ANVIL_PLACE;
+                };
+                level.playSound(null, getBlockPos(), sound,
+                        net.minecraft.sounds.SoundSource.AMBIENT, 1.0f, 1.0f);
             }
         }
     }

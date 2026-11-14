@@ -83,7 +83,6 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
         var uras=round!=null&&ura?round.uraDoraIndicators().stream().limit(round.revealedDoraCount()).map(PublicTable::code).toList():List.<Integer>of();
         var stage=phase instanceof MatchPhase.Dealing d?d.stage():null;double progress=phase instanceof MatchPhase.Dealing d?Math.min(1,d.elapsed()/d.stage().buildDuration()):1;
         String roundLabel=round==null?"立直麻将 · 右键桌边入座 · 潜行右键中央开局":TableSeating.wind(round.roundWind().ordinal())+round.handNumber()+"局 · "+round.honba()+"本场 · 供托 "+round.riichiSticks()+" · 余牌 "+round.liveWall().size();
-        if(phase instanceof MatchPhase.AwaitingClaims)roundLabel+=" · 等待鸣牌响应";
         if(phase instanceof MatchPhase.Dealing)roundLabel+=" · 配牌中";
         if(phase instanceof MatchPhase.MatchEnded)roundLabel+=" · 对局结束";
         int turn=phase instanceof MatchPhase.AwaitingDiscard d?d.seat():phase instanceof MatchPhase.AwaitingDraw d?d.seat():-1;

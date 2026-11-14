@@ -15,9 +15,9 @@ git -C projects/timory-resource-pack pull --ff-only origin main
 首次使用先克隆该仓库；本地有未提交改动或分支分叉时先保留并合并，解决冲突后再修改。同步后比较并合并独立检出与 `TimoryResource/` 的差异；资源生成脚本同样遵循此顺序。保留其他项目资源、图集条目与许可证，禁止用旧快照或单项目包覆盖共享内容。验证后的材质包改动需提交并推送回独立仓库，具体流程见其 [README](https://github.com/StealthFeather/Timory-ResourcePack#readme)。
 <!-- timory-resource-repository:end -->
 
-日本立直麻将、3D 牌桌、私有手牌与原版客户端适配。当前本地版本：**0.4.2+fabric.26.3.19**，仅安装到 Fabric 服务端。
+日本立直麻将、3D 牌桌、私有手牌与原版客户端适配。当前版本：**0.4.2+fabric.26.3.20**，仅安装到 Fabric 服务端。
 
-已同步 [GitHub 独立仓库](https://github.com/StealthFeather/riichi-mahjong-fabric) main 提交 `decaf7b762d68dfad8ef52bfc47c982c0c3b94e0`（26.3.15），保留四麻三级 AI、TP 返回显示恢复、跳过和牌确认及手牌空槽延迟整理。
+本版修复流局连庄与本场结转，添加吃、碰、杠和立直音效，并隐藏鸣牌响应期间的公共等待提示。保留 26.3.19 的四麻三级 AI、TP 返回显示恢复、跳过和牌确认、手牌空槽延迟整理及交互布局。变更见 [26.3.20 说明](docs/26.3.20.md)。
 
 ## 3×3 牌桌
 
@@ -27,9 +27,9 @@ git -C projects/timory-resource-pack pull --ff-only origin main
 
 ## 安装与操作
 
-需要 Minecraft 26.3、Fabric Loader 0.19.5、Fabric API 0.163.0+26.3、Java 25；四麻 AI 需要服务端可执行 Node.js 22+。Polymer 和固定版本 AI 源码已内嵌。玩家使用原版客户端并接受包含麻将资产的 TimoryResource，本次尺寸修改无需新增材质。
+需要 Minecraft 26.3、Fabric Loader 0.19.5、Fabric API 0.163.0+26.3、Java 25；四麻 AI 需要服务端可执行 Node.js 22+。Polymer 和固定版本 AI 源码已内嵌。玩家使用原版客户端并接受包含麻将资产的 TimoryResource。本次音效均使用原版声音，连庄和等待提示调整不修改资产，无需更新资源包。
 
-停服后将构建的 `riichi-mahjong-0.4.2+fabric.26.3.19.jar` 替换服务端旧版 JAR，再正常开服。部署时保留当前 TimoryResource 材质包；测试服安装记录位于工作区 `run/single-server/mahjong-installation.json`。
+从 [26.3.20 Release](https://github.com/StealthFeather/riichi-mahjong-fabric/releases/tag/v0.4.2%2Bfabric.26.3.20) 下载 `riichi-mahjong-0.4.2+fabric.26.3.20.jar`。停服备份后替换服务端旧版麻将 JAR，再正常开服，保留当前 TimoryResource 资源包。
 
 `/mahjong` 查看操作，管理员 `/mahjong give` 领物品。右键桌边入座，潜行右键中央开局，右键自己的牌出牌；吃碰杠、立直与胡牌使用本人桌沿按钮。跳过可和牌机会需要确认。主动离座使用 `/mahjong leave`；离座后 BOT 暂代，右键桌子或 `/mahjong join` 可接回原座位。
 
@@ -39,20 +39,24 @@ git -C projects/timory-resource-pack pull --ff-only origin main
 
 点空不会默认弃牌或跳过；桌主可在 `/mahjong menu` 选择“重置牌桌”并二次确认，结束当前牌局并释放座位。
 
+荒牌流局时庄家听牌连庄、未听换庄，所有流局本场加一；途中流局始终连庄，庄家和牌连庄且本场加一，闲家和牌本场归零。流局原因随存档保存。
+
+吃播放 `minecraft:entity.player.burp`，碰播放 `minecraft:block.end_portal_frame.fill`，明杠、暗杠和加杠播放 `minecraft:block.anvil.place`。四家立直统一播放 `minecraft:item.goat_horn.sound.2`，宣言牌打出时播放一次。鸣牌响应期间隐藏公共等待提示，个人操作按钮及响应处理正常运行。
+
 ## 构建与验证
 
 在本项目目录执行：
 
 ```powershell
-node project.cjs build
+node build.cjs
 node test.cjs
 ```
 
-也可双击 `build.cmd`。构建器兼容当前 Timory 工作区与独立源码归档，公共 JDK、Minecraft 和 Polymer 依赖默认位于工作区根目录。配置方式见 [BUILDING.md](BUILDING.md)。**不要重新运行 `prepare.cjs`、`adapt.cjs` 或 `resources.cjs`**，以免覆盖已移植内容及版本元数据。
+构建器兼容 Timory 工作区与独立源码归档，需配置 JDK、Minecraft 和 Polymer 依赖。配置方式见 [BUILDING.md](BUILDING.md)。**不要重新运行 `prepare.cjs`、`adapt.cjs` 或 `resources.cjs`**，以免覆盖已移植内容及版本元数据。
 
-JAR 位于 `build/libs/`，回归结果和 JAR SHA-256 位于 `build/verification.json`。15 组 Java 回归及 10 项 Node AI 测试通过；本版未进行真实客户端视觉或完整联机验收。变更见 [26.3.19 说明](docs/26.3.19.md)。
+JAR 位于 `build/libs/`，回归结果和 JAR SHA-256 位于 `build/verification.json`。本版验证包含 17 组 Java 回归及 10 项 Node AI 测试；服务器部署与启动验证见发布附件，未进行真实客户端试听、视觉或完整联机验收。
 
-可选打包入口为 `node project.cjs package`，默认输出至工作区 `deploy/`；用 `RIICHI_RELEASE_DIR` 可指定其他目录。`install-local.cjs` 仅供正常停服后的主测试服安装，构建与打包不会自动部署。
+可选打包入口为 `node package.cjs`，默认输出至工作区 `deploy/`；用 `RIICHI_RELEASE_DIR` 可指定其他目录。`install-local.cjs` 仅供正常停服后的主测试服安装，构建与打包不会自动部署。
 
 ## 来源与许可
 
