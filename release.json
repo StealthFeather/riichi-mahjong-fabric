@@ -1,0 +1,80 @@
+{
+  "version": "0.4.2+fabric.26.3.23",
+  "jarSha256": "f47dca8b00d6447dcf556d5fe852b244538f0778d8a1c1002d4b42bf8e01e3c3",
+  "deployment": "success",
+  "resourcePackChanged": false,
+  "checks": {
+    "compiled": true,
+    "javaRegressionClasses": 23,
+    "nodeAiTests": 10,
+    "offlineCandidatesAndReservationRevocation": true,
+    "controllerReplacementPreservesAcceptedClaims": true,
+    "ownerPersistenceAndLegacyMigration": true,
+    "onlineOwnerAndStaleTakeoverRejection": true,
+    "realTableCentreSightRay": true,
+    "sharedEndResetConfirmationCodeReviewed": true,
+    "mixinTargetClassLoaded": true
+  },
+  "clientVisualTest": false,
+  "serverStartupTest": true,
+  "realServerMenuInteractionTest": false,
+  "fullMultiplayerGameTest": false,
+  "sourceCommit": "bab07fa2f3f9748bbd5517ea0cd9996d380ecc11",
+  "testedCodeCommit": "8b2d3e48aa3d7e85f4f68eac9aed7485b6f442c4",
+  "serverIntegrationTest": false,
+  "servers": [
+    {
+      "alias": "SC",
+      "name": "Timroy_SC",
+      "state": "ready",
+      "verifiedAt": "2026-11-15T00:24:41.421732+08:00",
+      "checks": {
+        "newVersionLoaded": true,
+        "startupReady": true,
+        "statusPing": true,
+        "testedJarMatchesSha256": true,
+        "onlyOneMahjongJar": true,
+        "otherModsUnchanged": true,
+        "propertiesUnchanged": true,
+        "startupErrorCount": 0,
+        "consoleListResponded": true,
+        "mahjongCommandResponded": true,
+        "mixinTargetClassLoaded": true
+      },
+      "worldBackup": {
+        "system": "PrimeBackup",
+        "backupId": 3
+      }
+    },
+    {
+      "alias": "TR",
+      "name": "Timory_sc_tr",
+      "state": "ready",
+      "verifiedAt": "2026-11-15T00:24:41.777227+08:00",
+      "checks": {
+        "newVersionLoaded": true,
+        "startupReady": true,
+        "statusPing": true,
+        "testedJarMatchesSha256": true,
+        "onlyOneMahjongJar": true,
+        "otherModsUnchanged": true,
+        "propertiesUnchanged": true,
+        "startupErrorCount": 0,
+        "consoleListResponded": true,
+        "mahjongCommandResponded": true,
+        "mixinTargetClassLoaded": true
+      },
+      "worldBackup": {
+        "system": "PrimeBackup",
+        "backupId": 2
+      }
+    }
+  ],
+  "deploymentVerifiedAt": "2026-11-15T00:24:41.777616+08:00",
+  "resourcePack": "TimoryResource-26.3.zip",
+  "resourcePackReusedFrom": "v0.4.2+fabric.26.3.19",
+  "resourcePackSha1": "f0629f753a7095cd4a9514755178c4f085c5a79f",
+  "resourcePackSha256": "887bb8ae32ff8157cebe423af6452c22ad5010fe16f6b1fc299d21c80a5e7a27",
+  "resourcePackMatchesDeployedServers": true,
+  "resourcePackNotes": "原样复用26.3.19完整包，保留其高清物品图标；26.3.20至26.3.23无需资源包更新。"
+}
