@@ -42,19 +42,33 @@ public final class PortMenus {
         for(var pos:BlockPos.betweenClosed(center.offset(-8,-4,-8),center.offset(8,4,8))){if(!p.level().hasChunkAt(pos))continue;if(p.level().getBlockEntity(pos) instanceof MahjongTableBlockEntity table){double d=pos.distToCenterSqr(p.position());if(d<distance){best=table;distance=d;}}}
         if(best==null)throw new IllegalArgumentException("请靠近原版麻将桌。");return best;
     }
-    static boolean host(ServerPlayer p,MahjongTableBlockEntity table){return table.seats().stream().flatMap(s->s.occupant().stream()).findFirst().map(p.getUUID()::equals).orElse(true);}
+    static boolean host(ServerPlayer p,MahjongTableBlockEntity table){return table.isHost(p.getUUID());}
     static boolean tableMenuValid(ServerPlayer p,MahjongTableBlockEntity table){return table.getLevel()==p.level()&&!table.isRemoved()&&PortViews.near(p,p.level(),table.getBlockPos())&&p.level().hasChunkAt(table.getBlockPos())&&p.level().getBlockEntity(table.getBlockPos())==table;}
     static ItemStack icon(Item item,String text){var s=new ItemStack(item);s.set(DataComponents.CUSTOM_NAME,Component.literal(text));return s;}
     static void open(ServerPlayer p,String title,BooleanSupplier valid,Consumer<Actions> setup){p.openMenu(new SimpleMenuProvider((id,inv,player)->{var menu=new Actions(id,inv,valid);setup.accept(menu);return menu;},Component.literal(title)));}
     public static void settings(ServerPlayer p,MahjongTableBlockEntity table){
-        open(p,"立直麻将 · 原版设置",()->tableMenuValid(p,table),menu->{
+        var driver=table.driver();long revision=table.matchRevision();
+        open(p,"立直麻将 · 原版设置",()->tableMenuValid(p,table)&&table.driver()==driver&&table.matchRevision()==revision,menu->{
             var presets=RuleSetPreset.values();String[] names={"雀魂四麻","天凤四麻","WRC 四麻","雀魂三麻","天凤三麻"};
             for(int i=0;i<presets.length;i++){final int n=i;menu.button(i,icon(table.preset()==presets[i]?Items.EMERALD:Items.PAPER,names[i]),()->{if(host(p,table))table.selectPreset(presets[n]);settings(p,table);});}
             boolean fourPlayer=table.effectivePreset().playerCount()==4;
             String aiLock=table.hasActiveMatch()?" · 对局中锁定":fourPlayer?"":" · 仅四麻生效";
             for(int i=0;i<table.seats().size();i++){final int seat=i;var s=table.seats().get(i);String occupant=s.occupant().map(uuid->{var player=p.level().getServer().getPlayerList().getPlayer(uuid);return player==null?"离线玩家":player.getName().getString();}).orElse("空位（开局由 BOT 补齐）");menu.button(9+i,icon(s.enabled()?Items.OAK_BOAT:Items.CLAY_BALL,new String[]{"东","南","西","北"}[i]+" · "+occupant),()->{TableSeating.join(p,table,seat);settings(p,table);});menu.button(36+i,icon(Items.LEVER,"启用 / 关闭座位 "+(i+1)),()->{if(host(p,table))table.toggleSeatEnabled(seat);settings(p,table);});
                 if(i<4){String difficulty=table.botDifficultyOverride(seat).map(d->d.label()).orElse("跟随默认（"+table.defaultBotDifficulty().label()+"）");menu.button(45+i,icon(Items.COMPARATOR,new String[]{"东","南","西","北"}[i]+"位四麻 AI："+difficulty+aiLock),()->{if(host(p,table)&&fourPlayer)table.cycleSeatBotDifficulty(seat);settings(p,table);});}}
-            menu.button(18,icon(Items.EMERALD,table.hasActiveMatch()?"结束对局":"开始对局（空位由 BOT 补齐）"),()->{if(host(p,table)){if(table.hasActiveMatch())table.endGame();else table.tryStartMatchWithAutoSeating(new java.security.SecureRandom().nextLong());}p.closeContainer();});
+            if(host(p,table))for(var candidate:table.offlineSeatCandidates()){
+                String seatName=new String[]{"东","南","西","北"}[candidate.seat()]+"位";
+                menu.button(14+candidate.seat(),icon(Items.COMPARATOR,seatName+" · 用 AI 取代"+(candidate.reserved()?"离线保留者":"离线玩家")),()->{
+                    if(table.replaceOfflineWithAI(p,candidate.seat(),candidate.occupant(),driver,revision))
+                        p.sendSystemMessage(Component.literal("已用 AI 接替该座位，手牌和分数保留。"),true);
+                    else p.sendSystemMessage(Component.literal("座位状态已变化，或你已不是桌主。"),true);
+                    settings(p,table);
+                });
+            }
+            menu.button(18,icon(Items.EMERALD,table.hasActiveMatch()?"结束对局（需确认）":"开始对局（空位由 BOT 补齐）"),()->{
+                if(!host(p,table)){p.sendSystemMessage(Component.literal("只有桌主可以开始或结束对局。"),true);return;}
+                if(table.hasActiveMatch())confirmTableAction(p,table,TableAction.END);
+                else{table.tryStartMatchWithAutoSeating(new java.security.SecureRandom().nextLong());p.closeContainer();}
+            });
             menu.button(19,icon(Items.CHEST,"无限供牌："+table.mintTilesFromNothing()),()->{if(host(p,table)&&!table.hasActiveMatch())table.setMintTilesFromNothing(!table.mintTilesFromNothing());settings(p,table);});
             menu.button(20,icon(Items.ENDER_EYE,"摸牌使用私有显示，右键单张牌打出"),()->{});
             menu.button(21,icon(Items.COMPARATOR,"默认四麻 AI："+table.defaultBotDifficulty().label()+aiLock),()->{if(host(p,table)&&fourPlayer)table.setDefaultBotDifficulty(table.defaultBotDifficulty().next());settings(p,table);});
@@ -64,17 +78,29 @@ public final class PortMenus {
             menu.button(35,icon(Items.BARRIER,"重置牌桌（需确认"+(host(p,table)?"":" · 仅桌主")+"）"),()->{if(host(p,table))confirmTableReset(p,table);else p.sendSystemMessage(Component.literal("只有桌主可以重置牌桌。"),true);});
         });
     }
+    private enum TableAction {
+        END("结束对局","结束当前对局，清空比分与供托","保留当前入座玩家，可重新开局","对局已结束。"),
+        RESET("重置牌桌","结束当前牌局，清空比分与供托","释放所有座位，重新入座后开局","牌桌已重置，可重新入座开局。");
+        final String label,description,seats,success;
+        TableAction(String label,String description,String seats,String success){this.label=label;this.description=description;this.seats=seats;this.success=success;}
+    }
     static void confirmTableReset(ServerPlayer p,MahjongTableBlockEntity table){
+        confirmTableAction(p,table,TableAction.RESET);
+    }
+    private static void confirmTableAction(ServerPlayer p,MahjongTableBlockEntity table,TableAction action){
         if(!tableMenuValid(p,table)||!host(p,table))return;
+        if(action==TableAction.END&&!table.hasActiveMatch())return;
         var driver=table.driver();long revision=table.matchRevision();
-        open(p,"立直麻将 · 确认重置牌桌",()->tableMenuValid(p,table)&&host(p,table)&&table.driver()==driver&&table.matchRevision()==revision,menu->{
-            menu.button(12,icon(Items.PAPER,"结束当前牌局，清空比分与供托"),()->{});
+        BooleanSupplier valid=()->tableMenuValid(p,table)&&host(p,table)&&table.driver()==driver&&table.matchRevision()==revision;
+        open(p,"立直麻将 · 确认"+action.label,valid,menu->{
+            menu.button(12,icon(Items.PAPER,action.description),()->{});
             menu.button(13,icon(Items.CHEST,"保留桌子、库存和规则 / AI 设置"),()->{});
-            menu.button(14,icon(Items.OAK_BOAT,"释放所有座位，重新入座后开局"),()->{});
-            menu.button(29,icon(Items.REDSTONE_BLOCK,"确认重置牌桌"),()->{
-                if(p.containerMenu!=menu||!tableMenuValid(p,table)||!host(p,table))return;
-                if(table.resetTable(driver,revision)){
-                    p.sendSystemMessage(Component.literal("牌桌已重置，可重新入座开局。"),true);
+            menu.button(14,icon(Items.OAK_BOAT,action.seats),()->{});
+            menu.button(29,icon(Items.REDSTONE_BLOCK,"确认"+action.label),()->{
+                if(p.containerMenu!=menu||!valid.getAsBoolean())return;
+                boolean changed=action==TableAction.RESET?table.resetTable(driver,revision):table.endGame(p,driver,revision);
+                if(changed){
+                    p.sendSystemMessage(Component.literal(action.success),true);
                     settings(p,table);
                 }
             });

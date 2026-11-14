@@ -8,6 +8,7 @@ import com.riichimahjong.cuterenderer.InteractKey;
 import com.riichimahjong.themahjongcompat.DriverNbt;
 import com.riichimahjong.fabric.HandDisplayState;
 import com.riichimahjong.fabric.ResultHandReveals;
+import com.riichimahjong.fabric.TableOwnership;
 import com.riichimahjong.fabric.WinningHandDisplay;
 import com.riichimahjong.ai.BotDifficulty;
 import com.riichimahjong.ai.KobalabBot;
@@ -120,6 +121,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     private boolean lastPowered;
     private List<SeatInfo> seats = defaultSeats();
     private final ReturningSeats returningSeats = new ReturningSeats();
+    private final TableOwnership ownership = new TableOwnership();
     private final Map<UUID,Long> privateClicks = new HashMap<>();
     private final HandDisplayState handDisplay = new HandDisplayState();
     private final ResultHandReveals resultHandReveals = new ResultHandReveals();
@@ -138,7 +140,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     @Nullable
     private TheMahjongDriver driver;
 
-    // A live menu must not survive a reset, reload or intervening match lifecycle.
+    // A live confirmation must not survive a reset, reload, seat/host change or new hand.
     private transient long matchRevision;
 
     public enum ResultAnimStage { NONE, SHOW_HEADER, SHOW_YAKU_LINES, SHOW_FINAL, AWAITING_ADVANCE }
@@ -276,6 +278,60 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         return preset;
     }
 
+    public Optional<UUID> owner() { return ownership.owner(); }
+
+    public boolean isHost(UUID uuid) { return ownership.isHost(uuid); }
+
+    private boolean playerOnline(UUID uuid) {
+        return level instanceof ServerLevel sl && sl.getServer().getPlayerList().getPlayer(uuid) != null;
+    }
+
+    public boolean hasOfflineHost() {
+        return level instanceof ServerLevel && ownership.hasOfflineOwner(this::playerOnline);
+    }
+
+    private boolean validMenuActor(ServerPlayer player) {
+        return level instanceof ServerLevel sl && player.level() == level && !player.isSpectator()
+                && !isRemoved() && sl.hasChunkAt(getBlockPos()) && sl.getBlockEntity(getBlockPos()) == this
+                && sl.getServer().getPlayerList().getPlayer(player.getUUID()) == player
+                && player.distanceToSqr(getBlockPos().getX() + .5, getBlockPos().getY() + .5,
+                        getBlockPos().getZ() + .5) <= 64;
+    }
+
+    public boolean takeOverHost(ServerPlayer player, UUID expectedOwner, long expectedRevision) {
+        if (!validMenuActor(player) || matchRevision != expectedRevision
+                || !ownership.takeOver(player.getUUID(), expectedOwner, this::playerOnline)) return false;
+        matchRevision++;
+        markChangedAndSynced();
+        return true;
+    }
+
+    public record OfflineSeatCandidate(int seat, UUID occupant, boolean reserved) {}
+
+    public List<OfflineSeatCandidate> offlineSeatCandidates() {
+        if (!(level instanceof ServerLevel)) return List.of();
+        return OfflineSeats.candidates(seats, returningSeats,
+                driver == null ? -1 : driver.match().playerCount(), this::playerOnline);
+    }
+
+    /** Permanently turn this offline assignment into an ordinary, unreserved AI seat. */
+    public boolean replaceOfflineWithAI(ServerPlayer player, int seat, UUID expectedOccupant,
+            @Nullable TheMahjongDriver expectedDriver, long expectedRevision) {
+        if (!validMenuActor(player) || !isHost(player.getUUID())
+                || !OfflineSeats.matches(driver, matchRevision, expectedDriver, expectedRevision,
+                        seat, expectedOccupant, offlineSeatCandidates())) return false;
+        // Leaving has already installed a BOT. Keep that controller and any accepted claim decision.
+        if (driver != null && driver.playerAt(seat) instanceof MahjongTableHumanPlayer) {
+            replaceController(seat, buildBot(seat, driver.match().playerCount(), activeRedFives()));
+        }
+        returningSeats.forget(expectedOccupant, seat);
+        seats.set(seat, new SeatInfo(seats.get(seat).enabled(), Optional.empty()));
+        privateClicks.remove(expectedOccupant);
+        matchRevision++;
+        markChangedAndSynced();
+        return true;
+    }
+
     public OptionalInt returningSeat(UUID uuid) { return returningSeats.seat(uuid); }
 
     public boolean canClaimSeat(int seat, UUID uuid) {
@@ -301,6 +357,8 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             if (prev != seat) seats.set(prev, SeatInfo.open());
         });
         seats.set(seat, SeatInfo.claimed(uuid));
+        ownership.claimIfAbsent(uuid);
+        matchRevision++;
         markChangedAndSynced();
         return true;
     }
@@ -314,6 +372,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
                 replaceController(seat, buildBot(seat, driver.match().playerCount(), activeRedFives()));
             }
             seats.set(seat, SeatInfo.open());
+            matchRevision++;
             markChangedAndSynced();
         }
     }
@@ -321,6 +380,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     public void selectPreset(RuleSetPreset newPreset) {
         if (driver != null) return;
         this.preset = newPreset;
+        matchRevision++;
         padSeatsAtLeast(DEFAULT_SEAT_COUNT);
         int wantOpen = newPreset.playerCount();
         for (int i = 0; i < seats.size(); i++) {
@@ -337,6 +397,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         if (seat < 0 || seat >= seats.size()) return;
         SeatInfo current = seats.get(seat);
         seats.set(seat, current.enabled() ? SeatInfo.closed() : SeatInfo.open());
+        matchRevision++;
         markChangedAndSynced();
     }
 
@@ -455,6 +516,8 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         if (driver != null) return StartMatchResult.NOT_IDLE;
 
         CompoundTag patched = snapshot.copy();
+        // A record copies a game, not the source table's administration rights.
+        patched.store("TableOwner", UUIDUtil.CODEC, owner().orElse(hostUuid));
 
         ListTag seatsTag = patched.getListOrEmpty(NBT_SEATS);
         for (int i = 0; i < seatsTag.size(); i++) {
@@ -509,6 +572,17 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         }
         clearMatchState();
         markChangedAndSynced();
+    }
+
+    public boolean endGame(@Nullable TheMahjongDriver expectedDriver, long expectedRevision) {
+        if (level == null || level.isClientSide() || isRemoved() || driver == null
+                || driver != expectedDriver || matchRevision != expectedRevision) return false;
+        endGame();
+        return true;
+    }
+
+    public boolean endGame(ServerPlayer player, @Nullable TheMahjongDriver expectedDriver, long expectedRevision) {
+        return validMenuActor(player) && isHost(player.getUUID()) && endGame(expectedDriver, expectedRevision);
     }
 
     /** The confirmation must still describe this exact live match and lifecycle. */
@@ -617,6 +691,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     private void resetReturningSeats() {
+        seats.stream().flatMap(info -> info.occupant().stream()).findFirst().ifPresent(ownership::claimIfAbsent);
         returningSeats.clear();privateClicks.clear();
         for (int seat=0;seat<seats.size();seat++) {
             var info=seats.get(seat);
@@ -912,6 +987,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         clearResultAnimState();
         try {
             driver.advanceRound(next.renchan(), next.nextHonba());
+            matchRevision++;
             resultHandReveals.shownSeats(driver);
         } catch (Exception ignored) {
         }
@@ -1088,6 +1164,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     protected void saveAdditional(ValueOutput out) {
         super.saveAdditional(out);
 
+        ownership.write(out);
         out.putBoolean(NBT_LAST_POWERED, lastPowered);
         out.putString(NBT_PRESET, preset.name());
         out.putString(NBT_BOT_DIFFICULTY, defaultBotDifficulty.name());
@@ -1190,6 +1267,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             seats = loaded;
         });
         if (seats.isEmpty()) seats = defaultSeats();
+        ownership.read(in, seats.stream().flatMap(info -> info.occupant().stream()).findFirst());
 
         inventory.clear();
         for (ValueInput entry : in.childrenListOrEmpty(NBT_INVENTORY)) {

@@ -133,6 +133,21 @@ public class MahjongTableBlock extends BaseMultipartBlock {
             return InteractionResult.PASS;
         }
 
+        if (isMaster(state) && player.isShiftKeyDown() && player instanceof ServerPlayer serverPlayer
+                && !serverPlayer.isSpectator() && serverPlayer.level() == level
+                && serverPlayer.distanceToSqr(master.getX() + .5, master.getY() + .5,
+                        master.getZ() + .5) <= 64
+                && level.getBlockState(pos) == state && table.hasOfflineHost()
+                && com.riichimahjong.fabric.TableOwnership.hitsCentre(master,serverPlayer.getEyePosition(),
+                        serverPlayer.getEyePosition().add(serverPlayer.getLookAngle().scale(8)))) {
+            var owner = table.owner().orElseThrow();
+            if (table.takeOverHost(serverPlayer,owner,table.matchRevision())) {
+                serverPlayer.sendSystemMessage(Component.literal("已取得麻将桌的桌主权限。"),true);
+            }
+            // Taking ownership is the only action performed by this click.
+            return InteractionResult.CONSUME;
+        }
+
         if (table.hasActiveMatch() && player instanceof ServerPlayer sp
                 && com.riichimahjong.fabric.PortViews.handleTileHit(sp, table)) {
             return InteractionResult.CONSUME;
@@ -147,6 +162,7 @@ public class MahjongTableBlock extends BaseMultipartBlock {
             boolean filled = record.isPredefinedFixtureForRouting()
                     || MahjongTableRecordItem.hasRecordedTableState(held);
             if (filled) {
+                if (!requireHost(player,table)) return InteractionResult.CONSUME;
                 record.applyToTable(sp, table, held);
             } else {
                 record.recordFromTable(sp, table, held);
@@ -161,6 +177,7 @@ public class MahjongTableBlock extends BaseMultipartBlock {
                 return InteractionResult.CONSUME;
             }
             if (holdsWrench(player) && isMaster(state)) {
+                if (!requireHost(player,table)) return InteractionResult.CONSUME;
                 table.endGame();
                 return InteractionResult.CONSUME;
             }
@@ -180,6 +197,7 @@ public class MahjongTableBlock extends BaseMultipartBlock {
 
             if (table.isDriverTerminal() && isMaster(state) && player.isShiftKeyDown()
                     && !holdsWrench(player)) {
+                if (!requireHost(player,table)) return InteractionResult.CONSUME;
                 table.endGame();
                 MahjongTableBlockEntity.StartMatchResult result =
                         table.tryStartMatchWithAutoSeating(new Random().nextLong());
@@ -211,12 +229,14 @@ public class MahjongTableBlock extends BaseMultipartBlock {
             }
             OptionalInt seat = seatForCell(partX, partZ, state.getValue(FACING));
             if (seat.isPresent()) {
+                if (!requireHost(player,table)) return InteractionResult.CONSUME;
                 table.toggleSeatEnabled(seat.getAsInt());
             }
             return InteractionResult.CONSUME;
         }
 
         if (shift && center) {
+                if (!requireHost(player,table)) return InteractionResult.CONSUME;
                 MahjongTableBlockEntity.StartMatchResult result =
                         table.tryStartMatchWithAutoSeating(new Random().nextLong());
                 Component warning = warningFor(result, table);
@@ -234,6 +254,13 @@ public class MahjongTableBlock extends BaseMultipartBlock {
             }
         }
         return InteractionResult.CONSUME;
+    }
+
+    private static boolean requireHost(Player player, MahjongTableBlockEntity table) {
+        if (table.isHost(player.getUUID())) return true;
+        if (player instanceof ServerPlayer serverPlayer)
+            serverPlayer.sendSystemMessage(Component.literal("只有桌主可以管理麻将桌。"),true);
+        return false;
     }
 
     @Override
