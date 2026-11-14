@@ -58,6 +58,7 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
         record SkipTsumo() implements TableButton {}
         record ConfirmSkip(UUID token) implements TableButton {}
         record CancelSkip(UUID token) implements TableButton {}
+        record ShowHand(TheMahjongRound round) implements TableButton {}
     }
 
     public Optional<UUID> occupant() {

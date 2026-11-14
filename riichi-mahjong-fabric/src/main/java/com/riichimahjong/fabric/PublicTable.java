@@ -30,6 +30,19 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
         }
         return Set.copyOf(revealed);
     }
+    /** Merge explicit choices with the existing automatic result visibility. */
+    public static Set<Integer> revealedSeats(MahjongTableBlockEntity table){
+        var driver=table.driver();
+        if(driver==null)return Set.of();
+        var round=driver.match().currentRound().orElse(null);
+        return revealedSeats(driver.currentPhase(),round,table.voluntarilyShownSeats());
+    }
+    static Set<Integer> revealedSeats(MatchPhase phase,TheMahjongRound round,Set<Integer> choices){
+        var visible=new HashSet<>(revealedSeats(phase,round));
+        if(ResultHandReveals.canReveal(phase,round))for(int seat:choices)
+            if(seat>=0&&seat<round.players().size())visible.add(seat);
+        return Set.copyOf(visible);
+    }
     static Set<Integer> claimed(List<TheMahjongPlayer> players,int seat){
         Set<Integer> out=new HashSet<>();
         for(var player:players)for(var meld:player.melds()){
@@ -47,14 +60,13 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
         var driver=table.driver();var round=driver==null?null:driver.match().currentRound().orElse(null);
         var infos=table.seats();var out=new ArrayList<Seat>();
         MatchPhase phase=driver==null?null:driver.currentPhase();
-        Set<Integer> visibleHands=revealedSeats(phase,round);
+        Set<Integer> visibleHands=revealedSeats(table);
         boolean ura=DoraGlint.uraVisible(round,phase);
         for(int i=0;i<infos.size();i++){
             var info=infos.get(i);UUID owner=info.occupant().orElse(null);var player=owner==null?null:table.getLevel().getPlayerByUUID(owner);
             String name=player==null?(owner==null?(round==null?"空位":"BOT"):"离线玩家"):player.getName().getString();
             if(round==null||i>=round.players().size()){out.add(new Seat(owner,info.enabled()?name:"关闭",i,0,0,List.of(),List.of(),List.of(),List.of(),List.of(),0,false,false,false));continue;}
-            var p=round.players().get(i);var river=new ArrayList<Tile>();Set<Integer> claimed=claimed(round.players(),i);
-            for(int d=0;d<p.discards().size();d++)if(!claimed.contains(d)){var tile=p.discards().get(d);river.add(new Tile(code(tile.tile()),tile.riichiDeclared()));}
+            var p=round.players().get(i);var river=RiverDisplay.capture(round.players(),i);
             var melds=new ArrayList<Meld>();for(var meld:p.melds()){
                 var tiles=new ArrayList<Tile>();for(var t:MeldLayout.arrange(meld,i,round.players().size()))tiles.add(new Tile(t.concealed()?-1:code(t.tile()),t.sideways(),t.stacked(),t.concealed()));
                 melds.add(new Meld(List.copyOf(tiles)));

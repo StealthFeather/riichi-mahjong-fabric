@@ -328,6 +328,7 @@ public class MahjongTableBlock extends BaseMultipartBlock {
     }
 
     public static void registerEvents() {
+        com.riichimahjong.fabric.TableMining.register();
         net.fabricmc.fabric.api.event.player.UseBlockCallback.EVENT.register((player,level,hand,hit)->{
             if(!(player instanceof ServerPlayer)||player.isSpectator())return InteractionResult.PASS;
             var state=level.getBlockState(hit.getBlockPos());if(!(state.getBlock() instanceof MahjongTableBlock block))return InteractionResult.PASS;

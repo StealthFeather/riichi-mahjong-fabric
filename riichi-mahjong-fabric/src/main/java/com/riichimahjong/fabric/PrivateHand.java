@@ -27,9 +27,9 @@ final class PrivateHand {
     static Snapshot snapshot(MahjongTableBlockEntity table,int seat){
         var d=table.driver();var r=d.match().currentRound().orElseThrow();
         int count=table.handDisplayOrder(seat).size();if(d.currentPhase() instanceof MatchPhase.Dealing dealing){double fraction=switch(dealing.stage()){case WALL_BUILDING->0;case DEALING_HANDS->Math.min(1,dealing.elapsed()/dealing.stage().buildDuration());case DORA_FLIP->1;};count=(int)Math.round(count*fraction);}
-        boolean queued=d.playerAt(seat) instanceof MahjongTableHumanPlayer h&&h.hasQueued();
+        boolean queued=!ResultHandReveals.canReveal(d)&&d.playerAt(seat) instanceof MahjongTableHumanPlayer h&&h.hasQueued();
         var discards=d.legalActions(seat).stream().filter(a->a instanceof PlayerAction.DiscardWithRiichi).map(a->PublicTable.code(((PlayerAction.DiscardWithRiichi)a).tile())).toList();
-        return new Snapshot(d,r,d.currentPhase(),table.handDisplayOrder(seat).stream().limit(count).map(PublicTable::code).toList(),table.handDisplaySlots(seat).stream().limit(count).toList(),table.handDisplayGapStarts(seat),queued?List.of():List.copyOf(MahjongTableHumanPlayer.tableButtons(d,seat,table.riichiPendingForSeat(seat))),discards,DoraGlint.tiles(r,d.currentPhase()),queued,table.hasSeparatedDrawnTile(seat),PublicTable.revealedSeats(d.currentPhase(),r).contains(seat));
+        return new Snapshot(d,r,d.currentPhase(),table.handDisplayOrder(seat).stream().limit(count).map(PublicTable::code).toList(),table.handDisplaySlots(seat).stream().limit(count).toList(),table.handDisplayGapStarts(seat),queued?List.of():List.copyOf(table.tableButtonsForSeat(seat)),discards,DoraGlint.tiles(r,d.currentPhase()),queued,table.hasSeparatedDrawnTile(seat),PublicTable.revealedSeats(table).contains(seat));
     }
     PrivateHand(MahjongTableBlockEntity table,ServerPlayer owner,int seat,Snapshot snapshot){
         this.table=table;this.owner=owner;this.seat=seat;this.snapshot=snapshot;
@@ -136,6 +136,7 @@ final class PrivateHand {
     static String shortLabel(MahjongTableHumanPlayer.TableButton button){String text=label(button);int space=text.indexOf(' ');return space<0?text:text.substring(0,space);}
     static String label(MahjongTableHumanPlayer.TableButton button){
         if(button instanceof MahjongTableHumanPlayer.TableButton.RiichiToggle r)return r.active()?"立直：已选":"立直";
+        if(button instanceof MahjongTableHumanPlayer.TableButton.ShowHand)return "展示手牌";
         if(button instanceof MahjongTableHumanPlayer.TableButton.SkipTsumo)return "跳过";
         if(button instanceof MahjongTableHumanPlayer.TableButton.ConfirmSkip)return "确认跳过";
         if(button instanceof MahjongTableHumanPlayer.TableButton.CancelSkip)return "返回";
