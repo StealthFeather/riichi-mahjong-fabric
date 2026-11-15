@@ -34,15 +34,11 @@ final class ReplayView {
     ReplayView(MahjongTableBlockEntity table,ServerPlayer owner){
         this.table=table;this.owner=owner;session=table.replay();revision=session.revision();
         new ManualAttachment(holder,owner.level(),()->Vec3.atCenterOf(table.getBlockPos()));
-        addPanel(false,List.of(ReplaySession.Control.FIRST,ReplaySession.Control.PREVIOUS_ROUND,
-                ReplaySession.Control.PREVIOUS_TURN,ReplaySession.Control.PREVIOUS,ReplaySession.Control.PLAY_PAUSE,
-                ReplaySession.Control.NEXT,ReplaySession.Control.NEXT_TURN),
-                List.of("开局","上一局","上一巡","上一步",session.playing()?"暂停":"播放","下一步","下一巡"));
-        addPanel(true,List.of(ReplaySession.Control.NEXT_ROUND,ReplaySession.Control.LAST,
-                ReplaySession.Control.SPEED,ReplaySession.Control.PERSPECTIVE,ReplaySession.Control.REVEAL,
-                ReplaySession.Control.ANALYSIS,ReplaySession.Control.EXIT),
-                List.of("下一局","终局",session.speed()+"倍速","视角："+TableSeating.wind(Math.floorMod(session.perspective()-table.driver().currentRound().dealerSeat(),table.driver().match().playerCount())),
-                        session.showAll()?"隐藏他家":"显示全部",session.analysisEnabled()?"分析：开":"分析：关","退出回放"));
+        addPanel(true,progressControls(),List.of("上一巡","上一步",session.playing()?"暂停":"播放",
+                "下一巡","下一步",session.speed()+"倍速"));
+        addPanel(false,otherControls(),List.of("开局","上一局","下一局","终局",
+                "视角："+TableSeating.wind(Math.floorMod(session.perspective()-table.driver().currentRound().dealerSeat(),table.driver().match().playerCount())),
+                revealLabel(session.showAll()),session.analysisEnabled()?"分析：开":"分析：关","退出回放"));
         updateActions(Map.of());holder.startWatching(owner);
         if(session.analysisEnabled()){
             ReplayAnalysis.analyzeAll(session.record(),result->{});
@@ -53,7 +49,18 @@ final class ReplayView {
         }
         refresh();
     }
+    static List<ReplaySession.Control> progressControls(){
+        return List.of(ReplaySession.Control.PREVIOUS_TURN,ReplaySession.Control.PREVIOUS,ReplaySession.Control.PLAY_PAUSE,
+                ReplaySession.Control.NEXT_TURN,ReplaySession.Control.NEXT,ReplaySession.Control.SPEED);
+    }
+    static List<ReplaySession.Control> otherControls(){
+        return List.of(ReplaySession.Control.FIRST,ReplaySession.Control.PREVIOUS_ROUND,ReplaySession.Control.NEXT_ROUND,
+                ReplaySession.Control.LAST,ReplaySession.Control.PERSPECTIVE,ReplaySession.Control.REVEAL,
+                ReplaySession.Control.ANALYSIS,ReplaySession.Control.EXIT);
+    }
+    static String revealLabel(boolean showAll){return showAll?"隐藏他家手牌":"显示他家手牌";}
     private void addPanel(boolean right,List<ReplaySession.Control> buttons,List<String> labels){
+        if(buttons.size()!=labels.size())throw new IllegalArgumentException("Mismatched replay controls and labels");
         controls.add(new TableEdgeButtons(holder,table,owner,session.perspective(),
                 TableButtonLayout.replayPanel(labels,right),this::valid,
                 index->table.controlReplay(owner,buttons.get(index)),true));
@@ -121,7 +128,7 @@ final class ReplayView {
             for(int i=0;i<hand.size();i++)if(ReplayOverlayLayout.sameKind(AiSnapshot.tile(hand.get(i)),candidate.tile())){index=i;break;}
             if(index<0)continue;
             var at=TableLayout.handAnchor(table.getBlockPos(),dir,TableLayout.handAlong(slots.get(index),gaps),true);
-            String text=Integer.toString(candidate.probability());
+            String text=ReplayOverlayLayout.scoreText(candidate.probability());
             marker(text,at.add(0,.19*TableLayout.TILE_ENLARGEMENT,0),ReplayOverlayLayout.scoreScale(text),ChatFormatting.WHITE);
         }
     }
@@ -132,7 +139,7 @@ final class ReplayView {
         var color=ReplayOverlayLayout.color(decision);
         marker("▼",at.get().add(0,.11*TableLayout.TILE_ENLARGEMENT,0),.18f*TableLayout.TILE_ENLARGEMENT,color);
         if(ReplayOverlayLayout.showPlayedProbability(decision)){
-            String score=Integer.toString(decision.chosenProbability());
+            String score=ReplayOverlayLayout.scoreText(decision.chosenProbability());
             marker(score,at.get().add(0,.21*TableLayout.TILE_ENLARGEMENT,0),ReplayOverlayLayout.scoreScale(score),color);
         }
     }

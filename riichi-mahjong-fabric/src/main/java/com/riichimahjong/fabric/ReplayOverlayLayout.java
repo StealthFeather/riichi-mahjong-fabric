@@ -16,6 +16,10 @@ final class ReplayOverlayLayout {
         if(chosen.isPresent()&&chosen.get().policyProbability()>=maximum-1e-12)return ChatFormatting.GREEN;
         return decision.chosenRank()>=2&&decision.chosenRank()<=3?ChatFormatting.YELLOW:ChatFormatting.RED;
     }
+    static String scoreText(int score){
+        int value=Math.max(0,Math.min(99,score));
+        return value<10?"0"+value:Integer.toString(value);
+    }
     static float scoreScale(String text){return (float)(TableLayout.TILE_WIDTH/(.025*(TableButtonLayout.textWidth(text)+1)));}
     static String tileKind(String tile){
         return tile==null?null:ReplayAnalysis.tileKind(tile);

@@ -20,5 +20,6 @@ result.ai={nodeWorkerTests:true,pinnedAi:'@kobalab/majiang-ai@1.3.0',pinnedCore:
 result.checks.push('complete-natural-match-replay-3p-4p','accepted-action-history-and-restart-continuity','durable-archive-ack-and-recovery','playback-step-round-perspective-and-speed','replay-independent-ai-analysis-and-cache','normalized-discard-kind-and-internal-action-policies','same-kind-red-and-physical-alias-deduplication','relative-best-choice-round-and-match-scores');
 result.checks.push('selected-perspective-previous-and-next-turn','single-actual-discard-arrow','river-side-controls-and-kita-clearance','read-only-historical-claim-options','final-round-result-and-ura-glint-persistence');
 result.replayAnalysis={cacheVersion:3,policy:'modeled-kind-softmax-v3',uniqueTileKinds:true,redFiveAliasesGrouped:true,integerProbabilityTotal:100,consistencyScore:'100*Pchosen/Pmax',matchWeighting:'per-discard'};
+result.checks.push('right-side-two-row-progress-controls','left-side-reveal-control-and-session-refresh','two-digit-probability-score-display');
 result.jarSha256=crypto.createHash('sha256').update(fs.readFileSync(jarPath)).digest('hex');
 fs.writeFileSync(p.join(project,'build/verification.json'),JSON.stringify(result,null,2)+'\n');

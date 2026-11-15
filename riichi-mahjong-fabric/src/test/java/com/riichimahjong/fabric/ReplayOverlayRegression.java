@@ -6,43 +6,98 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.AABB;
+import com.riichimahjong.replay.ReplaySession;
 import static com.riichimahjong.fabric.RulesRegression.*;
 
 /** Screen-independent checks for the screenshot's two river-side control areas. */
 public final class ReplayOverlayRegression {
+    private static AABB buttonBounds(TableButtonLayout.Button button,BlockPos pos,Direction direction){
+        var centre=button.centre(pos,direction);var along=direction.getCounterClockWise();
+        double halfWidth=button.width()*TableLayout.TILE_ENLARGEMENT/2;
+        double halfDepth=button.depth()*TableLayout.TILE_ENLARGEMENT/2;
+        double x=Math.abs(along.getStepX())*halfWidth+Math.abs(direction.getStepX())*halfDepth;
+        double z=Math.abs(along.getStepZ())*halfWidth+Math.abs(direction.getStepZ())*halfDepth;
+        return new AABB(centre.x-x,centre.y-.001,centre.z-z,centre.x+x,centre.y+.001,centre.z+z);
+    }
+    private static boolean separateOnFelt(AABB first,AABB second){
+        double gap=1e-6;
+        return first.maxX+gap<second.minX||second.maxX+gap<first.minX
+                ||first.maxZ+gap<second.minZ||second.maxZ+gap<first.minZ;
+    }
+    private static void clearOfTile(AABB button,BlockPos pos,Direction seat,double along,double height,double distance,boolean down,boolean sideways,String reason){
+        var tile=TableLayout.anchor(pos,seat,along,height,distance);
+        var bounds=TableHitTest.bounds(tile,TableLayout.TILE_SCALE,PortViews.rotation(seat,true,down).rotateLocalY(sideways?(float)Math.PI/2:0));
+        check(separateOnFelt(button,bounds),reason+"; seat="+seat+", along="+along+", distance="+distance+", sideways="+sideways+", button="+button+", tile="+bounds);
+    }
+    private static void controlBindings(){
+        var progress=ReplayView.progressControls();var other=ReplayView.otherControls();
+        check(progress.equals(List.of(ReplaySession.Control.PREVIOUS_TURN,ReplaySession.Control.PREVIOUS,
+                ReplaySession.Control.PLAY_PAUSE,ReplaySession.Control.NEXT_TURN,ReplaySession.Control.NEXT,ReplaySession.Control.SPEED)),"progress controls are not two requested rows of three");
+        check(other.equals(List.of(ReplaySession.Control.FIRST,ReplaySession.Control.PREVIOUS_ROUND,
+                ReplaySession.Control.NEXT_ROUND,ReplaySession.Control.LAST,ReplaySession.Control.PERSPECTIVE,
+                ReplaySession.Control.REVEAL,ReplaySession.Control.ANALYSIS,ReplaySession.Control.EXIT)),"other controls lost their requested left-column order");
+        var all=new ArrayList<>(progress);all.addAll(other);
+        check(all.size()==ReplaySession.Control.values().length&&EnumSet.copyOf(all).equals(EnumSet.allOf(ReplaySession.Control.class)),"a replay control was omitted or bound more than once");
+        check(!progress.contains(ReplaySession.Control.REVEAL)&&other.stream().filter(c->c==ReplaySession.Control.REVEAL).count()==1,"other players' hand toggle must occur once on the left");
+        check(ReplayView.revealLabel(false).equals("显示他家手牌")&&ReplayView.revealLabel(true).equals("隐藏他家手牌"),"other-hand visibility label does not reflect its toggle state");
+    }
     private static void panelGeometry(){
-        var labels=List.of("上一局","上一巡","上一步","播放","下一步","下一巡","下一局");
-        for(boolean right:List.of(false,true))for(var direction:Direction.Plane.HORIZONTAL){
-            var pos=new BlockPos(-10683,244,-6691);var buttons=TableButtonLayout.replayPanel(labels,right);
-            check(buttons.size()==7,"one column lost controls");
-            for(var button:buttons){
-                check(Math.abs(button.along())-button.width()/2>.25,"control overlaps own river");
-                check(Math.abs(button.along())+button.width()/2<.67,"control overlaps the side wall");
-                check(button.distance()-button.depth()/2>.23&&button.distance()+button.depth()/2<.67,"control leaves the free corner between river and wall");
-                var centre=button.centre(pos,direction);var start=centre.add(0,3,0);var end=centre.add(0,-1,0);
-                check(button.hit(pos,direction,start,end).isPresent(),"control's visible centre cannot be clicked");
-                for(var other:buttons)if(other.index()!=button.index())
-                    check(other.hit(pos,direction,start,end).isEmpty(),"one click can activate two controls");
-                check(centre.y>pos.getY()+TableLayout.TABLE_TOP&&centre.y<pos.getY()+.60,"control is on the rim rather than the felt");
-                for(var otherSeat:Direction.Plane.HORIZONTAL)for(int north=0;north<4;north++){
-                    var kita=TableLayout.anchor(pos,otherSeat,-.53+north*.073,.59,.57);
-                    double halfWidth=button.width()*TableLayout.TILE_ENLARGEMENT/2;
-                    double halfDepth=button.depth()*TableLayout.TILE_ENLARGEMENT/2;
-                    var along=direction.getCounterClockWise();
-                    for(double x:new double[]{-halfWidth,0,halfWidth})for(double z:new double[]{-halfDepth,0,halfDepth}){
-                        var point=centre.add(along.getStepX()*x+direction.getStepX()*z,0,along.getStepZ()*x+direction.getStepZ()*z);
-                        check(TableHitTest.tile(point.add(0,3,0),point,kita,TableLayout.TILE_SCALE,PortViews.rotation(otherSeat,true,false)).isEmpty(),"a seat's extracted north tile blocks a replay control");
+        controlBindings();
+        for(boolean alternate:List.of(false,true)){
+            var rightLabels=List.of("上一巡","上一步",alternate?"暂停":"播放","下一巡","下一步",alternate?"4.0倍速":"0.5倍速");
+            var leftLabels=List.of("开局","上一局","下一局","终局","视角：东",ReplayView.revealLabel(alternate),"分析：开","退出回放");
+            var right=TableButtonLayout.replayPanel(rightLabels,true);var left=TableButtonLayout.replayPanel(leftLabels,false);
+            check(right.size()==6&&left.size()==8,"requested progress/other control count changed");
+            check(right.stream().map(TableButtonLayout.Button::distance).distinct().count()==2,"progress controls are not exactly two rows");
+            check(right.stream().map(TableButtonLayout.Button::along).distinct().count()==3,"progress controls are not exactly three columns");
+            check(left.stream().map(TableButtonLayout.Button::along).distinct().count()==1&&left.stream().map(TableButtonLayout.Button::distance).distinct().count()==8,"other controls are not one column of eight");
+            for(int i=0;i<right.size();i++){
+                check(right.get(i).index()==i&&right.get(i).text().equals(rightLabels.get(i)),"right action index/label mapping changed");
+                check(right.get(i).distance()==right.get(i/3*3).distance(),"right row breaks the caller's three-button order");
+                check(right.get(i).along()==right.get(i%3).along(),"right columns do not line up");
+            }
+            for(int i=0;i<left.size();i++)check(left.get(i).index()==i&&left.get(i).text().equals(leftLabels.get(i)),"left action index/label mapping changed");
+            for(var direction:Direction.Plane.HORIZONTAL){
+                var pos=new BlockPos(-10683,244,-6691);var origin=TableLayout.anchor(pos,direction,0,TableLayout.TABLE_TOP,0);
+                var buttons=new ArrayList<>(left);buttons.addAll(right);
+                for(int n=0;n<buttons.size();n++){
+                    var button=buttons.get(n);var centre=button.centre(pos,direction);var along=direction.getCounterClockWise();
+                    double worldAlong=Math.abs((centre.x-origin.x)*along.getStepX()+(centre.z-origin.z)*along.getStepZ());
+                    double worldDistance=(centre.x-origin.x)*direction.getStepX()+(centre.z-origin.z)*direction.getStepZ();
+                    double halfWidth=button.width()*TableLayout.TILE_ENLARGEMENT/2,halfDepth=button.depth()*TableLayout.TILE_ENLARGEMENT/2;
+                    check(worldAlong-halfWidth>.25*TableLayout.TILE_ENLARGEMENT,"actual control rectangle overlaps own river corridor");
+                    check(worldAlong+halfWidth<.67*TableLayout.TILE_ENLARGEMENT,"actual control rectangle overlaps side wall corridor");
+                    check(worldDistance-halfDepth>.23*TableLayout.TILE_ENLARGEMENT&&worldDistance+halfDepth<.67*TableLayout.TILE_ENLARGEMENT,"actual control rectangle leaves the free felt corner");
+                    var bounds=buttonBounds(button,pos,direction);var start=centre.add(0,3,0);var end=centre.add(0,-1,0);
+                    check(button.hit(pos,direction,start,end).isPresent(),"visible control centre cannot be clicked");
+                    for(int m=0;m<buttons.size();m++)if(m!=n){
+                        var other=buttons.get(m);
+                        check(separateOnFelt(bounds,buttonBounds(other,pos,direction)),"actual scaled button rectangles overlap, despite distinct centres");
+                        check(other.hit(pos,direction,start,end).isEmpty(),"one click activates two controls");
+                    }
+                    check(centre.y>pos.getY()+TableLayout.TABLE_TOP&&centre.y<pos.getY()+.60,"control is on the rim rather than the felt");
+                    for(var seat:Direction.Plane.HORIZONTAL){
+                        for(int north=0;north<4;north++)clearOfTile(bounds,pos,seat,-.53+north*.073,.59,.57,false,false,"one of four seats' north tiles overlaps a control");
+                        for(int river=0;river<36;river++)for(boolean sideways:List.of(false,true))
+                            clearOfTile(bounds,pos,seat,(river%6-2.5)*.073,.59,.26+(river/6)*.09,false,sideways,"river tile overlaps a control");
+                        for(int wall=0;wall<34;wall++)clearOfTile(bounds,pos,seat,-.59+(wall/2)*.073,.60+(wall%2)*.055,.70,true,false,"wall tile overlaps a control");
+                        for(int stack=0;stack<7;stack++)for(double distance:List.of(.70,.6875,.6045))
+                            clearOfTile(bounds,pos,seat,.59-stack*.073,.60,distance,false,false,"dead-wall/dora/ura tile overlaps a control");
                     }
                 }
             }
         }
-        for(String text:List.of("0","1","33","99","100")){
+        for(String text:List.of("00","01","09","10","33","99")){
             double width=.025*ReplayOverlayLayout.scoreScale(text)*(TableButtonLayout.textWidth(text)+1);
-            check(Math.abs(width-TableLayout.TILE_WIDTH)<1e-7,"probability width differs from tile width");
+            check(Math.abs(width-TableLayout.TILE_WIDTH)<1e-7,"two-digit score width differs from tile width");
         }
+        check(ReplayOverlayLayout.scoreText(0).equals("00")&&ReplayOverlayLayout.scoreText(1).equals("01")&&ReplayOverlayLayout.scoreText(9).equals("09"),"single-digit score lacks its leading zero");
+        check(ReplayOverlayLayout.scoreText(99).equals("99")&&ReplayOverlayLayout.scoreText(100).equals("99"),"display score must remain exactly two digits");
+        check(TableButtonLayout.textWidth("01")==7&&TableButtonLayout.textWidth("09")==8,"two-digit font advances are wrong");
         check(TableButtonLayout.textWidth("100%") == 15,"percent glyph advance is wrong");
         check(TableButtonLayout.textWidth("0.5") == 10,"decimal glyph advance is wrong");
-        check(ReplayOverlayLayout.showProbability(new ReplayAnalysis.Candidate("m1",1,2,.009,0,0)),"allocated integer 1% was hidden using its unrounded probability");
+        check(ReplayOverlayLayout.showProbability(new ReplayAnalysis.Candidate("m1",1,2,.009,0,0)),"allocated integer 1 was hidden using its unrounded probability");
         check(!ReplayOverlayLayout.showProbability(new ReplayAnalysis.Candidate("m2",0,3,.004,0,0)),"integer 0 was shown as a candidate");
         check(!ReplayOverlayLayout.showProbability(new ReplayAnalysis.Candidate("m3",4,4,.04,0,0)),"fourth candidate displayed a score");
         check(ReplayOverlayLayout.sameKind("m0","m5")&&ReplayOverlayLayout.sameKind("p5","p0"),"red and normal fives should share a single displayed score");

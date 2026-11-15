@@ -93,7 +93,11 @@ public final class ReplayRegression {
         session.control(ReplaySession.Control.PREVIOUS);
         check(session.index()==0,"reverse seek underflowed");
         session.control(ReplaySession.Control.ANALYSIS);check(session.analysisEnabled(),"analysis toggle did not apply");
+        int visibleFrame=session.index();long visibleRevision=session.revision();
+        check(!session.showAll(),"replay initially exposed other players' hands");
         session.control(ReplaySession.Control.REVEAL);check(session.showAll(),"hand visibility toggle did not apply");
+        check(session.index()==visibleFrame&&session.revision()==visibleRevision+1,"revealing other hands must refresh the view without changing replay progress");
+        session.control(ReplaySession.Control.REVEAL);check(!session.showAll(),"hide other players' hands did not restore selected-seat visibility");
         session.control(ReplaySession.Control.PERSPECTIVE);check(session.perspective()==1,"perspective did not rotate");
         session.control(ReplaySession.Control.PLAY_PAUSE);
         for(int tick=0;tick<21;tick++)session.tick();

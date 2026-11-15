@@ -102,7 +102,7 @@ matching the actual recorded operation.
 Two distributions are normalized independently:
 
 - **Discard kinds**, conditional on choosing to discard, sum to one even when a
-  kan or win is also legal. Their displayed integer percentages sum to 100.
+  kan or win is also legal. Their stored integer values sum to 100.
 - **All legal actions**, including each specific discard/riichi combination,
   chi, pon, kan, kita, win, pass and draw, sum to one separately. Action indices
   refer to the authoritative Java engine's legal list. Calls and kans use the
@@ -114,8 +114,11 @@ Two distributions are normalized independently:
 
 Integer percentages use the largest-remainder method: floor all percentages,
 then assign the remaining percentage points to the largest fractional parts.
-This conserves exactly 100, permits a forced choice to display 100, and avoids
-independent rounding errors. Ranks use the full precision probabilities; a
+This conserves exactly 100, assigns a forced choice 100 internally, and avoids
+independent rounding errors. From Mod 26.3.27, displayed probability scores use
+exactly two digits (01, 09, ..., 99), capped at 99 for presentation; stored
+probabilities and 100-point consistency scores keep their original values.
+Ranks use the full precision probabilities; a
 rounded tie does not erase the ranking.
 
 Three-player analysis uses the existing Java fallback shanten and visible

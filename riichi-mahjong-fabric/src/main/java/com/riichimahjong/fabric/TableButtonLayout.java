@@ -48,13 +48,17 @@ final class TableButtonLayout {
         }
         return List.copyOf(out);
     }
-    /** Two columns on the felt, between this perspective's river and the wall. */
+    /** Progress controls form two rows of three on the right; other controls form one left column. */
     static List<Button> replayPanel(List<String> labels,boolean right){
+        if(labels.isEmpty())return List.of();
+        int widest=labels.stream().mapToInt(TableButtonLayout::textWidth).max().orElse(0);
+        float scale=(float)Math.min(.12,(right?.08:.21)/((widest+1)*.025));
         var out=new ArrayList<Button>();
         for(int i=0;i<labels.size();i++){
             String text=labels.get(i);int pixels=textWidth(text);
-            float scale=(float)Math.min(.14,.22/((pixels+1)*.025));
-            out.add(new Button(i,text,pixels,scale,right?.38:-.38,TableLayout.TABLE_TOP+.012,.255+i*.040));
+            double along=right?.292+(i%3)*.090:-.38;
+            double distance=right?.320+(i/3)*.085:.252+i*.035;
+            out.add(new Button(i,text,pixels,scale,along,TableLayout.TABLE_TOP+.012,distance));
         }
         return List.copyOf(out);
     }

@@ -40,7 +40,7 @@ final class ReplayActionLabels {
         ranked.sort(Comparator.<Integer>comparingDouble(i->scores.get(i).policyProbability()).reversed().thenComparingInt(i->i));
         var result=new ArrayList<String>(labels);
         for(int n=0;n<Math.min(3,ranked.size());n++){
-            int i=ranked.get(n);result.set(i,labels.get(i)+" "+scores.get(i).probability());
+            int i=ranked.get(n);result.set(i,labels.get(i)+" "+ReplayOverlayLayout.scoreText(scores.get(i).probability()));
         }
         return List.copyOf(result);
     }
