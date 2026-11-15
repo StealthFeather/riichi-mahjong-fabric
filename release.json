@@ -28,7 +28,8 @@
   "limitations": [
     "Actual client graphics and interaction were not tested",
     "Complete multiplayer match acceptance was not performed",
-    "Policy probabilities are modeled, not native AI probabilities"
+    "Policy probabilities are modeled, not native AI probabilities",
+    "Production replay database write was not exercised"
   ],
   "releaseCreatedAt": "2026-11-15T04:44:19.678551+00:00"
 }
