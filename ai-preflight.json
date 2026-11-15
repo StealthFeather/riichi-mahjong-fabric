@@ -1,0 +1,23 @@
+{
+  "version": "0.4.2+fabric.26.3.29",
+  "jarSha256": "9df0802e7e4bca7238b1533dea14ccf80bf2746c13164e5859c1126e6af1a68b",
+  "verifiedAt": "2026-11-15T22:24:12.828523+08:00",
+  "nodeVersion": "v22.23.4",
+  "nodeTestsPassed": 19,
+  "checks": {
+    "nodeWorkerTestsPassed": true,
+    "javaControllerRegressionPassed": true,
+    "javaBridgeRegressionPassed": true,
+    "packagedRuntimeMatchesSource": true,
+    "allManifestFilesPresent": true
+  },
+  "runtimeFileCount": 69,
+  "runtimeManifestSha256": "8654e1719ae28f61b7d9400b879029498b297263d3b4ee672746c9d0d1e637c0",
+  "dependenciesSha256": "55a58fc4fc687a4c4764ced22ab880cace847ee8c52f7aa4b568605729537f01",
+  "workerSourceSha256": "749d2d48e32195c7ac2a15f67fc0dc19c0e8701734031e75baacbaa0c5653680",
+  "jdbcJarSha256": "64df38bbc9e1c6d32be1130a0f478f2cb15f1de872708d83af8000bf1db57f87",
+  "databaseIntegrationTest": false,
+  "realServerMenuInteractionTest": false,
+  "clientVisualTest": false,
+  "serverAiStartupProbe": false
+}

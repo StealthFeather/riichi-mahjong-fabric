@@ -1,0 +1,99 @@
+{
+  "version": "0.4.2+fabric.26.3.29",
+  "sourceParent": "ae50cacc243c81137b71198c1707fbdabb8a0ad4",
+  "baseRelease": "0.4.2+fabric.26.3.28",
+  "deployment": "completed",
+  "githubUpload": "immutable-git-assets",
+  "assetBranch": "codex/release-assets-26.3.29",
+  "resourcePackChanged": false,
+  "resourcePackSha256": "887bb8ae32ff8157cebe423af6452c22ad5010fe16f6b1fc299d21c80a5e7a27",
+  "resourcePackReusedFrom": "0.4.2+fabric.26.3.28 (identical Git blob b750db8be520eb6ceefbbc8d435ddb39fc2606e6)",
+  "clientVisualTest": false,
+  "fullMultiplayerGameTest": false,
+  "dependencyLicenseFiles": [
+    "LICENSE.txt",
+    "LICENSE_mahjong4j.txt",
+    "LICENSE_majiang-ai.txt",
+    "LICENSE_majiang-core.txt",
+    "LICENSE_mysql-connector-j.txt"
+  ],
+  "jarSha256": "9df0802e7e4bca7238b1533dea14ccf80bf2746c13164e5859c1126e6af1a68b",
+  "checks": {
+    "compiled": true,
+    "javaRegressionClasses": 31,
+    "nodeTestsPassed": 19,
+    "eastSouthMatchLengthRegression": true,
+    "matchLengthSettingsPersistenceRegression": true,
+    "allPriorRegressionsRetained": true
+  },
+  "sourceCommit": "1de447aa78c93cd7a64500671fd33bc363641c21",
+  "deployedAt": "2026-11-15T22:26:11.290305+08:00",
+  "serverStartupTest": true,
+  "realServerMenuInteractionTest": false,
+  "databaseIntegrationTest": false,
+  "worldSnapshot": {
+    "created": false,
+    "reason": "user-requested-skip"
+  },
+  "nativeAssetUpload": "Unavailable through current proxy; immutable Git assets are used instead",
+  "servers": [
+    {
+      "name": "Timroy_SC",
+      "checks": {
+        "newVersionLoaded": true,
+        "startupReady": true,
+        "statusPing": true,
+        "testedJarMatchesSha256": true,
+        "onlyOneMahjongJar": true,
+        "otherModsUnchanged": true,
+        "propertiesUnchanged": true,
+        "startupErrorCount": 0,
+        "consoleListResponded": true,
+        "mahjongCommandResponded": true
+      },
+      "minecraftVersion": "26.3",
+      "backupDirectoryName": "riichi-mahjong-20261115-222222-26.3.29"
+    },
+    {
+      "name": "Timory_sc_tr",
+      "checks": {
+        "newVersionLoaded": true,
+        "startupReady": true,
+        "statusPing": true,
+        "testedJarMatchesSha256": true,
+        "onlyOneMahjongJar": true,
+        "otherModsUnchanged": true,
+        "propertiesUnchanged": true,
+        "startupErrorCount": 0,
+        "consoleListResponded": true,
+        "mahjongCommandResponded": true
+      },
+      "minecraftVersion": "26.3",
+      "backupDirectoryName": "riichi-mahjong-20261115-222222-26.3.29"
+    }
+  ],
+  "existingCompatibilityIssues": [
+    {
+      "component": "Spark",
+      "server": "Timroy_SC",
+      "phase": "startup",
+      "logLevel": "INFO/STDERR",
+      "exception": "NullPointerException while querying PlayerList before initialization; server subsequently reached ready"
+    },
+    {
+      "component": "NotEnoughBandwidth / Polymer",
+      "phase": "client chunk packets after startup",
+      "message": "missing packet context",
+      "observedErrorCount": {
+        "Timroy_SC": 2,
+        "Timory_sc_tr": 2
+      },
+      "preExisting": true,
+      "previous28ErrorCount": {
+        "Timroy_SC": 41,
+        "Timory_sc_tr": 28
+      },
+      "embeddedPolymerAndJdbcIdenticalTo28": true
+    }
+  ]
+}
