@@ -27,11 +27,17 @@ for(const name of ['majiang-ai','majiang-core'])fs.copyFileSync(p.join(project,'
 fs.copyFileSync(p.join(project,'PORTING.md'),p.join(release,'README.md'));
 fs.copyFileSync(changelog,p.join(release,'CHANGES.md'));
 fs.copyFileSync(p.join(build,'verification.json'),p.join(release,'verification.json'));
+const databaseVerification=p.join(build,'replay-database-verification.json');
+if(fs.existsSync(databaseVerification)){
+ const databaseResult=JSON.parse(fs.readFileSync(databaseVerification,'utf8'));
+ if(!databaseResult.passed||databaseResult.jarSha256!==hash(jarPath))throw Error('Database verification does not match this JAR.');
+ fs.copyFileSync(databaseVerification,p.join(release,'replay-database-verification.json'));
+}
 fs.copyFileSync(jarPath,p.join(release,jar));
 exec(javaTool('jar'),['--create','--no-manifest','--file',p.join(release,'TimoryResource-26.3.zip'),'-C',pack,'.'],{windowsHide:true});
 if(p.relative(project,sources)!==p.join('build','release-sources'))throw Error('Unexpected source staging directory');
 fs.rmSync(sources,{recursive:true,force:true});fs.mkdirSync(sources,{recursive:true});
-for(const name of ['src','upstream','resource-overrides','ai','build-config.cjs','prepare-local-deps.cjs','build.cjs','rules-patches.cjs','test.cjs','resources.cjs','package.cjs','install-local.cjs','BUILDING.md','README.md','PORTING.md','prepare.cjs','adapt.cjs','docs','integration'])copyTree(p.join(project,name),p.join(sources,'riichi-mahjong-fabric',name));
+for(const name of ['src','upstream','resource-overrides','ai','build-config.cjs','prepare-local-deps.cjs','build.cjs','rules-patches.cjs','test.cjs','test-replay-database.cjs','resources.cjs','package.cjs','install-local.cjs','BUILDING.md','README.md','PORTING.md','prepare.cjs','adapt.cjs','docs','integration'])copyTree(p.join(project,name),p.join(sources,'riichi-mahjong-fabric',name));
 fs.copyFileSync(p.join(project,'BUILDING.md'),p.join(sources,'BUILDING.md'));
 fs.writeFileSync(p.join(sources,'README.md'),'# 立直麻将源码归档\n\n源码位于 riichi-mahjong-fabric/。请阅读 BUILDING.md 与 PORTING.md；JDK、Minecraft/Polymer 依赖和合并资源包基准需另行准备。\n');
 exec(javaTool('jar'),['--create','--no-manifest','--file',p.join(release,'riichi-mahjong-fabric-sources.zip'),'-C',sources,'.'],{windowsHide:true});
