@@ -1,0 +1,36 @@
+{
+  "version": "0.4.2+fabric.26.3.27",
+  "sourceCommit": "06a079344846778c9f5b33b49daa709d08d40a61",
+  "jarSha256": "3c694cc3138b32e0c1073ec3235dd6b51c8b3c15e603cb246386e172810e0850",
+  "resourcePackSha256": "887bb8ae32ff8157cebe423af6452c22ad5010fe16f6b1fc299d21c80a5e7a27",
+  "automatedVerification": {
+    "javaRegressionGroups": 28,
+    "nodeTests": 19,
+    "aiRuntimeFiles": 69,
+    "aiSyntheticAnalysisCases": 7,
+    "aiPreflightPassed": true,
+    "databaseTestsRerun": false
+  },
+  "deployment": {
+    "checkedAtUtc": "2026-11-15T05:31:22.319854+00:00",
+    "instances": [
+      "SC",
+      "TR"
+    ],
+    "checks": [
+      "Minecraft status ping",
+      "server ready",
+      "formal mod loaded",
+      "Quest database ready",
+      "three AI levels startup probe and 69 runtime files",
+      "mahjong console response"
+    ],
+    "newBackupsCreated": false
+  },
+  "limitations": [
+    "Actual client graphics and GUI interaction were not tested",
+    "Complete multiplayer match acceptance was not performed",
+    "Production replay database write was not exercised",
+    "Policy probabilities are modeled, not native AI probabilities"
+  ]
+}
