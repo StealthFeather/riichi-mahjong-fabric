@@ -56,13 +56,24 @@ public final class ReplayAnalysisRegression {
         check(result.candidates().getFirst().tile().equals("z6")&&result.candidates().getFirst().rank()==1,"AI recommendation lost its highest modeled probability");
         int chosen=result.candidates().getFirst().probability();
         check(result.chosenProbability()==chosen&&result.chosenRank()==1&&result.chosenTile().equals("z6"),"actual recorded discard probability/rank was not read from its original decision");
-        check(result.roundScores().get(0).get(0)==chosen,"per-round average selected probability is missing");
+        check(result.roundScores().get(0).get(0)==100&&ReplayAnalysis.matchScores(record.id()).get(0)==100,"optimal choices must score 100 for both round and match");
         check(ReplayAnalysis.cached(record.id(),0).orElseThrow().chosenProbability()==chosen,"frame result not cached");
         check(ReplayAnalysis.request(record,0,driver,null).get(2,TimeUnit.SECONDS).equals(result),"same frame analysis is not stable");
         var json=ReplayAnalysis.exportResults(record.id());ReplayAnalysis.importResults(record.id(),json);
-        check(ReplayAnalysis.roundScores(record.id()).get(0).get(0)==chosen,"cache import changed the aggregate");
+        check(ReplayAnalysis.roundScores(record.id()).get(0).get(0)==100,"cache import changed consistency scores");
         var old=json.deepCopy();old.addProperty("version",1);
         try{ReplayAnalysis.importResults(record.id(),old);throw new AssertionError("legacy 99-point cache was reused as probabilities");}catch(IllegalArgumentException expected){}
+        var v2=json.deepCopy();v2.addProperty("version",2);
+        try{ReplayAnalysis.importResults(record.id(),v2);throw new AssertionError("physical-face cache v2 was accepted");}catch(IllegalArgumentException expected){}
+        check(ReplayAnalysis.tileKind("m0").equals("m5")&&ReplayAnalysis.tileKind("p0").equals("p5")&&ReplayAnalysis.tileKind("s0").equals("s5"),"red fives must share their ordinary tile kind");
+        check(ReplayAnalysis.consistencyScore(.2,.2)==100&&ReplayAnalysis.consistencyScore(.1,.2)==50,"consistency must be relative to the best choice");
+        var summary=json.deepCopy();UUID summaryId=UUID.randomUUID();summary.addProperty("record",summaryId.toString());summary.add("frames",new com.google.gson.JsonArray());
+        var choices=new com.google.gson.JsonObject();choices.addProperty("0:0:0",100.0);choices.addProperty("0:0:1",50.0);choices.addProperty("1:0:0",0.0);summary.add("actualChoices",choices);
+        ReplayAnalysis.importResults(summaryId,summary);
+        check(ReplayAnalysis.roundScores(summaryId).get(0).get(0)==75&&ReplayAnalysis.roundScores(summaryId).get(1).get(0)==0,"round scores must average their own exact choices");
+        check(ReplayAnalysis.matchScores(summaryId).get(0)==50,"match score must weight each discard, not each hand equally");
+        var fractional=summary.deepCopy();UUID fractionalId=UUID.randomUUID();fractional.addProperty("record",fractionalId.toString());var fractions=new com.google.gson.JsonObject();fractions.addProperty("0:0:0",66.6);fractions.addProperty("0:0:1",66.6);fractional.add("actualChoices",fractions);ReplayAnalysis.importResults(fractionalId,fractional);
+        check(ReplayAnalysis.roundScores(fractionalId).get(0).get(0)==67&&ReplayAnalysis.matchScores(fractionalId).get(0)==67,"full precision consistency must be averaged before rounding");
         check(Arrays.equals(ReplayAnalysis.largestRemainders(new double[]{1,1,1}),new int[]{34,33,33}),"largest remainders lost exact 100 with ties");
         check(Arrays.equals(ReplayAnalysis.largestRemainders(new double[]{1}),new int[]{100}),"single choice cannot display 100 percent");
         var unchanged=driver.match();var phase=driver.currentPhase();
@@ -70,6 +81,19 @@ public final class ReplayAnalysisRegression {
         for(var decision:claims.decisions().values()){check(decision.actions().stream().mapToInt(ReplayAnalysis.ActionProbability::probability).sum()==100,"claim policy not normalized");if(decision.actions().size()==1)check(decision.actions().getFirst().probability()==100,"forced claim response not 100");}
         check(driver.match()==unchanged&&driver.currentPhase().equals(phase),"analysis submitted an action or changed history");
         try{ReplayAnalysis.importResults(UUID.randomUUID(),json);throw new AssertionError("foreign analysis cache accepted");}catch(IllegalArgumentException expected){}
+        check(ReplayAnalysis.analysisComplete(record),"both required decision frames should be analyzed");
+        var missingFrameRecord=new ReplayRecord(UUID.randomUUID(),record.startedAt(),record.endedAt(),record.preset(),record.participants(),record.frames());
+        check(!ReplayAnalysis.analysisComplete(missingFrameRecord),"no cached decisions cannot count as complete");
+        ReplayAnalysis.request(missingFrameRecord,0,null,null).get(15,TimeUnit.SECONDS);
+        check(!ReplayAnalysis.analysisComplete(missingFrameRecord),"missing/rejected second frame must not count as a completed match");
+        var repeatedRecord=new ReplayRecord(UUID.randomUUID(),record.startedAt(),record.endedAt(),record.preset(),record.participants(),List.of(record.frames().getFirst(),record.frames().getFirst(),record.frames().getLast()));
+        ReplayAnalysis.request(repeatedRecord,0,null,null).get(15,TimeUnit.SECONDS);
+        check(ReplayAnalysis.roundScores(repeatedRecord.id()).isEmpty(),"earlier duplicate decision frame must not write or overwrite the actual discard score");
+        ReplayAnalysis.request(repeatedRecord,1,null,null).get(15,TimeUnit.SECONDS);
+        check(ReplayAnalysis.roundScores(repeatedRecord.id()).get(0).get(0)==100,"only the final actual decision frame must contribute one consistency score");
+        var persisted=ReplayAnalysis.exportResults(repeatedRecord.id());persisted.addProperty("complete",true);
+        UUID untouched=UUID.randomUUID();var pageScore=persisted.deepCopy();pageScore.addProperty("record",untouched.toString());
+        check(ReplayAnalysis.completedMatchScores(untouched,pageScore).get(0)==100&&ReplayAnalysis.cached(untouched,0).isEmpty(),"persisted GUI scores must not fill the global frame cache");
         var alternateDriver=rig(4);var alternateRecord=record(alternateDriver,tile(0,1));
         var alternate=ReplayAnalysis.request(alternateRecord,0,alternateDriver,null).get(15,TimeUnit.SECONDS);
         check(alternate.available()&&alternate.candidates().equals(result.candidates()),"recorded future action leaked into the policy input");
@@ -92,6 +116,6 @@ public final class ReplayAnalysisRegression {
             var process=new ProcessBuilder(java,"-cp",System.getProperty("java.class.path"),ReplayAnalysisRegression.class.getName(),mode).inheritIO().start();
             if(!process.waitFor(35,TimeUnit.SECONDS)){process.destroyForcibly();throw new AssertionError("Replay analysis scenario timed out: "+mode);}check(process.exitValue()==0,"Replay analysis scenario failed: "+mode);
         }
-        System.out.println("PASS: modeled probabilities, complete action/discard policies, actual choice rank, cache v2, sanma, timeout and identity validation");
+        System.out.println("PASS: modeled probabilities, complete action/discard policies, actual choice rank, cache v3, sanma, timeout and identity validation");
     }
 }

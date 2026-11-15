@@ -95,7 +95,6 @@ final class ReplayView {
         String status="";
         if(session.analysisEnabled()){
             if(current!=null&&!current.available())status="分析暂不可用";
-            else if(actual!=null&&actual.chosenProbability()>=0)status="实战出牌概率 "+actual.chosenProbability()+"%";
         }
         if(!status.equals(lastStatus)){owner.sendSystemMessage(Component.literal(status).withStyle(ChatFormatting.YELLOW),true);lastStatus=status;}
     }
@@ -117,12 +116,12 @@ final class ReplayView {
             if(!ReplayOverlayLayout.showProbability(candidate))continue;
             var location=session.timeline().locationAt(session.index(),session.perspective());
             if(actual!=null&&(location.zone()==ReplayTimeline.Zone.HAND||location.zone()==ReplayTimeline.Zone.DRAWN)
-                    &&candidate.tile().equals(actual.chosenTile()))continue;
+                    &&ReplayOverlayLayout.showPlayedProbability(actual)&&ReplayOverlayLayout.sameKind(candidate.tile(),actual.chosenTile()))continue;
             int index=-1;
-            for(int i=0;i<hand.size();i++)if(AiSnapshot.tile(hand.get(i)).equals(candidate.tile())){index=i;break;}
+            for(int i=0;i<hand.size();i++)if(ReplayOverlayLayout.sameKind(AiSnapshot.tile(hand.get(i)),candidate.tile())){index=i;break;}
             if(index<0)continue;
             var at=TableLayout.handAnchor(table.getBlockPos(),dir,TableLayout.handAlong(slots.get(index),gaps),true);
-            String text=candidate.probability()+"%";
+            String text=Integer.toString(candidate.probability());
             marker(text,at.add(0,.19*TableLayout.TILE_ENLARGEMENT,0),ReplayOverlayLayout.scoreScale(text),ChatFormatting.WHITE);
         }
     }
@@ -132,8 +131,10 @@ final class ReplayView {
         var at=ReplayOverlayLayout.playedTile(table,location);if(at.isEmpty())return;
         var color=ReplayOverlayLayout.color(decision);
         marker("▼",at.get().add(0,.11*TableLayout.TILE_ENLARGEMENT,0),.18f*TableLayout.TILE_ENLARGEMENT,color);
-        String score=decision.chosenProbability()+"%";
-        marker(score,at.get().add(0,.21*TableLayout.TILE_ENLARGEMENT,0),ReplayOverlayLayout.scoreScale(score),color);
+        if(ReplayOverlayLayout.showPlayedProbability(decision)){
+            String score=Integer.toString(decision.chosenProbability());
+            marker(score,at.get().add(0,.21*TableLayout.TILE_ENLARGEMENT,0),ReplayOverlayLayout.scoreScale(score),color);
+        }
     }
     private void marker(String text,Vec3 pos,float scale,ChatFormatting color){
         var display=new TextDisplayElement(Component.literal(text).withStyle(style->style.withColor(color)

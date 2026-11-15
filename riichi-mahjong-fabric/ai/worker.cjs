@@ -21,6 +21,7 @@ function tile(value) {
   return value;
 }
 const normal = p => p[0] + (Number(p[1]) || 5);
+const tileKind = value => normal(tile(value));
 const relative = (seat, dealer) => (seat + 4 - dealer) % 4;
 const direction = (source, owner) => ['', '+', '=', '-'][(source + 4 - owner) % 4];
 const tileOrder = (a, b) => (Number(a[1]) || 5) - (Number(b[1]) || 5) || b.localeCompare(a);
@@ -275,7 +276,7 @@ function decide(snapshot, suppliedPlayer) {
  * Discard tile probabilities are conditional on discarding and normalized separately
  * from the full legal-action distribution. Integer percentages use largest remainders.
  */
-const Policy = { version: 2, name: 'modeled-softmax-v2', temperature: .75, recommendationMargin: .5 };
+const Policy = { version: 3, name: 'modeled-kind-softmax-v3', temperature: .75, recommendationMargin: .5 };
 
 function distribution(items, selected, identity) {
   if (!items.length) return [];
@@ -300,6 +301,19 @@ function distribution(items, selected, identity) {
   return values.map(({ logit, utility, ...item }, index) => ({ ...item, rank: index + 1 }));
 }
 
+/** One entry per 34-way tile kind, independent of physical copies and discard/riichi aliases.
+ * Red and ordinary five variants retain their own EV during evaluation; use the best legal
+ * variant's utility once for the kind rather than adding mass for each way to submit it.
+ */
+function discardKindDistribution(discards, recommended) {
+  const kinds = new Map();
+  for (const discard of discards) {
+    const kind = tileKind(discard.tile), previous = kinds.get(kind);
+    if (!previous || discard.logit > previous.logit) kinds.set(kind, { ...discard, tile: kind });
+  }
+  return distribution([...kinds.values()], recommended == null ? null : tileKind(recommended), item => item.tile);
+}
+
 function analyze(snapshot) {
   const input = { ...snapshot, difficulty: 'HARD' };
   validate(input);
@@ -320,7 +334,7 @@ function analyze(snapshot) {
     const utility = value * Math.exp(-3 * Math.max(0, shanten - baseline)) / (1 + risk / 3.2);
     return { tile: p, value, risk, shanten, logit: Math.log1p(utility) };
   });
-  const discardDistribution = distribution(discards, recommendedDiscard, item => item.tile);
+  const discardDistribution = discardKindDistribution(discards, recommendedDiscard);
   const defaultValue = Math.max(0, Number(player.eval_shoupai(player.shoupai, paishu)) || 0);
   const maxDiscardLogit = discards.length ? Math.max(...discards.map(c => c.logit)) : Math.log1p(defaultValue);
   const actions = input.legal.map(action => {
@@ -347,7 +361,7 @@ function analyze(snapshot) {
       value, risk, shanten, logit };
   });
   return { id: snapshot.id, engine: Names.HARD, policy: Policy,
-    selected, selectedDiscard: recommendedDiscard,
+    selected, selectedDiscard: recommendedDiscard == null ? null : tileKind(recommendedDiscard),
     candidates: discardDistribution,
     actions: distribution(actions, selected, item => item.index),
   };
@@ -367,4 +381,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { decide, analyze, distribution, Policy, makePlayer, meldNotation, legalMeld, Names };
+module.exports = { decide, analyze, distribution, discardKindDistribution, tileKind, Policy, makePlayer, meldNotation, legalMeld, Names };

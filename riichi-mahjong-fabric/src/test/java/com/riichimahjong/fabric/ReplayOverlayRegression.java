@@ -36,14 +36,17 @@ public final class ReplayOverlayRegression {
                 }
             }
         }
-        for(String text:List.of("0%","1%","33%","99%","100%")){
+        for(String text:List.of("0","1","33","99","100")){
             double width=.025*ReplayOverlayLayout.scoreScale(text)*(TableButtonLayout.textWidth(text)+1);
             check(Math.abs(width-TableLayout.TILE_WIDTH)<1e-7,"probability width differs from tile width");
         }
         check(TableButtonLayout.textWidth("100%") == 15,"percent glyph advance is wrong");
         check(TableButtonLayout.textWidth("0.5") == 10,"decimal glyph advance is wrong");
         check(ReplayOverlayLayout.showProbability(new ReplayAnalysis.Candidate("m1",1,2,.009,0,0)),"allocated integer 1% was hidden using its unrounded probability");
-        check(!ReplayOverlayLayout.showProbability(new ReplayAnalysis.Candidate("m2",0,3,.004,0,0)),"integer 0% was shown as a candidate");
+        check(!ReplayOverlayLayout.showProbability(new ReplayAnalysis.Candidate("m2",0,3,.004,0,0)),"integer 0 was shown as a candidate");
+        check(!ReplayOverlayLayout.showProbability(new ReplayAnalysis.Candidate("m3",4,4,.04,0,0)),"fourth candidate displayed a score");
+        check(ReplayOverlayLayout.sameKind("m0","m5")&&ReplayOverlayLayout.sameKind("p5","p0"),"red and normal fives should share a single displayed score");
+        check(!ReplayOverlayLayout.sameKind("m5","p5"),"different tile suits were grouped");
     }
     private static ReplayAnalysis.Decision decision(List<ReplayAnalysis.Candidate> candidates,int at){
         var actual=candidates.get(at);
@@ -55,6 +58,8 @@ public final class ReplayOverlayRegression {
         check(ReplayOverlayLayout.color(decision(candidates,0))==ChatFormatting.GREEN,"highest-probability actual discard is not green");
         check(ReplayOverlayLayout.color(decision(candidates,1))==ChatFormatting.YELLOW&&ReplayOverlayLayout.color(decision(candidates,2))==ChatFormatting.YELLOW,"second/third actual discard is not yellow");
         check(ReplayOverlayLayout.color(decision(candidates,3))==ChatFormatting.RED,"other actual discard is not red");
+        check(ReplayOverlayLayout.showPlayedProbability(decision(candidates,2)),"third chosen tile lost its score");
+        check(!ReplayOverlayLayout.showPlayedProbability(decision(candidates,3)),"fourth chosen tile showed an extra score");
         var tied=List.of(new ReplayAnalysis.Candidate("m1",50,1,.5,0,0),new ReplayAnalysis.Candidate("m2",50,2,.5,0,0));
         check(ReplayOverlayLayout.color(decision(tied,1))==ChatFormatting.GREEN,"a tied maximum is not green");
     }
@@ -70,9 +75,18 @@ public final class ReplayOverlayRegression {
         }
         var decision=new ReplayAnalysis.Decision(1,List.of(),choices,null,-1,-1,-1);
         var before=driver.match();var labels=ReplayActionLabels.labels(driver,1,decision);
-        check(labels.stream().anyMatch(s->s.startsWith("碰 ")&&s.endsWith("70%")),"historical pon button lost its probability");
-        check(labels.contains("跳过 30%"),"historical pass button lost its probability");
+        check(labels.stream().anyMatch(s->s.startsWith("碰 ")&&s.endsWith("70")),"historical pon button lost its probability");
+        check(labels.contains("跳过 30"),"historical pass button lost its probability");
         check(driver.match()==before,"displaying historical actions modified the match");
+        var raw=List.of("吃","碰","杠","跳过","立直","无评分");
+        var ranked=ReplayActionLabels.rankedLabels(raw,Arrays.asList(
+                new ReplayActionLabels.Score(20,.200),new ReplayActionLabels.Score(30,.300),
+                new ReplayActionLabels.Score(10,.100),new ReplayActionLabels.Score(40,.400),
+                new ReplayActionLabels.Score(0,.004),null));
+        check(ranked.equals(List.of("吃 20","碰 30","杠","跳过 40","立直","无评分")),"top three scores or unscored button order incorrect");
+        var layout=TableButtonLayout.arrange(ranked);
+        for(int i=0;i<raw.size();i++)check(layout.get(i).index()==i,"action button index changed after ranking");
+        check(labels.stream().noneMatch(s->s.contains("%"))&&ranked.stream().noneMatch(s->s.contains("%")),"action scores include a percent sign");
     }
     public static void main(String[] args){panelGeometry();colors();actionLabels();System.out.println("PASS: river-side controls in every orientation, probability widths, actual-discard colors and read-only claim labels");}
 }

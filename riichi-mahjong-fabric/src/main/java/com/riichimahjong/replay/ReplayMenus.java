@@ -84,11 +84,22 @@ public final class ReplayMenus {
             }));
     }
 
+    private record DayOverview(ReplayStore.DayPage page, Map<UUID, Map<Integer, Integer>> scores) {}
     public static void day(ServerPlayer player, LocalDate date, int page) {
-        request(player, "我的牌谱 · " + date, ReplayStore.day(player.getUUID(), date, page), result ->
-                dayPage(player, date, page, result, new HashMap<>()));
+        request(player, "我的牌谱 · " + date, ReplayStore.day(player.getUUID(), date, page).thenCompose(result -> {
+            Map<UUID, Map<Integer, Integer>> scores = new java.util.concurrent.ConcurrentHashMap<>();
+            var caches = result.matches().stream().map(match -> ReplayStore.loadAnalysis(player.getUUID(), match.id()).thenAccept(json -> {
+                // Browsing a list must not import full frames into the active analysis LRU.
+                try {
+                    if (json != null && json.has("complete") && json.get("complete").getAsBoolean())
+                        scores.put(match.id(), ReplayAnalysis.completedMatchScores(match.id(), json));
+                } catch (RuntimeException ignored) { /* Recompute older/invalid summaries when enabled. */ }
+            }).exceptionally(ignored -> null)).toArray(CompletableFuture[]::new);
+            return CompletableFuture.allOf(caches).thenApply(ignored -> new DayOverview(result, new HashMap<>(scores)));
+        }), result -> dayPage(player, date, page, result.page(), new HashMap<>(), result.scores(), new HashSet<>()));
     }
-    private static void dayPage(ServerPlayer player, LocalDate date, int page, ReplayStore.DayPage result, Map<UUID, Boolean> analysis) {
+    private static void dayPage(ServerPlayer player, LocalDate date, int page, ReplayStore.DayPage result,
+                                Map<UUID, Boolean> analysis, Map<UUID, Map<Integer, Integer>> scores, Set<UUID> failures) {
         open(player, date + " · 第" + (page + 1) + "页", () -> true, menu -> {
             for (int row = 0; row < result.matches().size(); row++) {
                 ReplayStore.Summary match = result.matches().get(row);
@@ -96,16 +107,26 @@ public final class ReplayMenus {
                 String time = Instant.ofEpochMilli(match.endedAt()).atZone(ReplayStore.zone()).format(DateTimeFormatter.ofPattern("HH:mm:ss"));
                 menu.button(base, icon(Items.BOOK, "载入 " + time, match.preset(), "需要8格内归你所有且无其他真人的空闲牌桌"),
                         () -> load(player, match.id(), analysis.getOrDefault(match.id(), false)));
-                for (int seat = 0; seat < 4; seat++) {
-                    ReplayRecord.Participant participant = match.participantAt(seat);
-                    if (participant == null) menu.button(base + 1 + seat, icon(tile(27 + seat), "—", WINDS[seat] + "位未启用"), () -> {});
-                    else menu.button(base + 1 + seat, icon(tile(27 + seat), Integer.toString(participant.points()), participant.name(), WINDS[seat] + "位"), () -> {});
-                }
+                participantScores(menu, match, base, scores, failures);
                 boolean enabled = analysis.getOrDefault(match.id(), false);
-                ItemStack toggle = icon(tile(32), "AI分析：" + (enabled ? "开启" : "关闭"), "点击切换，再点击本行载入", "使用高级AI评估各次弃牌");
+                ItemStack toggle = icon(tile(32), "AI分析：" + (enabled ? "开启" : "关闭"), "点击切换，再点击本行载入", "使用高级AI评估各次弃牌", "整场一致性评分显示在各玩家物品说明中");
                 toggle.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, enabled);
-                menu.button(base + 5, toggle, () -> { analysis.put(match.id(), !enabled); dayPage(player, date, page, result, analysis); });
+                menu.button(base + 5, toggle, () -> {
+                    analysis.put(match.id(), !enabled);
+                    failures.remove(match.id());
+                    if (!enabled && !scores.containsKey(match.id()) && !ReplayAnalysis.analysisComplete(match.id())) {
+                        var server = player.level().getServer();
+                        ReplayStore.load(player.getUUID(), match.id()).whenComplete((record, error) -> {
+                            if (error == null) ReplayAnalysis.analyzeAll(record, ignored -> {});
+                            else server.executeIfPossible(() -> failures.add(match.id()));
+                        });
+                    }
+                    dayPage(player, date, page, result, analysis, scores, failures);
+                });
             }
+            menu.refresh = () -> {
+                for (int row = 0; row < result.matches().size(); row++) participantScores(menu, result.matches().get(row), row * 9, scores, failures);
+            };
             if (result.matches().isEmpty()) menu.button(22, icon(tile(31), "当天没有你的完整牌谱"), () -> {});
             menu.button(45, icon(Items.ARROW, "返回日历"), () -> calendar(player, YearMonth.from(date)));
             if (page > 0) menu.button(48, icon(Items.ARROW, "上一页"), () -> day(player, date, page - 1));
@@ -113,6 +134,24 @@ public final class ReplayMenus {
             if (result.hasNext()) menu.button(50, icon(Items.ARROW, "下一页"), () -> day(player, date, page + 1));
             menu.button(53, icon(Items.BARRIER, "关闭"), player::closeContainer);
         });
+    }
+
+    private static void participantScores(Actions menu, ReplayStore.Summary match, int base,
+                                          Map<UUID, Map<Integer, Integer>> savedScores, Set<UUID> failures) {
+        if (ReplayAnalysis.analysisComplete(match.id())) savedScores.put(match.id(), ReplayAnalysis.matchScores(match.id()));
+        boolean complete = savedScores.containsKey(match.id());
+        Map<Integer, Integer> scores = savedScores.getOrDefault(match.id(), Map.of());
+        for (int seat = 0; seat < 4; seat++) {
+            ReplayRecord.Participant participant = match.participantAt(seat);
+            if (participant == null) menu.button(base + 1 + seat, icon(tile(27 + seat), "—", WINDS[seat] + "位未启用"), () -> {});
+            else menu.button(base + 1 + seat, icon(tile(27 + seat), Integer.toString(participant.points()), participant.name(), WINDS[seat] + "位",
+                    failures.contains(match.id()) ? "整场一致性评分：分析暂不可用，请重新启用" : matchScoreLabel(scores, seat, complete)), () -> {});
+        }
+    }
+    private static String matchScoreLabel(Map<Integer, Integer> scores, int seat, boolean complete) {
+        if (!complete) return "整场一致性评分：待分析完成（点击发财启用分析）";
+        Integer score = scores.get(seat);
+        return score == null ? "整场一致性评分：—（没有可评分的出牌）" : "整场一致性评分：" + score;
     }
 
     private static void load(ServerPlayer player, UUID id, boolean analysis) {
@@ -187,12 +226,18 @@ public final class ReplayMenus {
     private static final class Actions extends ChestMenu {
         private final Map<Integer, Runnable> actions = new HashMap<>();
         private final BooleanSupplier valid;
+        private Runnable refresh = () -> {};
+        private int refreshTicks;
         Actions(int id, Inventory inventory, BooleanSupplier valid) {
             super(MenuType.GENERIC_9x6, id, inventory, new SimpleContainer(54), 6); this.valid = valid;
         }
         void button(int slot, ItemStack item, Runnable action) { getContainer().setItem(slot, item); actions.put(slot, action); }
         @Override public void clicked(int slot, int button, ContainerInput type, Player player) {
             if (player.containerMenu == this && valid.getAsBoolean() && type == ContainerInput.PICKUP && actions.containsKey(slot)) actions.get(slot).run();
+        }
+        @Override public void broadcastChanges() {
+            if (++refreshTicks >= 20) { refreshTicks = 0; refresh.run(); }
+            super.broadcastChanges();
         }
         @Override public ItemStack quickMoveStack(Player player, int slot) { return ItemStack.EMPTY; }
         @Override public boolean stillValid(Player player) { return valid.getAsBoolean(); }

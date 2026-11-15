@@ -71,13 +71,13 @@ defense, yakuhai calls, red tiles, source-seat rotations, kan notation, called-t
 counts, deterministic reloads and JSON-line error recovery. Java and real-server
 integration tests cover the snapshot boundary and controller lifecycle separately.
 
-## Replay policy probabilities (cache version 2)
+## Replay kind probabilities and consistency scores (cache version 3)
 
 Replay analysis exposes **modeled policy probabilities**. The bundled AI is a
- deterministic strategy and does not provide native action probabilities. These
+deterministic strategy and does not provide native action probabilities. These
 percentages are neither win probabilities nor calibrated predictions of human
-choices. The model is named `modeled-softmax-v2`; version-1 relative 0–99 scores
-are rejected and recomputed.
+choices. The model is named `modeled-kind-softmax-v3`; older analysis caches are rejected
+and recomputed.
 
 For four-player discard candidates, reuse the hard strategy's expected value,
 shanten and public-information danger estimate:
@@ -90,22 +90,27 @@ logit = log(1 + utility)
 The deterministic hard strategy's recommendation receives a logit equal to the
 largest candidate logit plus 0.5. This preserves defensive recommendations even
 when a dangerous attacking discard has a larger raw EV. Apply stable softmax
-with temperature 0.75 to obtain a probability distribution. Every legal discard
-tile is returned, including choices whose integer percentage is zero. Red fives
-retain their exact identity. Normal discard and riichi with the same tile share
-one conditional discard candidate.
+with temperature 0.75 to obtain a probability distribution over the 34 tile kinds.
+Each kind appears once, including choices whose integer percentage is zero.
+Red and ordinary fives share `m5`/`p5`/`s5`; repeated physical copies and normal
+versus riichi discards do not create extra candidates or extra probability mass.
+The legal red/ordinary variants retain their own EV during evaluation; the best
+legal variant supplies that kind's utility once before softmax. Exact physical
+faces and normal/riichi action IDs remain in the authoritative action list for
+matching the actual recorded operation.
 
 Two distributions are normalized independently:
 
-- **Discard tiles**, conditional on choosing to discard, sum to one even when a
+- **Discard kinds**, conditional on choosing to discard, sum to one even when a
   kan or win is also legal. Their displayed integer percentages sum to 100.
 - **All legal actions**, including each specific discard/riichi combination,
   chi, pon, kan, kita, win, pass and draw, sum to one separately. Action indices
   refer to the authoritative Java engine's legal list. Calls and kans use the
   same AI's post-action hand evaluation; legal wins receive an additional 2
   logit units, riichi 0.15, and abortive draw -1. The deterministic full-action
-  recommendation receives the same 0.5 margin before softmax. The UI may sum
-  probabilities for several legal riichi choices into one riichi button.
+  recommendation receives the same 0.5 margin before softmax. This action
+  distribution is internal; the UI displays one score per tile kind and keeps
+  historical operation buttons free of scores.
 
 Integer percentages use the largest-remainder method: floor all percentages,
 then assign the remaining percentage points to the largest fractional parts.
@@ -119,12 +124,18 @@ and the same largest-remainder rule. The original three-player BOT provides the
 full-action recommendation. This is a separate modeled policy with lower
 strategic detail than the four-player engine.
 
-A replay result retains the actual recorded discard tile, its conditional
-probability, its full-distribution rank, and the corresponding normal/riichi
+A replay result retains the actual recorded discard kind, its conditional
+probability, its full-distribution rank, and the corresponding exact normal/riichi
 action index. The timeline matches only the immediately resulting discard of
 that decision, so a kan, kita or win cannot accidentally acquire a later turn's
-discard. The per-round aggregate is the mean modeled probability of the actual
-chosen discards; it is not the former quality score.
+discard. Each actual discard receives a consistency score relative to the most
+probable kind: `100 * Pchosen / Pmax`, using full precision probabilities. An
+optimal choice scores 100 even when several alternatives have substantial mass.
+Per-hand scores average that hand's actual discard scores. The match score
+averages every actual discard across all hands, weighted by discard count rather
+than by hand. Only the final aggregate is rounded to an integer; fractional
+per-discard scores remain in cache. The GUI displays a final match score only
+when the complete analysis is available.
 
 Analysis only reads immutable recorded frames. It never submits an action to
 the rule engine. The worker still receives only the analyzed player's own hand

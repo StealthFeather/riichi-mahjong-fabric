@@ -11,13 +11,20 @@ final class ReplayOverlayLayout {
     private ReplayOverlayLayout(){}
     static ChatFormatting color(ReplayAnalysis.Decision decision){
         if(decision.chosenTile()==null)return ChatFormatting.RED;
-        var chosen=decision.candidates().stream().filter(c->c.tile().equals(decision.chosenTile())).findFirst();
+        var chosen=decision.candidates().stream().filter(c->sameKind(c.tile(),decision.chosenTile())).findFirst();
         double maximum=decision.candidates().stream().mapToDouble(ReplayAnalysis.Candidate::policyProbability).max().orElse(0);
         if(chosen.isPresent()&&chosen.get().policyProbability()>=maximum-1e-12)return ChatFormatting.GREEN;
         return decision.chosenRank()>=2&&decision.chosenRank()<=3?ChatFormatting.YELLOW:ChatFormatting.RED;
     }
     static float scoreScale(String text){return (float)(TableLayout.TILE_WIDTH/(.025*(TableButtonLayout.textWidth(text)+1)));}
-    static boolean showProbability(ReplayAnalysis.Candidate candidate){return candidate.probability()>=1;}
+    static String tileKind(String tile){
+        return tile==null?null:ReplayAnalysis.tileKind(tile);
+    }
+    static boolean sameKind(String first,String second){return java.util.Objects.equals(tileKind(first),tileKind(second));}
+    static boolean showProbability(ReplayAnalysis.Candidate candidate){return candidate.rank()<=3&&candidate.probability()>=1;}
+    static boolean showPlayedProbability(ReplayAnalysis.Decision decision){
+        return decision.chosenTile()!=null&&decision.chosenRank()>=1&&decision.chosenRank()<=3&&decision.chosenProbability()>=1;
+    }
 
     /** Follow the actual historical choice from its hand to its exact river or called meld identity. */
     static Optional<Vec3> playedTile(MahjongTableBlockEntity table,ReplayTimeline.Location location){

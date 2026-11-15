@@ -145,7 +145,7 @@ test('analysis models complete legal discard and action probabilities separately
   assert.equal(result.id, s.id);
   assert.equal(result.engine, Names.HARD);
   assert.equal(result.policy.name, Policy.name);
-  assert.equal(result.policy.version, 2);
+  assert.equal(result.policy.version, 3);
   assert.equal(result.candidates[0].tile, 'z4');
   assert.equal(result.candidates.length, new Set(s.legal.map(a => a.tile)).size);
   assert.equal(result.actions.length, s.legal.length);
@@ -243,4 +243,43 @@ test('claim policy preserves distinct chi options and legal ron while a forced d
   const drawn = analyze(fixture({ hand, drawn: null, phase: 'draw', legal: [{ index: 20, type: 'Draw' }] }));
   assert.deepEqual(drawn.candidates, []);
   assert.equal(drawn.actions[0].probability, 100);
+});
+
+
+test('discard kinds collapse red fives and repeated physical/action aliases before normalization', () => {
+  const { discardKindDistribution, tileKind } = require('./worker.cjs');
+  assert.equal(tileKind('m0'), 'm5');
+  assert.equal(tileKind('p0'), 'p5');
+  assert.equal(tileKind('s0'), 's5');
+  assert.equal(tileKind('z5'), 'z5');
+  const options = [{ tile: 'm0', logit: 0, value: 10, risk: 1 },
+    { tile: 'm5', logit: 1, value: 20, risk: 1 }, { tile: 'p1', logit: .5, value: 15, risk: 0 }];
+  const scores = discardKindDistribution(options, null);
+  assert.deepEqual(scores.map(c => c.tile), ['m5', 'p1']);
+  assert.equal(scores.reduce((sum, c) => sum + c.probability, 0), 100);
+  assert.ok(Math.abs(scores[0].policyProbability - 1 / (1 + Math.exp(-.5 / .75))) < 1e-12);
+  assert.deepEqual(discardKindDistribution([...options, options[0], options[1], options[1]], null), scores);
+  assert.deepEqual(discardKindDistribution(options, 'm0'), discardKindDistribution(options, 'm5'));
+});
+
+test('real analysis reports a single five-kind score while raw discard and riichi actions remain distinct', () => {
+  const { analyze, tileKind } = require('./worker.cjs');
+  const hand = ['m1', 'm2', 'm3', 'm4', 'm5', 'm0', 'p1', 'p2', 'p3', 's4', 's5', 'z5', 'z5', 'z4'];
+  const legal = [...new Set(hand)].map((tile, index) => ({ index, type: 'Discard', tile }));
+  const plain = analyze(fixture({ hand, legal }));
+  const repeated = analyze(fixture({ hand, legal: [...legal, ...legal.map(a => ({ ...a, index: a.index + 100 }))] }));
+  assert.deepEqual(plain.candidates, repeated.candidates, 'extra entity/action identities must not add probability mass');
+  const kinds = new Set(legal.map(a => tileKind(a.tile)));
+  assert.equal(plain.candidates.length, kinds.size);
+  assert.equal(plain.candidates.filter(c => c.tile === 'm5').length, 1);
+  assert.ok(!plain.candidates.some(c => c.tile === 'm0'));
+  assert.equal(plain.candidates.reduce((sum, c) => sum + c.probability, 0), 100);
+  const riichi = analyze(fixture({ hand, legal: [...legal,
+    { index: 200, type: 'DiscardWithRiichi', tile: 'm0' },
+    { index: 201, type: 'DiscardWithRiichi', tile: 'm5' }] }));
+  assert.equal(riichi.candidates.filter(c => c.tile === 'm5').length, 1);
+  assert.equal(riichi.candidates.length, kinds.size);
+  assert.equal(riichi.candidates.reduce((sum, c) => sum + c.probability, 0), 100);
+  assert.ok(riichi.actions.some(a => a.index === 200 && a.tile === 'm0'));
+  assert.ok(riichi.actions.some(a => a.index === 201 && a.tile === 'm5'));
 });
