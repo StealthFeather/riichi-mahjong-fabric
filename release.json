@@ -1,0 +1,41 @@
+{
+  "version": "0.4.2+fabric.26.3.28",
+  "sourceCommit": "ae50cacc243c81137b71198c1707fbdabb8a0ad4",
+  "jarSha256": "e62c4fb80b88d55184dc27d44edfd090a91f00374ce2eb40b41090c2f7309247",
+  "resourcePackSha256": "887bb8ae32ff8157cebe423af6452c22ad5010fe16f6b1fc299d21c80a5e7a27",
+  "automatedVerification": {
+    "javaRegressionGroups": 29,
+    "nodeTests": 19,
+    "aiRuntimeFiles": 69,
+    "aiSyntheticAnalysisCases": 7,
+    "aiPreflightPassed": true,
+    "spectatorPolicyNbtAndAudienceHelperRegression": true,
+    "spectatorRenderingSourceReviewed": true,
+    "databaseTestsRerun": false
+  },
+  "deployment": {
+    "checkedAtUtc": "2026-11-15T07:38:36.087891+00:00",
+    "instances": [
+      "SC",
+      "TR"
+    ],
+    "checks": [
+      "Minecraft status ping",
+      "server ready",
+      "formal mod loaded",
+      "Quest database ready",
+      "three AI levels startup probe and 69 runtime files",
+      "mahjong console response"
+    ],
+    "newBackupsCreated": false,
+    "spectatorHandsDefaultEnabled": false,
+    "productionTableSettingsChanged": false
+  },
+  "limitations": [
+    "Actual client packets and spectator graphics and GUI were not tested",
+    "Live spectator permission revocation was not tested",
+    "Complete multiplayer match acceptance was not performed",
+    "Production replay database write was not exercised",
+    "Legacy matches can only recover recorded historical participants"
+  ]
+}
