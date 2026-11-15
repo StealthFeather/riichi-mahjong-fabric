@@ -1,0 +1,33 @@
+{
+  "checkedAt": "2026-11-15T05:06:36.180010+00:00",
+  "passed": true,
+  "modVersion": "0.4.2+fabric.26.3.26",
+  "jarName": "riichi-mahjong-0.4.2+fabric.26.3.26.jar",
+  "jarSha256": "3e4f4710f878ad893746b3b58437f4157acd943d13e0174d45711b5f8b83bd1f",
+  "runtimeFileCount": 69,
+  "runtimeChangedFiles": [
+    "worker.cjs"
+  ],
+  "runtimeAddedFiles": [],
+  "runtimeRemovedFiles": [],
+  "probeSha256": "6a382d865c844fd299f42122144f8406819f9c1cdccf7810742c00565c3786d0",
+  "analysisProbeSha256": "42ad8118037b19a70ab59d5ef57f8cf43f3c644f38467c0a6d8785aab08f32fa",
+  "startupProbe": {
+    "passed": true,
+    "runtimeFilesVerified": 69,
+    "difficultyResults": {
+      "EASY": true,
+      "NORMAL": true,
+      "HARD": true
+    }
+  },
+  "analysisProbe": {
+    "passed": true,
+    "policy": "modeled-kind-softmax-v3",
+    "policyVersion": 3,
+    "caseCount": 7,
+    "noFallback": true
+  },
+  "productionTouched": false,
+  "context": "Synthetic local AI preflight; no world, database or production server access"
+}
