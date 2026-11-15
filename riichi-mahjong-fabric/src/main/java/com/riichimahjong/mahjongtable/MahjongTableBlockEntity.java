@@ -127,6 +127,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     private boolean lastPowered;
     private List<SeatInfo> seats = defaultSeats();
     private final ReturningSeats returningSeats = new ReturningSeats();
+    private final SpectatorAccess spectatorAccess = new SpectatorAccess();
     private final TableOwnership ownership = new TableOwnership();
     private final Map<UUID,Long> privateClicks = new HashMap<>();
     private final HandDisplayState handDisplay = new HandDisplayState();
@@ -394,6 +395,31 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
 
     public boolean isHost(UUID uuid) { return ownership.isHost(uuid); }
 
+    public boolean spectatorHandsEnabled() { return spectatorAccess.enabled(); }
+
+    /** Live match participants, including former occupants, may never view other concealed hands. */
+    public boolean spectatorHandsVisibleTo(UUID viewer) {
+        return spectatorAccess.canSee(viewer, driver != null && replay == null,
+                viewer != null && seatOfPlayer(viewer).isPresent(), viewer != null && returningSeats.seat(viewer).isPresent());
+    }
+
+    /** Only the current nearby table owner may change this table setting. */
+    public boolean setSpectatorHandsEnabled(ServerPlayer player, boolean enabled,
+            @Nullable TheMahjongDriver expectedDriver, long expectedRevision) {
+        if (replay != null || !validMenuActor(player) || !isHost(player.getUUID())
+                || driver != expectedDriver || matchRevision != expectedRevision) return false;
+        if (spectatorAccess.enabled() != enabled) {
+            spectatorAccess.setEnabled(enabled);
+            matchRevision++;
+            markChangedAndSynced();
+        }
+        return true;
+    }
+
+    private void beginSpectatorParticipants() {
+        spectatorAccess.begin(seats.stream().flatMap(seat -> seat.occupant().stream()).toList());
+    }
+
     private boolean playerOnline(UUID uuid) {
         return level instanceof ServerLevel sl && sl.getServer().getPlayerList().getPlayer(uuid) != null;
     }
@@ -473,6 +499,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         if (!canClaimSeat(seat,uuid)) return false;
         if (seats.get(seat).occupant().filter(uuid::equals).isPresent()) return true;
         if (driver != null) {
+            spectatorAccess.remember(uuid);
             returningSeats.remember(uuid,seat);
             replaceController(seat, buildPlayer(SeatInfo.claimed(uuid), seat, driver.match().playerCount(), activeRedFives()));
         }
@@ -568,6 +595,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         for (int i = 0; i < match.playerCount(); i++) activeSeats.add(seats.get(i));
 
         resetReturningSeats();
+        beginSpectatorParticipants();
         this.randomSeed = seed;
         this.driver = new TheMahjongDriver(match, buildPlayersFromSeats(activeSeats, match.tileSet().tiles().stream().anyMatch(TheMahjongTile::redDora)), new java.security.SecureRandom());
         this.driver.setAnimationsEnabled(true);
@@ -626,6 +654,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
                  false,
                 java.util.OptionalInt.empty());
         resetReturningSeats();
+        beginSpectatorParticipants();
         this.randomSeed = seed;
         this.driver = new TheMahjongDriver(
                 fixedMatch, buildPlayersFromSeats(activeSeats, fixedMatch.tileSet().tiles().stream().anyMatch(TheMahjongTile::redDora)), new Random(seed), snap);
@@ -661,8 +690,11 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             }
         }
 
+        // Preserve the destination toggle and start a new practice participation set.
+        patched.putBoolean("SpectatorHandsEnabled", spectatorAccess.enabled());
         loadAdditional(TagValueInput.create(ProblemReporter.DISCARDING, level.registryAccess(), patched));
         resetReturningSeats();
+        beginSpectatorParticipants();
         markChangedAndSynced();
         return StartMatchResult.STARTED;
     }
@@ -736,6 +768,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         this.driver = null;
         botsSuspended = false;
         returningSeats.clear();
+        spectatorAccess.clearMatch();
         privateClicks.clear();
         this.randomSeed = 0L;
         handDisplay.clear();
@@ -1318,6 +1351,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         out.putString(NBT_BOT_DIFFICULTY, defaultBotDifficulty.name());
         out.putBoolean(NBT_MINT_TILES, mintTilesFromNothing);
         out.putBoolean(NBT_DELIVER_TO_MAIN_HAND, deliverToMainHand);
+        spectatorAccess.write(out, driver != null && replay == null);
 
         out.putString(NBT_RESULT_ANIM_STAGE, resultAnimStage.name());
         out.putInt(NBT_RESULT_ANIM_YAKU_IDX, resultAnimYakuIdx);
@@ -1370,6 +1404,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     protected void loadAdditional(ValueInput in) {
         super.loadAdditional(in);
         replay=null;replayRecorder=null;appliedReplayRevision=-1;nextArchiveAttempt=0;
+        spectatorAccess.read(in);
         roundResultDisplay.clear();
         replayArchives.read(in.childOrEmpty("ReplayArchives"));
 
@@ -1473,6 +1508,10 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
                 if (uuid!=null&&returningSeats.allows(uuid,seat)) returningSeats.remember(uuid,seat);
             }
 
+            // Preserve every recoverable player even if the reservation is later revoked.
+            returningSeats.snapshot().keySet().forEach(spectatorAccess::remember);
+            seats.stream().flatMap(seat -> seat.occupant().stream()).forEach(spectatorAccess::remember);
+
             for (ValueInput entry : in.childrenListOrEmpty(NBT_HUMAN_PLAYERS)) {
                 int seat = entry.getIntOr("Seat", 0);
                 if (seat >= 0 && seat < driver.match().playerCount()
@@ -1491,6 +1530,8 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
                         winningHandDisplay=resultInput.child("ReplayWinningHand").map(WinningHandDisplay::read).orElse(null);
                     });
                 }
+                // Older live saves can recover former participants from the existing recorder.
+                if (replayRecorder != null) replayRecorder.participantUuids().forEach(spectatorAccess::remember);
                 attachRecordingObserver();
             } catch(RuntimeException error) {
                 replayRecorder=null;

@@ -30,6 +30,8 @@ public final class ReplayRecorder {
         this.id=id;this.startedAt=startedAt;this.preset=preset;this.people.addAll(participants);this.frames.addAll(frames);
     }
     public boolean finished(){return finished;}
+    /** Human participants remain recorded after leaving or replacement. */
+    public java.util.Set<UUID> participantUuids(){return people.stream().map(ReplayRecord.Participant::uuid).filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toUnmodifiableSet());}
     /** Recover public final-hand presentation from recordings made before it had a separate save field. */
     public java.util.Optional<ReplayRecord.Frame> lastRoundResult() {
         if(frames.isEmpty())return java.util.Optional.empty();

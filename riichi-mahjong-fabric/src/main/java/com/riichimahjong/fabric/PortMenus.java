@@ -92,6 +92,11 @@ public final class PortMenus {
             menu.button(20,icon(Items.ENDER_EYE,"摸牌使用私有显示，右键单张牌打出"),()->{});
             menu.button(21,icon(Items.COMPARATOR,"默认四麻 AI："+table.defaultBotDifficulty().label()+aiLock),()->{if(host(p,table)&&fourPlayer)table.setDefaultBotDifficulty(table.defaultBotDifficulty().next());settings(p,table);});
             menu.button(22,icon(Items.PAPER,fourPlayer?"初级 → 中级 → 高级；座位可单独设置":"三麻使用原版 BOT；难度配置仅适用于四麻"),()->{});
+            menu.button(23,icon(Items.SPYGLASS,"观战显示手牌："+(table.spectatorHandsEnabled()?"开启":"关闭")),()->{
+                if(!table.setSpectatorHandsEnabled(p,!table.spectatorHandsEnabled(),driver,revision))
+                    p.sendSystemMessage(Component.literal("牌桌状态已变化，或你已不是桌主。"),true);
+                settings(p,table);
+            });
             menu.button(27,icon(Items.BARREL,"牌桌库存 · 136 槽分页"),()->inventory(p,table,0));
             menu.button(28,icon(Items.BOOK,"领取牌谱"),()->{p.getInventory().add(new ItemStack(ModItems.MAHJONG_TABLE_RECORD.get()));p.closeContainer();});
             menu.button(35,icon(Items.BARRIER,"重置牌桌（需确认"+(host(p,table)?"":" · 仅桌主")+"）"),()->{if(host(p,table))confirmTableReset(p,table);else p.sendSystemMessage(Component.literal("只有桌主可以重置牌桌。"),true);});

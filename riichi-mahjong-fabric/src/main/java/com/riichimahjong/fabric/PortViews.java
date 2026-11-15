@@ -103,13 +103,19 @@ public final class PortViews {
         return display(holder,model,pos,scale,rotation,false);
     }
     static ItemDisplayElement display(ElementHolder holder,String model,Vec3 pos,float scale,Quaternionf rotation,boolean glint){
-        return display(holder,model,pos,scale,rotation,null,glint);
+        return display(holder,model,pos,scale,rotation,Set.of(),glint);
     }
-    private static ItemDisplayElement display(ElementHolder holder,String model,Vec3 pos,float scale,Quaternionf rotation,UUID hideFrom,boolean glint){
+    static ItemDisplayElement displayForViewer(ElementHolder holder,String model,Vec3 pos,float scale,Quaternionf rotation,ServerPlayer viewer,boolean glint){
+        return displayAudience(holder,model,pos,scale,rotation,p->p==viewer,glint);
+    }
+    private static ItemDisplayElement display(ElementHolder holder,String model,Vec3 pos,float scale,Quaternionf rotation,Set<UUID> hideFrom,boolean glint){
+        return displayAudience(holder,model,pos,scale,rotation,p->!hideFrom.contains(p.getUUID()),glint);
+    }
+    private static ItemDisplayElement displayAudience(ElementHolder holder,String model,Vec3 pos,float scale,Quaternionf rotation,java.util.function.Predicate<ServerPlayer> audience,boolean glint){
         var d=new ItemDisplayElement(model(model,glint));d.setItemDisplayContext(ItemDisplayContext.NONE);d.setOverridePos(pos);d.setScale(new Vector3f(scale));d.setLeftRotation(rotation);d.setRightRotation(new Quaternionf().rotationY((float)Math.PI));d.setDisplaySize(3,3);
         // addElement immediately spawns for existing watchers. Set the audience first:
         // Polymer 0.18.7 cannot retract a GenericEntityElement via its predicate alone.
-        if(hideFrom!=null)d.setVisibilityPredicate(player->!player.getUUID().equals(hideFrom));
+        d.setVisibilityPredicate(audience);
         holder.addElement(d);return d;
     }
     static boolean near(ServerPlayer p,ServerLevel level,BlockPos pos){return !p.isSpectator()&&p.level()==level&&p.distanceToSqr(pos.getX()+.5,pos.getY()+.5,pos.getZ()+.5)<=64;}
@@ -168,10 +174,12 @@ public final class PortViews {
     private static final class View {
         final ServerLevel level;final BlockPos pos;final BlockState state;final ElementHolder holder=new ElementHolder();
         final Map<String,ItemDisplayElement> tiles=new HashMap<>();final Set<String> used=new HashSet<>();
-        private record Visual(int code,Vec3 position,float scale,Quaternionf rotation,UUID hiddenFrom,boolean glint){}
+        private record Visual(int code,Vec3 position,float scale,Quaternionf rotation,Set<UUID> hiddenFrom,boolean glint){}
         Set<Integer> glowingTiles=Set.of();
         final Map<String,Visual> sent=new HashMap<>();
-        final Map<UUID,PrivateHand> hands=new HashMap<>();final TextDisplayElement label=new TextDisplayElement();
+        final Map<UUID,PrivateHand> hands=new HashMap<>();
+        final Map<UUID,SpectatorHandView> spectators=new HashMap<>();Set<UUID> spectatorAudience=Set.of();
+        final TextDisplayElement label=new TextDisplayElement();
         final Map<String,List<InteractionElement>> hits=new HashMap<>();PublicTable previous;
         final Map<Integer,TextDisplayElement> seatLabels=new HashMap<>();
         final Map<Integer,InteractionElement> seatHits=new HashMap<>();
@@ -197,10 +205,13 @@ public final class PortViews {
             return state.hasProperty(BaseMultipartBlock.FACING)?rotation(state.getValue(BaseMultipartBlock.FACING),false,false):new Quaternionf();
         }
         void tile(String slot,int code,Vec3 at,float scale,Quaternionf rotation,UUID hideFrom){
+            tileMasked(slot,code,at,scale,rotation,hideFrom==null?Set.of():Set.of(hideFrom));
+        }
+        void tileMasked(String slot,int code,Vec3 at,float scale,Quaternionf rotation,Set<UUID> hideFrom){
             boolean glint=code>=0&&glowingTiles.contains(code);
             used.add(slot);var visual=new Visual(code,at,scale,rotation,hideFrom,glint);var old=sent.put(slot,visual);if(visual.equals(old))return;
             var d=tiles.get(slot);
-            if(d!=null&&(old==null||!Objects.equals(old.hiddenFrom(),hideFrom))){
+            if(d!=null&&(old==null||SpectatorVisibility.mustReplace(old.hiddenFrom(),hideFrom))){
                 // removeElement explicitly removes the old ID from every client,
                 // including a newly seated owner who previously saw this public tile.
                 holder.removeElement(d);d=null;
@@ -215,7 +226,14 @@ public final class PortViews {
             var attachment=holder.getAttachment();
             if(attachment!=null)attachment.updateCurrentlyTracking(List.copyOf(holder.getWatchingPlayers()));
             var be=level.getBlockEntity(pos);
-            if(be instanceof MahjongTableBlockEntity table){var board=PublicTable.capture(table);if(!board.equals(previous)){renderTable(board);previous=board;}updateLobby(table,board);updatePrivate(table);hud.update(table,board);}
+            if(be instanceof MahjongTableBlockEntity table){
+                // Revoke old private audiences before sending any updated board/hand data.
+                var viewers=spectatorViewers(table);boolean audienceChanged=!spectatorAudience.equals(viewers.keySet());
+                spectatorAudience=Set.copyOf(viewers.keySet());
+                var board=PublicTable.capture(table);
+                if(audienceChanged||!board.equals(previous)){renderTable(board);previous=board;}
+                updateLobby(table,board);updatePrivate(table);updateSpectators(table,board,viewers);hud.update(table,board);
+            }
             else if(be instanceof MahjongSolitaireBlockEntity solitaire)renderSolitaire(solitaire);
             else if(be instanceof MahjongAltarBlockEntity altar)renderAltar(altar);holder.tick();
         }
@@ -276,9 +294,10 @@ public final class PortViews {
             for(int seat=0;seat<board.seats().size();seat++){
                 var s=board.seats().get(seat);Direction dir=outward(seat,state);double fraction=board.stage()==com.themahjong.driver.MatchPhase.Stage.WALL_BUILDING?0:board.stage()==com.themahjong.driver.MatchPhase.Stage.DEALING_HANDS?board.progress():1;int count=(int)Math.round(s.handCount()*fraction);
                 boolean revealed=!s.revealed().isEmpty();
-                for(int i=0;i<count;i++)tile("hand/"+seat+"/"+i,revealed?s.revealed().get(i):-1,
+                var handAudience=SpectatorVisibility.hiddenFrom(s.owner(),revealed,spectatorAudience);
+                for(int i=0;i<count;i++)tileMasked("hand/"+seat+"/"+i,revealed?s.revealed().get(i):-1,
                         TableLayout.handAnchor(pos,dir,TableLayout.handAlong(s.handSlots().get(i),s.handGapStarts()),revealed),
-                        TableLayout.TILE_SCALE,rotation(dir,revealed,false),revealed?null:s.owner());
+                        TableLayout.TILE_SCALE,rotation(dir,revealed,false),handAudience);
                 for(int i=0;i<s.river().size();i++){var t=s.river().get(i);tile("river/"+seat+"/"+i,t.code(),dir,(i%6-2.5)*.073,.59,.26+(i/6)*.09,true,false,t.sideways(),null);}
                 for(var placed:MeldGeometry.arrange(s.melds())){
                     var t=placed.tile();
@@ -296,6 +315,29 @@ public final class PortViews {
             for(int i=0;i<carried;i++){
                 String key="carried-riichi/"+i;used.add(key);if(!tiles.containsKey(key))tiles.put(key,display(holder,"bridge/table_riichi_stick",TableLayout.anchor(pos,Direction.NORTH,0,.610+(i/4)*.012,(i%4-1.5)*.038),.22f*TableLayout.TILE_ENLARGEMENT,new Quaternionf()));
             }cleanup();
+        }
+        Map<UUID,ServerPlayer> spectatorViewers(MahjongTableBlockEntity table){
+            Map<UUID,ServerPlayer> viewers=new HashMap<>();
+            if(table.replay()==null&&table.driver()!=null)for(var player:level.getServer().getPlayerList().getPlayers())
+                if(SpectatorVisibility.canView(table,player))viewers.put(player.getUUID(),player);
+            for(var it=spectators.entrySet().iterator();it.hasNext();){
+                var entry=it.next();var old=entry.getValue();
+                if(viewers.get(entry.getKey())!=old.owner||!old.valid()){old.destroy();it.remove();}
+            }
+            return viewers;
+        }
+        void updateSpectators(MahjongTableBlockEntity table,PublicTable board,Map<UUID,ServerPlayer> viewers){
+            if(viewers.isEmpty())return;
+            var snapshot=SpectatorHandView.snapshot(table,board);
+            for(var entry:viewers.entrySet()){
+                var viewer=entry.getValue();var old=spectators.get(entry.getKey());
+                if(!SpectatorVisibility.canView(table,viewer)){if(old!=null){old.destroy();spectators.remove(entry.getKey());}continue;}
+                if(old==null||old.owner!=viewer||!old.sameVisuals(snapshot)){
+                    if(old!=null)old.destroy();
+                    old=new SpectatorHandView(table,viewer,snapshot);spectators.put(entry.getKey(),old);
+                }
+                old.tick();
+            }
         }
         void updatePrivate(MahjongTableBlockEntity table){
             if(table.replay()!=null){
@@ -355,6 +397,6 @@ public final class PortViews {
             return chosen;
         }
         void renderAltar(MahjongAltarBlockEntity altar){used.clear();for(int i=0;i<altar.getContainerSize();i++){var stack=altar.getItem(i);if(stack.isEmpty())continue;String key="altar/"+i;used.add(key);var d=tiles.get(key);var at=new Vec3(pos.getX()+.25+(i%3)*.25,pos.getY()+.85,pos.getZ()+.25+(i/3)*.25);if(d==null){d=new ItemDisplayElement(stack);d.setOverridePos(at);d.setScale(new Vector3f(.25f));holder.addElement(d);tiles.put(key,d);}else d.setItem(stack);}cleanup();}
-        void destroy(){if(replayView!=null)replayView.destroy();hands.values().forEach(PrivateHand::destroy);hands.clear();if(hud!=null)hud.destroy();if(collision!=null)collision.destroy();holder.destroy();}
+        void destroy(){spectators.values().forEach(SpectatorHandView::destroy);spectators.clear();spectatorAudience=Set.of();if(replayView!=null)replayView.destroy();hands.values().forEach(PrivateHand::destroy);hands.clear();if(hud!=null)hud.destroy();if(collision!=null)collision.destroy();holder.destroy();}
     }
 }
