@@ -21,6 +21,7 @@ import net.minecraft.world.*;
 import net.minecraft.world.entity.player.*;
 import net.minecraft.world.inventory.*;
 import net.minecraft.world.item.*;
+import net.minecraft.world.item.component.ItemLore;
 
 /** The original custom client screens are represented by vanilla container menus. */
 public final class PortMenus {
@@ -60,6 +61,21 @@ public final class PortMenus {
         open(p,"立直麻将 · 原版设置",()->tableMenuValid(p,table)&&host(p,table)&&table.driver()==driver&&table.matchRevision()==revision,menu->{
             var presets=RuleSetPreset.values();String[] names={"雀魂四麻","天凤四麻","WRC 四麻","雀魂三麻","天凤三麻"};
             for(int i=0;i<presets.length;i++){final int n=i;menu.button(i,icon(table.preset()==presets[i]?Items.EMERALD:Items.PAPER,names[i]),()->{if(host(p,table))table.selectPreset(presets[n]);settings(p,table);});}
+            for(var length:MatchLength.values()){
+                boolean selected=table.matchLength()==length;
+                boolean locked=table.hasActiveMatch();
+                var lengthIcon=icon(selected?Items.EMERALD:Items.PAPER,
+                        length.label()+(selected?" · 已选":"")+(locked?" · 对局中锁定":""));
+                lengthIcon.set(DataComponents.LORE,new ItemLore(List.of(
+                        Component.literal(length==MatchLength.EAST?"预定赛程：东场":"预定赛程：东场＋南场"),
+                        Component.literal("四麻、三麻均可选择，与规则预设独立。"),
+                        Component.literal("连庄及延长局仍依所选规则执行。"),
+                        Component.literal(locked?"请先结束当前对局，再调整赛程。":"仅桌主可在开局前修改。"))));
+                menu.button(6+length.ordinal(),lengthIcon,()->{
+                    if(host(p,table)&&!table.hasActiveMatch())table.selectMatchLength(length);
+                    settings(p,table);
+                });
+            }
             boolean fourPlayer=table.effectivePreset().playerCount()==4;
             String aiLock=table.hasActiveMatch()?" · 对局中锁定":fourPlayer?"":" · 仅四麻生效";
             for(int i=0;i<table.seats().size();i++){final int seat=i;var s=table.seats().get(i);String occupant=s.occupant().map(uuid->{var player=p.level().getServer().getPlayerList().getPlayer(uuid);return player==null?"离线玩家":player.getName().getString();}).orElse("空位（开局由 BOT 补齐）");menu.button(9+i,icon(s.enabled()?Items.OAK_BOAT:Items.CLAY_BALL,new String[]{"东","南","西","北"}[i]+" · "+occupant),()->{TableSeating.join(p,table,seat);settings(p,table);});menu.button(36+i,icon(Items.LEVER,"启用 / 关闭座位 "+(i+1)),()->{if(host(p,table))table.toggleSeatEnabled(seat);settings(p,table);});

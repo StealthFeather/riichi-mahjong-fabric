@@ -136,6 +136,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     @Nullable private WinningHandDisplay winningHandDisplay;
     @Nullable private TheMahjongDriver handDisplayDriver;
     private RuleSetPreset preset = RuleSetPreset.MAHJONG_SOUL_4P;
+    private MatchLength matchLength = MatchLength.SOUTH;
     private BotDifficulty defaultBotDifficulty = BotDifficulty.NORMAL;
     private final Map<Integer, BotDifficulty> seatBotDifficulties = new HashMap<>();
     private boolean botsSuspended;
@@ -351,6 +352,15 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     public RuleSetPreset preset() { return preset; }
+
+    public MatchLength matchLength() { return matchLength; }
+
+    public void selectMatchLength(MatchLength length) {
+        if (driver != null || replay != null || length == null || matchLength == length) return;
+        matchLength = length;
+        matchRevision++;
+        markChangedAndSynced();
+    }
 
     public BotDifficulty defaultBotDifficulty() { return defaultBotDifficulty; }
 
@@ -590,7 +600,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             return StartMatchResult.SEATS_MISMATCH_PRESET;
         }
 
-        TheMahjongMatch match = effective.newMatch().validate();
+        TheMahjongMatch match = effective.newMatch(matchLength).validate();
         List<SeatInfo> activeSeats = new ArrayList<>(match.playerCount());
         for (int i = 0; i < match.playerCount(); i++) activeSeats.add(seats.get(i));
 
@@ -635,6 +645,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         }
 
         this.preset = preset;
+        this.matchLength = MatchLength.fromMatch(fixedMatch);
 
         padSeatsAtLeast(DEFAULT_SEAT_COUNT);
         for (int i = 0; i < seats.size(); i++) {
@@ -1348,6 +1359,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         replayArchives.write(out.child("ReplayArchives"));
         out.putBoolean(NBT_LAST_POWERED, lastPowered);
         out.putString(NBT_PRESET, preset.name());
+        matchLength.write(out);
         out.putString(NBT_BOT_DIFFICULTY, defaultBotDifficulty.name());
         out.putBoolean(NBT_MINT_TILES, mintTilesFromNothing);
         out.putBoolean(NBT_DELIVER_TO_MAIN_HAND, deliverToMainHand);
@@ -1538,5 +1550,6 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
                 System.getLogger("riichi_mahjong/replay").log(System.Logger.Level.WARNING,"Cannot resume replay recording",error);
             }
         }
+        matchLength = MatchLength.read(in, driver == null ? null : driver.match());
     }
 }

@@ -1,8 +1,14 @@
 # Riichi Mahjong
 
-日本立直麻将、3D 牌桌、私有手牌与原版客户端适配。当前正式版：**0.4.2+fabric.26.3.28**，仅安装到 Fabric 服务端。
+日本立直麻将、3D 牌桌、私有手牌与原版客户端适配。当前正式版：**0.4.2+fabric.26.3.29**，仅安装到 Fabric 服务端。
 
 保留 26.3.24 的中心风盘桌主菜单入口与菜单内开局，鸣牌风牌名称显示为“东、南、西、北”。保留 26.3.23 的离线座位 AI 接替、菜单结束对局二次确认和离线桌主接管。保留 26.3.22 的立直横放标记继承、终盘主动展示及主手持镐拆桌要求（创造模式同样适用）。保留 26.3.21 的实际宝牌和赤宝牌原版附魔光效，未公开暗手默认仅本人可见，开启观战后允许符合条件的观众查看。保留 26.3.20 的流局连庄与本场修复、吃碰杠立直音效和隐藏鸣牌等待提示，以及四麻三级 AI、TP 返回显示恢复、跳过和牌确认、手牌空槽延迟整理及交互布局。变更见 [26.3.24 说明](docs/26.3.24.md)。
+
+## 东风场与南风场
+
+桌主菜单提供“东风场”和“南风场”两个独立赛程按钮，默认南风场，四麻与三麻都可选择。东风场预定打东场（四麻东一至东四、三麻东一至东三），南风场预定打东、南两场。规则预设和人数切换不重置赛程，连庄、击飞及未达返分时的延长仍按原规则执行；东风场可能南入，南风场可能西入。
+
+仅桌主可在牌桌空闲时修改，活动和终盘期间锁定，需先确认结束当前对局再选择下一场。设置随牌桌保存，结束或重置后保留。旧空闲桌缺省南风场；活动对局、练习牌谱和数据库回放以保存的实际 roundCount 为准，延长到其他场风时不会误改模式。详见 [26.3.29 说明](docs/26.3.29.md)。
 
 ## 观战
 
@@ -30,7 +36,7 @@
 
 需要 Minecraft 26.3、Fabric Loader 0.19.5、Fabric API 0.163.0+26.3、Java 25；四麻 AI 需要服务端可执行 Node.js 22+。Polymer 和固定版本 AI 源码已内嵌。玩家使用原版客户端并接受包含麻将资产的 TimoryResource。宝牌光效使用原版组件，沿用 26.3.20 的原版音效，无需更新资源包。资源包附件沿用 26.3.19 的完整发布包，保留包内高清物品图标；本次更新无需更换既有资源包，首次安装可使用此附件。
 
-从 [26.3.28 Release](https://github.com/StealthFeather/riichi-mahjong-fabric/releases/tag/v0.4.2%2Bfabric.26.3.28) 下载 `riichi-mahjong-0.4.2+fabric.26.3.28.jar`。停服备份后替换服务端旧版麻将 JAR，再正常开服，保留当前 TimoryResource 资源包。
+从 [26.3.29 Release](https://github.com/StealthFeather/riichi-mahjong-fabric/releases/tag/v0.4.2%2Bfabric.26.3.29) 的固定提交文件链接下载 `riichi-mahjong-0.4.2+fabric.26.3.29.jar`。停服备份后替换服务端旧版麻将 JAR，再正常开服，保留当前 TimoryResource 资源包。
 
 `/mahjong` 查看操作，管理员 `/mahjong give` 领物品。右键桌边入座，桌主潜行右键中心风盘打开菜单，再点击“开始对局”；已入座玩家在结算动画完成后普通右键中心风盘进入下一把。右键自己的牌出牌；吃碰杠、立直与胡牌使用本人桌沿按钮。跳过可和牌机会需要确认。主动离座使用 `/mahjong leave`；离座后 BOT 暂代，右键桌子或 `/mahjong join` 可接回原座位。
 
@@ -67,7 +73,7 @@ node test.cjs
 
 构建器兼容 Timory 工作区与独立源码归档，需配置 JDK、Minecraft 和 Polymer 依赖。配置方式见 [BUILDING.md](BUILDING.md)。**不要重新运行 `prepare.cjs`、`adapt.cjs` 或 `resources.cjs`**，以免覆盖已移植内容及版本元数据。
 
-JAR 位于 `build/libs/`，回归结果和 JAR SHA-256 位于 `build/verification.json`。另运行 `node test-replay-database.cjs /path/to/h2-2.3.232.jar` 验证独立测试数据库；结果位于 `build/replay-database-verification.json`。本版构建结果以对应发布附件为准；26.3.25 的历史数据库检查见 [26.3.25 说明](docs/26.3.25.md)。本版尚未进行真实客户端视觉、菜单交互或完整联机牌局验收。
+JAR 位于 `build/libs/`，回归结果和 JAR SHA-256 位于 `build/verification.json`。另运行 `node test-replay-database.cjs /path/to/h2-2.3.232.jar` 验证独立测试数据库；结果位于 `build/replay-database-verification.json`。本版完整构建、31 组 Java 回归及 19 项 Node 测试通过，SC 与 TR 均确认加载 26.3.29 并通过状态连接和控制台命令响应检查，其他模组与配置保持。按用户要求未创建新世界快照，仅备份旧 JAR 和配置；具体启动日志范围见发布清单 `release.json`。本版构建结果以对应发布附件为准；26.3.25 的历史数据库检查见 [26.3.25 说明](docs/26.3.25.md)。本版尚未进行真实客户端视觉、菜单交互或完整联机牌局验收。
 
 可选打包入口为 `node package.cjs`，默认输出至工作区 `deploy/`；用 `RIICHI_RELEASE_DIR` 可指定其他目录。`install-local.cjs` 仅供正常停服后的主测试服安装，构建与打包不会自动部署。
 

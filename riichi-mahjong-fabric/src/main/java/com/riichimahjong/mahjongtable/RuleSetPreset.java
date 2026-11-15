@@ -24,7 +24,11 @@ public enum RuleSetPreset {
 
     public int playerCount() { return playerCount; }
 
-    public TheMahjongMatch newMatch() { return factory.get(); }
+    public TheMahjongMatch newMatch() { return newMatch(MatchLength.SOUTH); }
+
+    public TheMahjongMatch newMatch(MatchLength length) {
+        return factory.get().withRoundCount(length.roundCount());
+    }
 
     public String langKey() { return "riichi_mahjong.preset." + key; }
 }
