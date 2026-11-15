@@ -38,6 +38,7 @@ public final class ReplayMenus {
     public static void controls(ServerPlayer player, MahjongTableBlockEntity table) {
         ReplaySession session = table.replay();
         if (session == null || !valid(player, table) || table.owner().filter(player.getUUID()::equals).isEmpty()) return;
+        int wind=Math.floorMod(session.perspective()-table.driver().currentRound().dealerSeat(),table.driver().match().playerCount());
         open(player, "牌谱回放控制", () -> valid(player, table) && table.replay() == session
                 && table.owner().filter(player.getUUID()::equals).isPresent(), menu -> {
             menu.button(4, icon(Items.PAPER, session.frame().label(), "进度 " + (session.index() + 1) + " / " + session.record().frames().size(), "点击刷新当前状态"), () -> controls(player, table));
@@ -48,8 +49,10 @@ public final class ReplayMenus {
             control(menu, player, table, 14, Items.ARROW, "下一步", ReplaySession.Control.NEXT);
             control(menu, player, table, 15, Items.ARROW, "下一局", ReplaySession.Control.NEXT_ROUND);
             control(menu, player, table, 16, Items.ARROW, "跳到结束", ReplaySession.Control.LAST);
+            control(menu, player, table, 20, Items.ARROW, "上一巡（当前视角）", ReplaySession.Control.PREVIOUS_TURN);
+            control(menu, player, table, 24, Items.ARROW, "下一巡（当前视角）", ReplaySession.Control.NEXT_TURN);
             control(menu, player, table, 28, Items.CLOCK, "播放速度：" + session.speed() + "倍", ReplaySession.Control.SPEED);
-            control(menu, player, table, 30, tile(27 + session.perspective()), "切换视角：" + WINDS[session.perspective()], ReplaySession.Control.PERSPECTIVE);
+            control(menu, player, table, 30, tile(27 + wind), "切换视角：" + WINDS[wind], ReplaySession.Control.PERSPECTIVE);
             control(menu, player, table, 32, Items.ENDER_EYE, "全手牌：" + (session.showAll() ? "显示" : "隐藏"), ReplaySession.Control.REVEAL);
             control(menu, player, table, 34, tile(32), "AI分析：" + (session.analysisEnabled() ? "开启" : "关闭"), ReplaySession.Control.ANALYSIS);
             menu.button(45, icon(Items.BARRIER, "退出回放并恢复牌桌"), () -> { table.controlReplay(player, ReplaySession.Control.EXIT); player.closeContainer(); });

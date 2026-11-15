@@ -47,21 +47,38 @@ import net.minecraft.world.level.storage.TagValueInput;
 
 /** Replay-only analysis. Its bounded queue and Node process never consume live BOT workers. */
 public final class ReplayAnalysis {
-    public record Candidate(String tile,int score,double value,double risk) {
-        public Candidate { if(score<0||score>99||!Double.isFinite(value)||!Double.isFinite(risk))throw new IllegalArgumentException("Invalid analysis score"); }
-        public TheMahjongTile mahjongTile() { return parseTile(tile); }
+    public static final int CACHE_VERSION=2;
+    public static final String POLICY="modeled-softmax-v2";
+    public record Candidate(String tile,int probability,int rank,double policyProbability,double value,double risk) {
+        public Candidate { parseTile(tile);checkProbability(probability,rank,policyProbability);if(!Double.isFinite(value)||!Double.isFinite(risk))throw new IllegalArgumentException("Invalid policy utility"); }
+        /** Compatibility accessor; this is an integer policy percentage, never the former 0–99 quality score. */
+        public int score(){return probability;}
+        public TheMahjongTile mahjongTile(){return parseTile(tile);}
+    }
+    public record ActionProbability(int index,String type,String tile,String label,int probability,int rank,double policyProbability) {
+        public ActionProbability { if(index<0||type==null||label==null)throw new IllegalArgumentException("Invalid policy action");if(tile!=null)parseTile(tile);checkProbability(probability,rank,policyProbability); }
+    }
+    public record Decision(int seat,List<Candidate> candidates,List<ActionProbability> actions,String chosenTile,int chosenProbability,int chosenRank,int chosenActionIndex) {
+        public Decision { candidates=List.copyOf(candidates);actions=List.copyOf(actions);if(seat<0||seat>3)throw new IllegalArgumentException("Invalid decision seat"); }
     }
     public record Result(int frame,int seat,List<Candidate> candidates,int chosenScore,
-                         Map<Integer,Map<Integer,Integer>> roundScores,String engine,String error) {
-        public Result { candidates=List.copyOf(candidates);roundScores=Map.copyOf(roundScores); }
+                         Map<Integer,Map<Integer,Integer>> roundScores,String engine,String error,
+                         List<ActionProbability> actions,String chosenTile,int chosenRank,Map<Integer,Decision> decisions) {
+        public Result { candidates=List.copyOf(candidates);actions=List.copyOf(actions);roundScores=Map.copyOf(roundScores);decisions=Map.copyOf(decisions); }
+        public Result(int frame,int seat,List<Candidate> candidates,int chosenScore,Map<Integer,Map<Integer,Integer>> roundScores,String engine,String error){this(frame,seat,candidates,chosenScore,roundScores,engine,error,List.of(),null,-1,Map.of());}
         public boolean available(){return error.isEmpty();}
+        public int chosenProbability(){return chosenScore;}
+        public Optional<Decision> decisionForSeat(int wanted){return Optional.ofNullable(decisions.get(wanted));}
     }
-    private record Evaluated(Result result,List<Candidate> all,int round){}
+    private static void checkProbability(int probability,int rank,double modeled){if(probability<0||probability>100||rank<1||!Double.isFinite(modeled)||modeled<0||modeled>1)throw new IllegalArgumentException("Invalid modeled policy probability");}
+    private record Evaluated(Result result,int round){}
     private record Entry(CompletableFuture<Evaluated> future,long created){}
     private static final class RecordCache {
         final Map<Integer,Entry> frames=new ConcurrentHashMap<>();
         final Map<String,Integer> actualChoices=new ConcurrentHashMap<>();
         volatile Map<Integer,Map<Integer,Integer>> summary=Map.of();
+        ReplayTimeline timeline;
+        synchronized ReplayTimeline timeline(ReplayRecord record){if(timeline==null)timeline=new ReplayTimeline(record);return timeline;}
     }
     private static final Map<UUID,RecordCache> CACHES=Collections.synchronizedMap(new LinkedHashMap<>(8,.75f,true));
     private static final Set<UUID> BATCHES=ConcurrentHashMap.newKeySet(),COMPLETED=ConcurrentHashMap.newKeySet();
@@ -114,46 +131,60 @@ public final class ReplayAnalysis {
         closed=true;BATCHES.clear();COMPLETED.clear();WORKER.kill();QUEUE.clear();EXECUTOR.shutdownNow();WATCHDOG.shutdownNow();
         synchronized(CACHES){CACHES.values().forEach(c->c.frames.values().forEach(e->e.future().cancel(false)));CACHES.clear();}
     }
-    /** Versioned numeric cache; full hands and hidden information are not duplicated here. */
+    /** Only explicit modeled probabilities are cached; pre-v2 relative scores are deliberately rejected. */
     public static JsonObject exportResults(UUID id){
-        var json=new JsonObject();json.addProperty("version",1);json.addProperty("record",id.toString());json.addProperty("complete",COMPLETED.contains(id));
+        var json=new JsonObject();json.addProperty("version",CACHE_VERSION);json.addProperty("policy",POLICY);json.addProperty("record",id.toString());json.addProperty("complete",COMPLETED.contains(id));
         var frames=new JsonArray();RecordCache cache=cache(id);
         cache.frames.forEach((index,entry)->{
             if(!entry.future().isDone()||entry.future().isCompletedExceptionally()||entry.future().isCancelled())return;
             Evaluated value=entry.future().getNow(null);if(!value.result().available())return;
-            var frame=new JsonObject();Result result=value.result();frame.addProperty("frame",index);frame.addProperty("round",value.round());frame.addProperty("seat",result.seat());
-            frame.addProperty("chosenScore",result.chosenScore());frame.addProperty("engine",result.engine());frame.add("candidates",candidatesJson(result.candidates()));frame.add("scores",candidatesJson(value.all()));frames.add(frame);
+            var frame=new JsonObject();Result result=value.result();frame.addProperty("frame",index);frame.addProperty("round",value.round());frame.addProperty("primarySeat",result.seat());frame.addProperty("engine",result.engine());
+            var decisions=new JsonArray();result.decisions().values().forEach(decision->{var data=new JsonObject();data.addProperty("seat",decision.seat());data.addProperty("chosenTile",decision.chosenTile());data.addProperty("chosenProbability",decision.chosenProbability());data.addProperty("chosenRank",decision.chosenRank());data.addProperty("chosenActionIndex",decision.chosenActionIndex());data.add("candidates",candidatesJson(decision.candidates()));data.add("actions",actionsJson(decision.actions()));decisions.add(data);});
+            frame.add("decisions",decisions);frames.add(frame);
         });
         json.add("frames",frames);var choices=new JsonObject();cache.actualChoices.forEach(choices::addProperty);json.add("actualChoices",choices);return json;
     }
     public static void importResults(UUID id,JsonObject json){
-        if(json==null||!json.has("version")||json.get("version").getAsInt()!=1||!id.toString().equals(json.get("record").getAsString()))throw new IllegalArgumentException("Unsupported analysis cache");
+        if(json==null||!json.has("version")||json.get("version").getAsInt()!=CACHE_VERSION||!json.has("policy")||!POLICY.equals(json.get("policy").getAsString())||!id.toString().equals(json.get("record").getAsString()))throw new IllegalArgumentException("Unsupported analysis cache; recompute modeled probabilities");
         JsonArray frames=json.getAsJsonArray("frames");if(frames==null||frames.size()>100_000)throw new IllegalArgumentException("Invalid analysis cache");
         Map<Integer,Entry> imported=new LinkedHashMap<>();Map<String,Integer> actual=new LinkedHashMap<>();
-        for(var element:frames){var frame=element.getAsJsonObject();int index=frame.get("frame").getAsInt(),round=frame.get("round").getAsInt(),seat=frame.get("seat").getAsInt(),chosen=frame.get("chosenScore").getAsInt();
-            if(index<0||round<0||seat< -1||seat>3||chosen< -1||chosen>99)throw new IllegalArgumentException("Invalid cached analysis frame");
-            List<Candidate> candidates=cachedCandidates(frame.getAsJsonArray("candidates")),all=cachedCandidates(frame.getAsJsonArray("scores"));
-            if(candidates.size()>3)throw new IllegalArgumentException("Invalid cached recommendation count");
-            var result=new Result(index,seat,candidates,chosen,Map.of(),frame.get("engine").getAsString(),"");
-            imported.put(index,new Entry(CompletableFuture.completedFuture(new Evaluated(result,all,round)),System.nanoTime()));
+        for(var element:frames){var frame=element.getAsJsonObject();int index=frame.get("frame").getAsInt(),round=frame.get("round").getAsInt(),primary=frame.get("primarySeat").getAsInt();
+            if(index<0||round<0||primary< -1||primary>3)throw new IllegalArgumentException("Invalid cached analysis frame");
+            Map<Integer,Decision> decisions=new LinkedHashMap<>();var values=frame.getAsJsonArray("decisions");if(values.size()>4)throw new IllegalArgumentException("Invalid cached seats");
+            for(var value:values){var data=value.getAsJsonObject();int seat=data.get("seat").getAsInt();List<Candidate> candidates=cachedCandidates(data.getAsJsonArray("candidates"));List<ActionProbability> actions=cachedActions(data.getAsJsonArray("actions"));String chosen=data.get("chosenTile").isJsonNull()?null:data.get("chosenTile").getAsString();int probability=data.get("chosenProbability").getAsInt(),rank=data.get("chosenRank").getAsInt(),action=data.get("chosenActionIndex").getAsInt();
+                if(chosen!=null){Candidate match=candidates.stream().filter(c->c.tile().equals(chosen)).findFirst().orElseThrow();if(match.probability()!=probability||match.rank()!=rank)throw new IllegalArgumentException("Invalid actual probability");}
+                else if(probability!=-1||rank!=-1)throw new IllegalArgumentException("Missing actual discard");
+                if(decisions.put(seat,new Decision(seat,candidates,actions,chosen,probability,rank,action))!=null)throw new IllegalArgumentException("Duplicate cached seat");
+            }
+            Result result=assemble(index,primary,decisions,frame.get("engine").getAsString());imported.put(index,new Entry(CompletableFuture.completedFuture(new Evaluated(result,round)),System.nanoTime()));
         }
-        var choices=json.getAsJsonObject("actualChoices");if(choices!=null)choices.entrySet().forEach(entry->{int score=entry.getValue().getAsInt();if(!entry.getKey().matches("[0-9]+:[0-3]:[0-9]+")||score<0||score>99)throw new IllegalArgumentException("Invalid cached actual score");actual.put(entry.getKey(),score);});
-        RecordCache cache=cache(id);imported.forEach(cache.frames::putIfAbsent);cache.actualChoices.putAll(actual);updateSummary(cache);
-        if(json.has("complete")&&json.get("complete").getAsBoolean())COMPLETED.add(id);
+        var choices=json.getAsJsonObject("actualChoices");if(choices!=null)choices.entrySet().forEach(entry->{int probability=entry.getValue().getAsInt();if(!entry.getKey().matches("[0-9]+:[0-3]:[0-9]+")||probability<0||probability>100)throw new IllegalArgumentException("Invalid cached actual probability");actual.put(entry.getKey(),probability);});
+        RecordCache cache=cache(id);imported.forEach(cache.frames::putIfAbsent);cache.actualChoices.putAll(actual);updateSummary(cache);if(json.has("complete")&&json.get("complete").getAsBoolean())COMPLETED.add(id);
     }
-    private static JsonArray candidatesJson(List<Candidate> candidates){var array=new JsonArray();for(var candidate:candidates){var value=new JsonObject();value.addProperty("tile",candidate.tile());value.addProperty("score",candidate.score());value.addProperty("value",candidate.value());value.addProperty("risk",candidate.risk());array.add(value);}return array;}
+    private static JsonArray candidatesJson(List<Candidate> candidates){var array=new JsonArray();for(var c:candidates){var v=new JsonObject();v.addProperty("tile",c.tile());v.addProperty("probability",c.probability());v.addProperty("rank",c.rank());v.addProperty("policyProbability",c.policyProbability());v.addProperty("value",c.value());v.addProperty("risk",c.risk());array.add(v);}return array;}
+    private static JsonArray actionsJson(List<ActionProbability> actions){var array=new JsonArray();for(var a:actions){var v=new JsonObject();v.addProperty("index",a.index());v.addProperty("type",a.type());v.addProperty("tile",a.tile());v.addProperty("label",a.label());v.addProperty("probability",a.probability());v.addProperty("rank",a.rank());v.addProperty("policyProbability",a.policyProbability());array.add(v);}return array;}
     private static List<Candidate> cachedCandidates(JsonArray array){
-        if(array==null||array.size()>14)throw new IllegalArgumentException("Invalid cached candidates");List<Candidate> result=new ArrayList<>();
-        for(var element:array){var value=element.getAsJsonObject();String tile=value.get("tile").getAsString();parseTile(tile);result.add(new Candidate(tile,value.get("score").getAsBigDecimal().intValueExact(),value.get("value").getAsDouble(),value.get("risk").getAsDouble()));}return List.copyOf(result);
+        if(array==null||array.size()>14)throw new IllegalArgumentException("Invalid cached candidates");List<Candidate> result=new ArrayList<>();Set<String> tiles=new java.util.HashSet<>();
+        for(var e:array){var v=e.getAsJsonObject();Candidate c=new Candidate(v.get("tile").getAsString(),v.get("probability").getAsBigDecimal().intValueExact(),v.get("rank").getAsInt(),v.get("policyProbability").getAsDouble(),v.get("value").getAsDouble(),v.get("risk").getAsDouble());if(!tiles.add(c.tile()))throw new IllegalArgumentException("Duplicate cached candidate");result.add(c);}
+        validateDistribution(result.stream().map(Candidate::probability).toList(),result.stream().map(Candidate::policyProbability).toList(),result.stream().map(Candidate::rank).toList());result.sort(Comparator.comparingInt(Candidate::rank));return List.copyOf(result);
+    }
+    private static List<ActionProbability> cachedActions(JsonArray array){
+        if(array==null||array.size()>100)throw new IllegalArgumentException("Invalid cached actions");List<ActionProbability> result=new ArrayList<>();Set<Integer> indices=new java.util.HashSet<>();
+        for(var e:array){var v=e.getAsJsonObject();ActionProbability a=new ActionProbability(v.get("index").getAsInt(),v.get("type").getAsString(),v.get("tile").isJsonNull()?null:v.get("tile").getAsString(),v.get("label").getAsString(),v.get("probability").getAsBigDecimal().intValueExact(),v.get("rank").getAsInt(),v.get("policyProbability").getAsDouble());if(!indices.add(a.index()))throw new IllegalArgumentException("Duplicate cached action");result.add(a);}
+        validateDistribution(result.stream().map(ActionProbability::probability).toList(),result.stream().map(ActionProbability::policyProbability).toList(),result.stream().map(ActionProbability::rank).toList());result.sort(Comparator.comparingInt(ActionProbability::rank));return List.copyOf(result);
+    }
+    private static void validateDistribution(List<Integer> probabilities,List<Double> modeled,List<Integer> ranks){
+        if(probabilities.isEmpty())return;if(probabilities.stream().mapToInt(Integer::intValue).sum()!=100||Math.abs(modeled.stream().mapToDouble(Double::doubleValue).sum()-1)>1e-6)throw new IllegalArgumentException("Policy must sum to one / 100 percent");
+        Set<Integer> unique=new java.util.HashSet<>(ranks);for(int rank=1;rank<=ranks.size();rank++)if(!unique.contains(rank))throw new IllegalArgumentException("Invalid policy ranks");
     }
     private static void persist(UUID id){ReplayStore.saveAnalysis(id,exportResults(id)).exceptionally(error->null);}
-    private static Result withSummary(UUID id,Result result){return new Result(result.frame(),result.seat(),result.candidates(),result.chosenScore(),roundScores(id),result.engine(),result.error());}
+    private static Result withSummary(UUID id,Result result){return new Result(result.frame(),result.seat(),result.candidates(),result.chosenScore(),roundScores(id),result.engine(),result.error(),result.actions(),result.chosenTile(),result.chosenRank(),result.decisions());}
     private static RecordCache findCache(UUID id){synchronized(CACHES){return CACHES.get(id);}}
     private static RecordCache cache(UUID id){synchronized(CACHES){RecordCache result=CACHES.computeIfAbsent(id,n->new RecordCache());while(CACHES.size()>8){UUID oldest=CACHES.keySet().iterator().next();BATCHES.remove(oldest);COMPLETED.remove(oldest);RecordCache evicted=CACHES.remove(oldest);evicted.frames.values().forEach(e->e.future().cancel(false));}return result;}}
     private static void scheduleNext(ReplayRecord record,int start,Consumer<Result> callback){
         if(closed||!BATCHES.contains(record.id())){BATCHES.remove(record.id());return;}
         int index=start;
-        while(index<record.frames().size()&&!discardFrame(record.frames().get(index).driver()))index++;
+        while(index<record.frames().size()&&!analysisFrame(record.frames().get(index).driver()))index++;
         if(index>=record.frames().size()){
             if(cache(record.id()).frames.values().stream().allMatch(e->e.future().isDone()&&!e.future().isCompletedExceptionally()&&e.future().getNow(null).result().available()))COMPLETED.add(record.id());
             BATCHES.remove(record.id());persist(record.id());return;
@@ -185,63 +216,67 @@ public final class ReplayAnalysis {
         if(!accepted){cache.frames.remove(index,entry);future.complete(failed(index,"分析队列已满，请稍后重试"));}
         return future;
     }
-    private static Evaluated failed(int frame,String error){return new Evaluated(new Result(frame,-1,List.of(),-1,Map.of(),"",error),List.of(),-1);}
-    private static boolean discardFrame(CompoundTag tag){return tag.getCompoundOrEmpty("phase").getStringOr("type","").equals("AWAITING_DISCARD");}
+    private static Evaluated failed(int frame,String error){return new Evaluated(new Result(frame,-1,List.of(),-1,Map.of(),"",error),-1);}
+    private static boolean analysisFrame(CompoundTag tag){String type=tag.getCompoundOrEmpty("phase").getStringOr("type","");return type.equals("AWAITING_DISCARD")||type.equals("AWAITING_CLAIMS")||type.equals("AWAITING_DRAW");}
+    private static Result assemble(int frame,int primary,Map<Integer,Decision> decisions,String engine){
+        Decision decision=decisions.get(primary);return new Result(frame,primary,decision==null?List.of():decision.candidates(),decision==null?-1:decision.chosenProbability(),Map.of(),engine,"",decision==null?List.of():decision.actions(),decision==null?null:decision.chosenTile(),decision==null?-1:decision.chosenRank(),decisions);
+    }
     private static Evaluated evaluate(ReplayRecord record,int index,RecordCache cache)throws Exception{
-        var frame=record.frames().get(index);TheMahjongDriver driver=decode(frame.driver());
-        if(!(driver.currentPhase() instanceof MatchPhase.AwaitingDiscard discard))return new Evaluated(new Result(index,-1,List.of(),-1,Map.of(),"",""),List.of(),frame.roundIndex());
-        int seat=discard.seat();var legal=driver.legalActions(seat);
-        if(legal.stream().noneMatch(a->a instanceof PlayerAction.Discard||a instanceof PlayerAction.DiscardWithRiichi))return new Evaluated(new Result(index,seat,List.of(),-1,Map.of(),"",""),List.of(),frame.roundIndex());
-        var request=new DecisionRequest(seat,driver.currentPhase(),legal,driver.currentRound(),driver.rules());
+        var frame=record.frames().get(index);TheMahjongDriver driver=decode(frame.driver());Map<Integer,Decision> decisions=new LinkedHashMap<>();String engine="";boolean changed=false;
         boolean red=driver.match().tileSet().tiles().stream().anyMatch(TheMahjongTile::redDora);
-        JsonObject snapshot=AiSnapshot.createAnalysis(request,red);
-        List<Candidate> all,top;String engine;
-        if(driver.match().playerCount()==4){
-            snapshot.addProperty("mode","analysis");snapshot.addProperty("id",IDS.incrementAndGet());
-            JsonObject reply=WORKER.request(snapshot);
-            all=parseCandidates(reply.getAsJsonArray("scores"),snapshot);top=parseCandidates(reply.getAsJsonArray("candidates"),snapshot);
-            if(top.size()>3||top.isEmpty())throw new IOException("Invalid recommendation count");engine=reply.get("engine").getAsString();
-        }else{all=threePlayer(driver,snapshot);double maximum=all.stream().mapToDouble(Candidate::value).max().orElse(1);top=all.stream().filter(c->maximum>0&&99*c.value()/maximum>=1).limit(3).toList();engine="existing-bot/shanten-ukeire-sanma";}
-        String chosen=actualDiscard(record,index,seat,driver.currentRound());
-        int chosenScore=chosen==null?-1:all.stream().filter(c->c.tile().equals(chosen)).mapToInt(Candidate::score).findFirst().orElse(0);
-        if(chosenScore>=0){int discardNumber=driver.currentRound().players().get(seat).discards().size();String key=frame.roundIndex()+":"+seat+":"+discardNumber;Integer old=cache.actualChoices.put(key,chosenScore);if(old==null||old!=chosenScore)updateSummary(cache);}
-        return new Evaluated(new Result(index,seat,top,chosenScore,Map.of(),engine,""),all,frame.roundIndex());
+        for(int seat=0;seat<driver.match().playerCount();seat++){
+            var legal=driver.legalActions(seat);if(legal.isEmpty())continue;
+            var request=new DecisionRequest(seat,driver.currentPhase(),legal,driver.currentRound(),driver.rules());JsonObject snapshot=AiSnapshot.createAnalysis(request,red);List<Candidate> candidates;List<ActionProbability> actions;
+            if(driver.match().playerCount()==4){
+                snapshot.addProperty("mode","analysis");snapshot.addProperty("id",IDS.incrementAndGet());JsonObject reply=WORKER.request(snapshot);
+                if(!reply.has("policy")||!POLICY.equals(reply.getAsJsonObject("policy").get("name").getAsString()))throw new IOException("Unsupported worker policy");
+                candidates=parseCandidates(reply.getAsJsonArray("candidates"),snapshot);actions=parseActions(reply.getAsJsonArray("actions"),snapshot);engine=reply.get("engine").getAsString()+"/"+POLICY;
+            }else{PolicyResult policy=threePlayer(driver,snapshot);candidates=policy.candidates();actions=policy.actions();engine="existing-bot/shanten-ukeire-sanma/"+POLICY;}
+            var actual=cache.timeline(record).discardForDecision(index,seat);String chosen=actual.map(ReplayTimeline.Discard::tile).orElse(null);int probability=-1,rank=-1,actionIndex=-1;
+            if(chosen!=null){var match=candidates.stream().filter(c->c.tile().equals(chosen)).findFirst();if(match.isPresent()){probability=match.get().probability();rank=match.get().rank();String type=actual.orElseThrow().riichi()?"DiscardWithRiichi":"Discard";actionIndex=actions.stream().filter(a->a.type().equals(type)&&chosen.equals(a.tile())).mapToInt(ActionProbability::index).findFirst().orElse(-1);String key=frame.roundIndex()+":"+seat+":"+actual.orElseThrow().riverIndex();Integer old=cache.actualChoices.put(key,probability);changed|=old==null||old!=probability;}}
+            decisions.put(seat,new Decision(seat,candidates,actions,chosen,probability,rank,actionIndex));
+        }
+        if(changed)updateSummary(cache);int primary=driver.currentPhase() instanceof MatchPhase.AwaitingDiscard d?d.seat():driver.currentPhase() instanceof MatchPhase.AwaitingDraw d?d.seat():decisions.keySet().stream().mapToInt(Integer::intValue).findFirst().orElse(-1);
+        return new Evaluated(assemble(index,primary,decisions,engine),frame.roundIndex());
     }
     private static List<Candidate> parseCandidates(JsonArray array,JsonObject snapshot)throws IOException{
-        if(array==null||array.size()>14)throw new IOException("Invalid analysis candidates");
-        List<Candidate> result=new ArrayList<>();Set<String> seen=new java.util.HashSet<>();
-        for(var element:array){var value=element.getAsJsonObject();String tile=value.get("tile").getAsString();boolean allowed=false;
-            for(var action:snapshot.getAsJsonArray("legal")){var a=action.getAsJsonObject();if(a.has("tile")&&a.get("type").getAsString().startsWith("Discard")&&a.get("tile").getAsString().equals(tile))allowed=true;}
-            if(!allowed||!seen.add(tile))throw new IOException("Analysis returned an illegal tile");
-            int score=value.get("score").getAsBigDecimal().intValueExact();result.add(new Candidate(tile,score,value.get("value").getAsDouble(),value.get("risk").getAsDouble()));
-        }return List.copyOf(result);
+        List<Candidate> result;try{result=cachedCandidates(array);}catch(RuntimeException error){throw new IOException("Invalid discard distribution",error);}
+        Set<String> allowed=new java.util.HashSet<>();for(var value:snapshot.getAsJsonArray("legal")){var a=value.getAsJsonObject();if(a.has("tile")&&a.get("type").getAsString().startsWith("Discard"))allowed.add(a.get("tile").getAsString());}
+        if(!allowed.equals(result.stream().map(Candidate::tile).collect(java.util.stream.Collectors.toSet())))throw new IOException("Discard distribution omitted or invented legal tiles");return result;
     }
+    private static List<ActionProbability> parseActions(JsonArray array,JsonObject snapshot)throws IOException{
+        // Worker action labels are localized here; the Node protocol carries only authoritative identities.
+        if(array==null)throw new IOException("Missing action distribution");for(var value:array){var action=value.getAsJsonObject();action.addProperty("label",actionLabel(action.get("type").getAsString()));}
+        List<ActionProbability> result;try{result=cachedActions(array);}catch(RuntimeException error){throw new IOException("Invalid action distribution",error);}
+        if(result.size()!=snapshot.getAsJsonArray("legal").size())throw new IOException("Incomplete action distribution");
+        for(var action:result){boolean found=false;for(var value:snapshot.getAsJsonArray("legal")){var legal=value.getAsJsonObject();String tile=legal.has("tile")?legal.get("tile").getAsString():null;if(action.index()==legal.get("index").getAsInt()&&action.type().equals(legal.get("type").getAsString())&&java.util.Objects.equals(action.tile(),tile))found=true;}if(!found)throw new IOException("Action distribution invented a legal action");}return result;
+    }
+    public static String actionLabel(String type){return switch(type){case "Discard"->"出牌";case "DiscardWithRiichi"->"立直";case "Chi"->"吃";case "Pon"->"碰";case "Daiminkan"->"大明杠";case "Ankan"->"暗杠";case "Kakan"->"加杠";case "DeclareKita"->"拔北";case "DeclareRon"->"荣和";case "DeclareTsumo"->"自摸";case "DeclareChankan"->"抢杠和";case "KyuushuAbort"->"九种九牌";case "Pass"->"跳过";case "Draw"->"摸牌";default->type;};}
     private static TheMahjongDriver decode(CompoundTag data){
         int count=data.getCompoundOrEmpty("match").getIntOr("playerCount",0);
         List<MahjongPlayerInterface> players=new ArrayList<>();for(int i=0;i<count;i++)players.add((request,delta)->Optional.empty());
         return DriverNbt.readDriver(TagValueInput.create(ProblemReporter.DISCARDING,HolderLookup.Provider.create(Stream.empty()),data),players,new Random(0));
-    }
-    private static String actualDiscard(ReplayRecord record,int index,int seat,TheMahjongRound before){
-        int size=before.players().get(seat).discards().size(),round=record.frames().get(index).roundIndex();
-        for(int i=index+1;i<record.frames().size();i++){
-            var frame=record.frames().get(i);if(frame.roundIndex()!=round)return null;
-            var state=frame.driver().getCompoundOrEmpty("match").getCompoundOrEmpty("currentRound");
-            var players=state.getListOrEmpty("players");if(seat>=players.size())continue;
-            var river=players.getCompoundOrEmpty(seat).getListOrEmpty("discards");
-            if(river.size()>size){var tile=river.getCompoundOrEmpty(size).getCompoundOrEmpty("tile");return tileCode(tile);}
-        }return null;
-    }
-    private static String tileCode(CompoundTag tag){
-        String suit=tag.getStringOr("suit","");int rank=tag.getIntOr("rank",0);boolean red=tag.getBooleanOr("redDora",false);
-        return switch(suit){case "MANZU"->"m"+(red?0:rank);case "PINZU"->"p"+(red?0:rank);case "SOUZU"->"s"+(red?0:rank);case "WIND"->"z"+rank;case "DRAGON"->"z"+(rank+4);default->null;};
     }
     public static TheMahjongTile parseTile(String code){
         if(code==null||!code.matches("(?:[mps][0-9]|z[1-7])"))throw new IllegalArgumentException("Invalid analysis tile");int number=code.charAt(1)-'0';
         return switch(code.charAt(0)){case 'm'->new TheMahjongTile(TheMahjongTile.Suit.MANZU,number==0?5:number,number==0);case 'p'->new TheMahjongTile(TheMahjongTile.Suit.PINZU,number==0?5:number,number==0);case 's'->new TheMahjongTile(TheMahjongTile.Suit.SOUZU,number==0?5:number,number==0);default->new TheMahjongTile(number<=4?TheMahjongTile.Suit.WIND:TheMahjongTile.Suit.DRAGON,number<=4?number:number-4,false);};
     }
     private static int kind(String tile){int n=tile.charAt(1)-'0';if(n==0)n=5;return switch(tile.charAt(0)){case 'm'->n-1;case 'p'->n+8;case 's'->n+17;default->n+26;};}
-    /** The live three-player BOT has no EV API; reuse its existing fallback hand-efficiency evaluator. */
-    private static List<Candidate> threePlayer(TheMahjongDriver driver,JsonObject snapshot){
+    private record PolicyResult(List<Candidate> candidates,List<ActionProbability> actions){}
+    /** Largest-remainder percentages: the complete distribution always sums to exactly 100. */
+    public static int[] largestRemainders(double[] probabilities){
+        if(probabilities.length==0)return new int[0];double total=0;for(double p:probabilities){if(!Double.isFinite(p)||p<0)throw new IllegalArgumentException("Invalid policy weight");total+=p;}if(total<=0)throw new IllegalArgumentException("Empty policy mass");
+        int[] result=new int[probabilities.length];double[] fractions=new double[probabilities.length];List<Integer> order=new ArrayList<>();int sum=0;
+        for(int i=0;i<probabilities.length;i++){double percent=100*probabilities[i]/total;result[i]=(int)Math.floor(percent);fractions[i]=percent-result[i];sum+=result[i];order.add(i);}
+        order.sort((a,b)->{int compared=Double.compare(fractions[b],fractions[a]);if(compared==0)compared=Double.compare(probabilities[b],probabilities[a]);return compared==0?Integer.compare(a,b):compared;});
+        for(int i=0;i<100-sum;i++)result[order.get(i)]++;return result;
+    }
+    private static double[] softmax(double[] logits,int recommended){
+        if(logits.length==0)return new double[0];double[] values=logits.clone();double max=java.util.Arrays.stream(values).max().orElseThrow();if(recommended>=0)values[recommended]=max+.5;
+        max=java.util.Arrays.stream(values).max().orElseThrow();double[] probabilities=new double[values.length];double sum=0;for(int i=0;i<values.length;i++){probabilities[i]=Math.exp((values[i]-max)/.75);sum+=probabilities[i];}for(int i=0;i<values.length;i++)probabilities[i]/=sum;return probabilities;
+    }
+    /** The three-player live BOT has no native probabilities; model its legal actions using existing hand efficiency. */
+    private static PolicyResult threePlayer(TheMahjongDriver driver,JsonObject snapshot){
         int[] hand=new int[34],visible=new int[34],copies=new int[34];Set<String> allowed=new java.util.LinkedHashSet<>();
         for(var tile:driver.match().tileSet().tiles())copies[kind(AiSnapshot.tile(tile))]+=driver.match().tileSet().copiesPerTile().get(tile);
         for(var tile:snapshot.getAsJsonArray("hand")){hand[kind(tile.getAsString())]++;visible[kind(tile.getAsString())]++;}
@@ -251,11 +286,24 @@ public final class ReplayAnalysis {
         int seat=snapshot.get("seat").getAsInt(),open=snapshot.getAsJsonArray("melds").get(seat).getAsJsonArray().size();
         for(var value:snapshot.getAsJsonArray("legal")){var a=value.getAsJsonObject();if(a.get("type").getAsString().startsWith("Discard"))allowed.add(a.get("tile").getAsString());}
         record Choice(String tile,int shanten,int ukeire,double value){}List<Choice> choices=new ArrayList<>();int min=99;
-        for(String tile:allowed){int k=kind(tile);hand[k]--;int shanten=FallbackPolicy.shanten(hand,open),ukeire=0;for(int draw=0;draw<34;draw++){int left=Math.max(0,copies[draw]-visible[draw]);if(left==0)continue;hand[draw]++;if(FallbackPolicy.shanten(hand,open)<shanten)ukeire+=left;hand[draw]--;}hand[k]++;choices.add(new Choice(tile,shanten,ukeire,ukeire+1));min=Math.min(min,shanten);}
-        final int baseline=min;double max=choices.stream().mapToDouble(c->c.value()*Math.exp(-3*(c.shanten()-baseline))).max().orElse(1);
-        List<Candidate> result=new ArrayList<>();for(var c:choices){double value=c.value()*Math.exp(-3*(c.shanten()-baseline));result.add(new Candidate(c.tile(),(int)Math.round(99*value/max),value,0));}
-        result.sort(Comparator.comparingInt(Candidate::score).reversed().thenComparing(Candidate::tile));return List.copyOf(result);
+        for(String tile:allowed){int k=kind(tile);hand[k]--;int shanten=FallbackPolicy.shanten(hand,open),ukeire=ukeire(hand,open,copies,visible,shanten);hand[k]++;choices.add(new Choice(tile,shanten,ukeire,ukeire+1));min=Math.min(min,shanten);}
+        final int baseline=min;double[] discardLogits=choices.stream().mapToDouble(c->Math.log1p(c.value()*Math.exp(-3*(c.shanten()-baseline)))).toArray();int best=-1;for(int i=0;i<discardLogits.length;i++)if(best<0||discardLogits[i]>discardLogits[best])best=i;
+        double[] discardProbabilities=softmax(discardLogits,best);int[] discardIntegers=largestRemainders(discardProbabilities);List<Candidate> candidates=new ArrayList<>();List<Integer> order=new ArrayList<>();for(int i=0;i<choices.size();i++)order.add(i);order.sort((a,b)->Double.compare(discardProbabilities[b],discardProbabilities[a]));
+        for(int rank=0;rank<order.size();rank++){int i=order.get(rank);var c=choices.get(i);candidates.add(new Candidate(c.tile(),discardIntegers[i],rank+1,discardProbabilities[i],c.value(),0));}
+        var legal=driver.legalActions(seat);var request=new DecisionRequest(seat,driver.currentPhase(),legal,driver.currentRound(),driver.rules());PlayerAction bot=new com.themahjong.driver.bots.StupidActiveBot().chooseAction(request,1).orElse(null);int recommended=legal.indexOf(bot);
+        JsonArray list=snapshot.getAsJsonArray("legal");double[] actionLogits=new double[list.size()];double maximum=java.util.Arrays.stream(discardLogits).max().orElse(1);int currentShanten=FallbackPolicy.shanten(hand,open);
+        for(int i=0;i<list.size();i++){var action=list.get(i).getAsJsonObject();String type=action.get("type").getAsString();String tile=action.has("tile")?action.get("tile").getAsString():null;double logit=1;
+            if(type.startsWith("Discard")){for(int j=0;j<choices.size();j++)if(choices.get(j).tile().equals(tile))logit=discardLogits[j];if(type.equals("DiscardWithRiichi"))logit+=.15;}
+            else if(type.equals("DeclareRon")||type.equals("DeclareTsumo")||type.equals("DeclareChankan"))logit=maximum+2;
+            else if(action.has("handTiles")){int[] next=hand.clone();for(var removed:action.getAsJsonArray("handTiles"))next[kind(removed.getAsString())]--;int nextOpen=open+1;int shanten=FallbackPolicy.shanten(next,nextOpen);double utility=(ukeire(next,nextOpen,copies,visible,shanten)+1)*Math.exp(-3*Math.max(0,shanten-currentShanten));logit=Math.log1p(utility);}
+            else if(type.equals("Pass"))logit=Math.log1p(ukeire(hand,open,copies,visible,currentShanten)+1);
+            else if(type.equals("KyuushuAbort"))logit=0;actionLogits[i]=logit;
+        }
+        double[] probabilities=softmax(actionLogits,recommended);int[] integers=largestRemainders(probabilities);List<ActionProbability> actions=new ArrayList<>();order=new ArrayList<>();for(int i=0;i<list.size();i++)order.add(i);order.sort((a,b)->Double.compare(probabilities[b],probabilities[a]));
+        for(int rank=0;rank<order.size();rank++){int i=order.get(rank);var action=list.get(i).getAsJsonObject();String type=action.get("type").getAsString();actions.add(new ActionProbability(action.get("index").getAsInt(),type,action.has("tile")?action.get("tile").getAsString():null,actionLabel(type),integers[i],rank+1,probabilities[i]));}
+        return new PolicyResult(List.copyOf(candidates),List.copyOf(actions));
     }
+    private static int ukeire(int[] hand,int open,int[] copies,int[] visible,int shanten){int ukeire=0;for(int draw=0;draw<34;draw++){int left=Math.max(0,copies[draw]-visible[draw]);if(left==0||hand[draw]>=4)continue;hand[draw]++;if(FallbackPolicy.shanten(hand,open)<shanten)ukeire+=left;hand[draw]--;}return ukeire;}
     private static final class Worker {
         private volatile Process process;private BufferedReader output;private BufferedWriter input;private long active=-1;
         JsonObject request(JsonObject snapshot)throws Exception{

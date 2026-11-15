@@ -70,3 +70,63 @@ Run `node --test ai/test.cjs`. Tests cover actual strategy differences, riichi,
 defense, yakuhai calls, red tiles, source-seat rotations, kan notation, called-tile
 counts, deterministic reloads and JSON-line error recovery. Java and real-server
 integration tests cover the snapshot boundary and controller lifecycle separately.
+
+## Replay policy probabilities (cache version 2)
+
+Replay analysis exposes **modeled policy probabilities**. The bundled AI is a
+ deterministic strategy and does not provide native action probabilities. These
+percentages are neither win probabilities nor calibrated predictions of human
+choices. The model is named `modeled-softmax-v2`; version-1 relative 0–99 scores
+are rejected and recomputed.
+
+For four-player discard candidates, reuse the hard strategy's expected value,
+shanten and public-information danger estimate:
+
+```
+utility = max(0, EV) * exp(-3 * max(0, extraShanten)) / (1 + danger / 3.2)
+logit = log(1 + utility)
+```
+
+The deterministic hard strategy's recommendation receives a logit equal to the
+largest candidate logit plus 0.5. This preserves defensive recommendations even
+when a dangerous attacking discard has a larger raw EV. Apply stable softmax
+with temperature 0.75 to obtain a probability distribution. Every legal discard
+tile is returned, including choices whose integer percentage is zero. Red fives
+retain their exact identity. Normal discard and riichi with the same tile share
+one conditional discard candidate.
+
+Two distributions are normalized independently:
+
+- **Discard tiles**, conditional on choosing to discard, sum to one even when a
+  kan or win is also legal. Their displayed integer percentages sum to 100.
+- **All legal actions**, including each specific discard/riichi combination,
+  chi, pon, kan, kita, win, pass and draw, sum to one separately. Action indices
+  refer to the authoritative Java engine's legal list. Calls and kans use the
+  same AI's post-action hand evaluation; legal wins receive an additional 2
+  logit units, riichi 0.15, and abortive draw -1. The deterministic full-action
+  recommendation receives the same 0.5 margin before softmax. The UI may sum
+  probabilities for several legal riichi choices into one riichi button.
+
+Integer percentages use the largest-remainder method: floor all percentages,
+then assign the remaining percentage points to the largest fractional parts.
+This conserves exactly 100, permits a forced choice to display 100, and avoids
+independent rounding errors. Ranks use the full precision probabilities; a
+rounded tie does not erase the ranking.
+
+Three-player analysis uses the existing Java fallback shanten and visible
+ukeire evaluator with the actual sanma tile set, the same softmax temperature,
+and the same largest-remainder rule. The original three-player BOT provides the
+full-action recommendation. This is a separate modeled policy with lower
+strategic detail than the four-player engine.
+
+A replay result retains the actual recorded discard tile, its conditional
+probability, its full-distribution rank, and the corresponding normal/riichi
+action index. The timeline matches only the immediately resulting discard of
+that decision, so a kan, kita or win cannot accidentally acquire a later turn's
+discard. The per-round aggregate is the mean modeled probability of the actual
+chosen discards; it is not the former quality score.
+
+Analysis only reads immutable recorded frames. It never submits an action to
+the rule engine. The worker still receives only the analyzed player's own hand
+and public information; recorded future actions are consulted afterward solely
+to identify which historic choice was actually made.

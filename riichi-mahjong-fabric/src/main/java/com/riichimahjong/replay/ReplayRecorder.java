@@ -30,6 +30,17 @@ public final class ReplayRecorder {
         this.id=id;this.startedAt=startedAt;this.preset=preset;this.people.addAll(participants);this.frames.addAll(frames);
     }
     public boolean finished(){return finished;}
+    /** Recover public final-hand presentation from recordings made before it had a separate save field. */
+    public java.util.Optional<ReplayRecord.Frame> lastRoundResult() {
+        if(frames.isEmpty())return java.util.Optional.empty();
+        int lastRound=frames.getLast().roundIndex();
+        for(int index=frames.size()-1;index>=0;index--) {
+            var frame=frames.get(index);if(frame.roundIndex()!=lastRound)break;
+            if(frame.driver().getCompoundOrEmpty("phase").getStringOr("type","").equals("ROUND_ENDED"))
+                return java.util.Optional.of(frame);
+        }
+        return java.util.Optional.empty();
+    }
     public void remember(int seat,UUID uuid,String name) {
         if(uuid==null||people.stream().anyMatch(p->uuid.equals(p.uuid())))return;
         var bot=people.stream().filter(p->p.seat()==seat&&p.uuid()==null).findFirst();

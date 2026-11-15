@@ -71,7 +71,7 @@ public final class DriverNbt {
         return new TheMahjongDriver(match, players, random, snapshot);
     }
 
-    private static void writePhase(ValueOutput out, MatchPhase phase) {
+    public static void writePhase(ValueOutput out, MatchPhase phase) {
         if (phase instanceof MatchPhase.NotStarted) {
             out.putString("type", "NOT_STARTED");
         } else if (phase instanceof MatchPhase.Dealing d) {
@@ -112,7 +112,7 @@ public final class DriverNbt {
         }
     }
 
-    private static MatchPhase readPhase(ValueInput in) {
+    public static MatchPhase readPhase(ValueInput in) {
         String type = in.getStringOr("type", "");
         return switch (type) {
             case "NOT_STARTED" -> new MatchPhase.NotStarted();

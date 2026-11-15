@@ -4,9 +4,10 @@ import java.util.UUID;
 
 /** A cursor over immutable recorded states; playback never polls the game or reruns bots. */
 public final class ReplaySession {
-    public enum Control { FIRST,PREVIOUS_ROUND,PREVIOUS,PLAY_PAUSE,NEXT,NEXT_ROUND,LAST,SPEED,PERSPECTIVE,REVEAL,ANALYSIS,EXIT }
+    public enum Control { FIRST,PREVIOUS_ROUND,PREVIOUS_TURN,PREVIOUS,PLAY_PAUSE,NEXT,NEXT_TURN,NEXT_ROUND,LAST,SPEED,PERSPECTIVE,REVEAL,ANALYSIS,EXIT }
     private static final double[] SPEEDS={.5,1,2,4};
     private final ReplayRecord record;
+    private final ReplayTimeline timeline;
     private int index,perspective,speedIndex=1;
     private boolean playing,showAll,analysisEnabled;
     private double elapsed;
@@ -14,10 +15,11 @@ public final class ReplaySession {
 
     public ReplaySession(ReplayRecord record,UUID viewer,boolean analysisEnabled) {
         if(!record.completed())throw new IllegalArgumentException("Only completed matches can be replayed");
-        this.record=record;this.analysisEnabled=analysisEnabled;
+        this.record=record;this.timeline=new ReplayTimeline(record);this.analysisEnabled=analysisEnabled;
         perspective=record.participants().stream().filter(p->viewer.equals(p.uuid())).mapToInt(ReplayRecord.Participant::seat).findFirst().orElse(0);
     }
     public ReplayRecord record(){return record;}
+    public ReplayTimeline timeline(){return timeline;}
     public int index(){return index;}
     public ReplayRecord.Frame frame(){return record.frames().get(index);}
     public boolean playing(){return playing;}
@@ -33,6 +35,8 @@ public final class ReplaySession {
             case FIRST->{index=0;playing=false;}
             case PREVIOUS->{index=Math.max(0,index-1);playing=false;}
             case NEXT->{index=Math.min(last,index+1);playing=false;}
+            case PREVIOUS_TURN->{index=timeline.previousTurn(index,perspective);playing=false;}
+            case NEXT_TURN->{index=timeline.nextTurn(index,perspective);playing=false;}
             case LAST->{index=last;playing=false;}
             case PREVIOUS_ROUND->{
                 int round=frame().roundIndex(),start=index;

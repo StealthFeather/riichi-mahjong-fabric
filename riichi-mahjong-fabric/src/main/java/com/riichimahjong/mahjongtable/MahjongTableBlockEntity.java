@@ -8,6 +8,7 @@ import com.riichimahjong.cuterenderer.InteractKey;
 import com.riichimahjong.themahjongcompat.DriverNbt;
 import com.riichimahjong.fabric.HandDisplayState;
 import com.riichimahjong.fabric.ResultHandReveals;
+import com.riichimahjong.fabric.RoundResultDisplay;
 import com.riichimahjong.fabric.TableOwnership;
 import com.riichimahjong.fabric.WinningHandDisplay;
 import com.riichimahjong.replay.ReplayRecord;
@@ -130,6 +131,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     private final Map<UUID,Long> privateClicks = new HashMap<>();
     private final HandDisplayState handDisplay = new HandDisplayState();
     private final ResultHandReveals resultHandReveals = new ResultHandReveals();
+    private final RoundResultDisplay roundResultDisplay = new RoundResultDisplay();
     @Nullable private WinningHandDisplay winningHandDisplay;
     @Nullable private TheMahjongDriver handDisplayDriver;
     private RuleSetPreset preset = RuleSetPreset.MAHJONG_SOUL_4P;
@@ -182,6 +184,11 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     @Nullable
     public TheMahjongDriver driver() { return driver; }
 
+    /** Public result presentation can outlive the rule phase without making the game actionable. */
+    @Nullable public MatchPhase displayPhase() {
+        return driver==null?null:roundResultDisplay.phase(driver.currentPhase());
+    }
+
     public long matchRevision() { return matchRevision; }
 
     @Nullable public ReplaySession replay() { return replay; }
@@ -220,6 +227,21 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         driver=frame.restore(level.registryAccess());
         var in=TagValueInput.create(ProblemReporter.DISCARDING,level.registryAccess(),frame.driver());
         winningHandDisplay=in.child("ReplayWinningHand").map(WinningHandDisplay::read).orElse(null);
+        roundResultDisplay.clear();
+        roundResultDisplay.observe(driver.currentPhase());
+        if(driver.currentPhase() instanceof MatchPhase.MatchEnded) {
+            // Existing database replays already contain the public result in the previous frame.
+            for(int index=replay.index()-1;index>=0;index--) {
+                var earlier=replay.record().frames().get(index);
+                if(earlier.roundIndex()!=frame.roundIndex())break;
+                if(!earlier.driver().getCompoundOrEmpty("phase").getStringOr("type","").equals("ROUND_ENDED"))continue;
+                var ended=earlier.restore(level.registryAccess());
+                roundResultDisplay.observe(ended.currentPhase());
+                var endedInput=TagValueInput.create(ProblemReporter.DISCARDING,level.registryAccess(),earlier.driver());
+                winningHandDisplay=endedInput.child("ReplayWinningHand").map(WinningHandDisplay::read).orElse(null);
+                break;
+            }
+        }
         handDisplay.clear();handDisplayDriver=null;resultHandReveals.clear();
         resultAnimStage=driver.currentPhase() instanceof MatchPhase.RoundEnded?ResultAnimStage.SHOW_FINAL:ResultAnimStage.NONE;
         resultAnimYakuIdx=0;appliedReplayRevision=replay.revision();
@@ -295,7 +317,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
 
     private Optional<WinningHandDisplay.Layout> winningHandLayout(int seat) {
         if(winningHandDisplay==null||driver==null)return Optional.empty();
-        return driver.match().currentRound().flatMap(round -> winningHandDisplay.layout(round,driver.currentPhase(),seat));
+        return driver.match().currentRound().flatMap(round -> winningHandDisplay.layout(round,displayPhase(),seat));
     }
 
     public List<SeatInfo> seats() { return List.copyOf(seats); }
@@ -707,6 +729,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
 
     private void clearMatchState() {
         replay=null;replayRecorder=null;appliedReplayRevision=-1;
+        roundResultDisplay.clear();
         resultHandReveals.clear();
         winningHandDisplay = null;
         closeBotPlayers();
@@ -923,9 +946,10 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             playAcceptedActionSounds(sl, prevMatch);
         }
         MatchPhase nextPhase = driver.currentPhase();
+        roundResultDisplay.observe(nextPhase);
         if (!(prevPhase instanceof MatchPhase.RoundEnded) && nextPhase instanceof MatchPhase.RoundEnded) {
             winningHandDisplay = WinningHandDisplay.capture(driver.winningTile(), nextPhase);
-        } else if (!(nextPhase instanceof MatchPhase.RoundEnded)) {
+        } else if (!(nextPhase instanceof MatchPhase.RoundEnded) && !(nextPhase instanceof MatchPhase.MatchEnded)) {
             winningHandDisplay = null;
         }
         updateHandDisplay();
@@ -1105,7 +1129,10 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         var next = com.riichimahjong.fabric.RoundProgression.next(driver);
         clearResultAnimState();
         try {
+            roundResultDisplay.observe(driver.currentPhase());
             driver.advanceRound(next.renchan(), next.nextHonba());
+            roundResultDisplay.observe(driver.currentPhase());
+            if(!(driver.currentPhase() instanceof MatchPhase.MatchEnded))winningHandDisplay=null;
             matchRevision++;
             resultHandReveals.shownSeats(driver);
         } catch (Exception ignored) {
@@ -1316,9 +1343,10 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
 
         if (driver != null && replay==null) {
             DriverNbt.writeDriver(out.child(NBT_DRIVER), driver);
+            roundResultDisplay.write(out.child("RoundResultDisplay"));
             if(replayRecorder!=null)out.store("ReplayRecording",CompoundTag.CODEC,replayRecorder.toNbt());
             resultHandReveals.write(out.child("ShownHands"), driver);
-            if (winningHandDisplay != null && driver.currentPhase() instanceof MatchPhase.RoundEnded) {
+            if (winningHandDisplay != null && displayPhase() instanceof MatchPhase.RoundEnded) {
                 winningHandDisplay.write(out.child("WinningHandDisplay"));
             }
             out.putLong(NBT_RANDOM_SEED, randomSeed);
@@ -1342,6 +1370,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     protected void loadAdditional(ValueInput in) {
         super.loadAdditional(in);
         replay=null;replayRecorder=null;appliedReplayRevision=-1;nextArchiveAttempt=0;
+        roundResultDisplay.clear();
         replayArchives.read(in.childOrEmpty("ReplayArchives"));
 
         matchRevision++;
@@ -1427,7 +1456,9 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
                     new java.security.SecureRandom());
             this.driver.setAnimationsEnabled(true);
             resultHandReveals.read(in.childOrEmpty("ShownHands"), driver);
-            if (driver.currentPhase() instanceof MatchPhase.RoundEnded) {
+            roundResultDisplay.read(in.childOrEmpty("RoundResultDisplay"));
+            roundResultDisplay.observe(driver.currentPhase());
+            if (displayPhase() instanceof MatchPhase.RoundEnded) {
                 winningHandDisplay = in.child("WinningHandDisplay").map(WinningHandDisplay::read).orElse(null);
             }
 
@@ -1452,6 +1483,14 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             // A pre-feature save has no complete action history: never mislabel it a full replay.
             try {
                 replayRecorder=in.read("ReplayRecording",CompoundTag.CODEC).map(ReplayRecorder::fromNbt).orElse(null);
+                if(driver.currentPhase() instanceof MatchPhase.MatchEnded
+                        &&displayPhase() instanceof MatchPhase.MatchEnded&&replayRecorder!=null) {
+                    replayRecorder.lastRoundResult().ifPresent(frame->{
+                        roundResultDisplay.observe(frame.restore(in.lookup()).currentPhase());
+                        var resultInput=TagValueInput.create(ProblemReporter.DISCARDING,in.lookup(),frame.driver());
+                        winningHandDisplay=resultInput.child("ReplayWinningHand").map(WinningHandDisplay::read).orElse(null);
+                    });
+                }
                 attachRecordingObserver();
             } catch(RuntimeException error) {
                 replayRecorder=null;

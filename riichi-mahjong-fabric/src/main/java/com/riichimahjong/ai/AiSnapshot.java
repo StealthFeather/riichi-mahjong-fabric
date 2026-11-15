@@ -43,7 +43,7 @@ public final class AiSnapshot {
         out.addProperty("honba", round.honba());
         out.addProperty("riichiSticks", round.riichiSticks());
         out.addProperty("remaining", round.liveWall().size());
-        out.addProperty("phase", request.phase() instanceof MatchPhase.AwaitingClaims ? "claim" : "discard");
+        out.addProperty("phase", request.phase() instanceof MatchPhase.AwaitingClaims ? "claim" : request.phase() instanceof MatchPhase.AwaitingDraw ? "draw" : "discard");
         out.add("hand", tiles(round.players().get(request.seat()).currentHand()));
         if (round.currentTurnSeat() == request.seat() && round.activeTile() instanceof TheMahjongRound.ActiveTile.Drawn draw)
             out.addProperty("drawn", tile(draw.tile()));

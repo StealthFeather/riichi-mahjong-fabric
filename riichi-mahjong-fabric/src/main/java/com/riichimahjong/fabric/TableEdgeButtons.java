@@ -1,6 +1,7 @@
 package com.riichimahjong.fabric;
 
 import java.util.List;
+import java.util.ArrayList;
 import java.util.function.BooleanSupplier;
 import java.util.function.IntConsumer;
 import com.riichimahjong.mahjongtable.MahjongTableBlockEntity;
@@ -24,11 +25,19 @@ final class TableEdgeButtons {
     private final int seat;
     private final BooleanSupplier valid;
     private final IntConsumer action;
+    private final ElementHolder holder;
+    private final List<VirtualElement> elements=new ArrayList<>();
 
     TableEdgeButtons(ElementHolder holder, MahjongTableBlockEntity table, ServerPlayer owner,
                      int seat, List<String> labels, BooleanSupplier valid, IntConsumer action) {
+        this(holder,table,owner,seat,TableButtonLayout.arrange(labels),valid,action,true);
+    }
+
+    TableEdgeButtons(ElementHolder holder, MahjongTableBlockEntity table, ServerPlayer owner,
+                     int seat,List<TableButtonLayout.Button> layout,BooleanSupplier valid,
+                     IntConsumer action,boolean interactive){
         this.table=table;this.owner=owner;this.seat=seat;this.valid=valid;this.action=action;
-        layout=TableButtonLayout.arrange(labels);
+        this.holder=holder;this.layout=List.copyOf(layout);
         var pos=table.getBlockPos();var dir=PortViews.outward(seat,table.getBlockState());
         for(var button:layout){
             var text=Component.literal(button.text()).withStyle(style->style.withColor(ChatFormatting.YELLOW)
@@ -39,7 +48,8 @@ final class TableEdgeButtons {
             display.setBillboardMode(Display.BillboardConstraints.FIXED);
             display.setLeftRotation(TableLayout.textRotation(dir));display.setLineWidth(1000);
             display.setBackground(0xD0333333);display.setDisplaySize(2,2);
-            display.setVisibilityPredicate(p->p==owner);holder.addElement(display);
+            display.setVisibilityPredicate(p->p==owner);holder.addElement(display);elements.add(display);
+            if(!interactive)continue;
             int cells=(int)Math.ceil(button.width()/button.depth());
             for(int cell=0;cell<cells;cell++){
                 double along=button.along()-button.width()/2+button.depth()/2
@@ -50,12 +60,14 @@ final class TableEdgeButtons {
                         Vec3 start=p.getEyePosition();handleHit(start,start.add(p.getLookAngle().scale(8)));
                     }
                 });
-                hit.setOverridePos(TableLayout.anchor(pos,dir,along,TableButtonLayout.HEIGHT-.003,TableButtonLayout.EDGE_DISTANCE));
+                hit.setOverridePos(TableLayout.anchor(pos,dir,along,button.height()-.003,button.distance()));
                 hit.setSize((float)button.depth()*TableLayout.TILE_ENLARGEMENT,.006f*TableLayout.TILE_ENLARGEMENT);
-                hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
+                hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);elements.add(hit);
             }
         }
     }
+
+    void destroy(){elements.forEach(holder::removeElement);elements.clear();}
 
     boolean handleHit(Vec3 start,Vec3 end){
         if(table.getLevel()!=owner.level()||!PortViews.near(owner,owner.level(),table.getBlockPos()))return false;

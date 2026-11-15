@@ -38,13 +38,12 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
         if(table.replay()!=null){
             var session=table.replay();var visible=new HashSet<Integer>();
             if(round!=null)for(int seat=0;seat<round.players().size();seat++)
-                if(session.showAll()||seat==session.perspective()
-                        ||session.analysisEnabled()&&driver.currentPhase() instanceof MatchPhase.AwaitingDiscard d&&d.seat()==seat)
+                if(session.showAll()||seat==session.perspective())
                     visible.add(seat);
-            visible.addAll(revealedSeats(driver.currentPhase(),round));
+            visible.addAll(revealedSeats(table.displayPhase(),round));
             return Set.copyOf(visible);
         }
-        return revealedSeats(driver.currentPhase(),round,table.voluntarilyShownSeats());
+        return revealedSeats(table.displayPhase(),round,table.voluntarilyShownSeats());
     }
     static Set<Integer> revealedSeats(MatchPhase phase,TheMahjongRound round,Set<Integer> choices){
         var visible=new HashSet<>(revealedSeats(phase,round));
@@ -68,7 +67,7 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
     public static PublicTable capture(MahjongTableBlockEntity table){
         var driver=table.driver();var round=driver==null?null:driver.match().currentRound().orElse(null);
         var infos=table.seats();var out=new ArrayList<Seat>();
-        MatchPhase phase=driver==null?null:driver.currentPhase();
+        MatchPhase phase=table.displayPhase();
         Set<Integer> visibleHands=revealedSeats(table);
         boolean ura=DoraGlint.uraVisible(round,phase);
         for(int i=0;i<infos.size();i++){
@@ -106,7 +105,7 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
         var stage=phase instanceof MatchPhase.Dealing d?d.stage():null;double progress=phase instanceof MatchPhase.Dealing d?Math.min(1,d.elapsed()/d.stage().buildDuration()):1;
         String roundLabel=round==null?"立直麻将 · 右键桌边入座 · 桌主潜行右键中心风盘打开菜单，再点开始对局":TableSeating.wind(round.roundWind().ordinal())+round.handNumber()+"局 · "+round.honba()+"本场 · 供托 "+round.riichiSticks()+" · 余牌 "+round.liveWall().size();
         if(phase instanceof MatchPhase.Dealing)roundLabel+=" · 配牌中";
-        if(phase instanceof MatchPhase.MatchEnded)roundLabel+=" · 对局结束";
+        if(driver!=null&&driver.currentPhase() instanceof MatchPhase.MatchEnded)roundLabel+=" · 对局结束";
         if(table.replay()!=null){
             var session=table.replay();
             roundLabel="牌谱回放 · "+(session.index()+1)+"/"+session.record().frames().size()+" · "+roundLabel;

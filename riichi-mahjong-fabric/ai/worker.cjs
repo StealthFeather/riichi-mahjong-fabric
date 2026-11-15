@@ -221,7 +221,7 @@ function makePlayer(snapshot) {
   return player;
 }
 
-function decide(snapshot) {
+function decide(snapshot, suppliedPlayer) {
   validate(snapshot);
   const engine = Names[snapshot.difficulty];
   const result = action => ({ id: snapshot.id, index: action.index, engine });
@@ -230,7 +230,7 @@ function decide(snapshot) {
   const draw = snapshot.legal.find(a => a.type === 'Draw');
   if (draw) return result(draw);
   if (snapshot.legal.length === 1 && snapshot.legal[0].type === 'Pass') return result(snapshot.legal[0]);
-  const player = makePlayer(snapshot);
+  const player = suppliedPlayer || makePlayer(snapshot);
   let selected;
   if (snapshot.phase === 'claim') {
     // Robbing a kan has only win/pass actions, handled by the authoritative list.
@@ -268,40 +268,88 @@ function decide(snapshot) {
 }
 
 
-/** Relative decision quality, never a win probability. Keep the strategy's defensive choice first. */
+/** Deterministic strategy -> explicit modeled policy, not native AI probabilities or win chances.
+ * utility = EV * exp(-3 * extra shanten) / (1 + danger / 3.2).
+ * logits = log1p(utility), temperature .75. The deterministic recommendation receives
+ * a .5 logit margin above every alternative so defense remains the most probable policy.
+ * Discard tile probabilities are conditional on discarding and normalized separately
+ * from the full legal-action distribution. Integer percentages use largest remainders.
+ */
+const Policy = { version: 2, name: 'modeled-softmax-v2', temperature: .75, recommendationMargin: .5 };
+
+function distribution(items, selected, identity) {
+  if (!items.length) return [];
+  const values = items.map(item => ({ ...item }));
+  if (!values.every(item => Number.isFinite(item.logit))) throw new Error('Invalid policy utility');
+  const maximum = Math.max(...values.map(item => item.logit));
+  const recommendation = values.find(item => identity(item) === selected);
+  if (recommendation) recommendation.logit = maximum + Policy.recommendationMargin;
+  const peak = Math.max(...values.map(item => item.logit));
+  const weights = values.map(item => Math.exp((item.logit - peak) / Policy.temperature));
+  const total = weights.reduce((sum, value) => sum + value, 0);
+  values.forEach((item, index) => {
+    item.policyProbability = weights[index] / total;
+    item.probability = Math.floor(item.policyProbability * 100);
+  });
+  const remainderOrder = values.slice().sort((a, b) =>
+    (b.policyProbability * 100 - b.probability) - (a.policyProbability * 100 - a.probability)
+    || b.policyProbability - a.policyProbability || String(identity(a)).localeCompare(String(identity(b))));
+  const remaining = 100 - values.reduce((sum, item) => sum + item.probability, 0);
+  for (let index = 0; index < remaining; index++) remainderOrder[index].probability++;
+  values.sort((a, b) => b.policyProbability - a.policyProbability || String(identity(a)).localeCompare(String(identity(b))));
+  return values.map(({ logit, utility, ...item }, index) => ({ ...item, rank: index + 1 }));
+}
+
 function analyze(snapshot) {
   const input = { ...snapshot, difficulty: 'HARD' };
   validate(input);
-  if (input.phase !== 'discard') throw new Error('Analysis requires a discard decision');
   const player = makePlayer(input);
-  const info = [];
-  const selected = player.select_dapai(info)?.slice(0, 2);
-  const allowed = [...new Set(input.legal.filter(a => ['Discard', 'DiscardWithRiichi'].includes(a.type)).map(a => tile(a.tile)))];
-  if (!allowed.length || !allowed.includes(selected)) throw new Error('Analysis returned an illegal recommendation');
+  const selected = decide(input, player).index;
   const paishu = player._suanpai.get_paishu();
   const danger = player._suanpai.suan_weixian_all(player.shoupai._bingpai);
   const baseline = Majiang.Util.xiangting(player.shoupai);
-  const candidates = allowed.map(p => {
+  const info = [];
+  const allowed = [...new Set(input.legal.filter(a => ['Discard', 'DiscardWithRiichi'].includes(a.type)).map(a => tile(a.tile)))];
+  const recommendedDiscard = allowed.length ? player.select_dapai(info)?.slice(0, 2) : null;
+  const discards = allowed.map(p => {
     const hand = player.shoupai.clone().dapai(p + (p === input.drawn ? '_' : ''));
     const shanten = Majiang.Util.xiangting(hand);
     const entry = info.find(i => i.p === p && !i.m);
     const value = Math.max(0, Number(entry?.ev ?? player.eval_shoupai(hand, paishu)) || 0);
     const risk = Math.max(0, Number(danger && danger(p)) || 0);
-    // Increasing shanten is expensive; opponent riichi risk discounts attacking value.
     const utility = value * Math.exp(-3 * Math.max(0, shanten - baseline)) / (1 + risk / 3.2);
-    return { tile: p, value, risk, shanten, utility };
+    return { tile: p, value, risk, shanten, logit: Math.log1p(utility) };
   });
-  const best = Math.max(...candidates.map(c => c.utility), 0);
-  for (const c of candidates) {
-    // select_dapai includes hard defense thresholds that cannot be represented by EV alone.
-    c.relative = c.tile === selected ? 99 : best > 0 ? Math.min(99, 99 * c.utility / best) : c.risk === 0 ? 99 : 0;
-    c.score = Math.max(0, Math.min(99, Math.round(c.relative)));
-  }
-  candidates.sort((a, b) => Number(b.tile === selected) - Number(a.tile === selected) || b.score - a.score || b.utility - a.utility || a.tile.localeCompare(b.tile));
-  return { id: snapshot.id, engine: Names.HARD, selected,
-    // All scores are retained for grading the actual action, even if it was not a top-three recommendation.
-    scores: candidates.map(({ tile, score, value, risk, shanten }) => ({ tile, score, value, risk, shanten })),
-    candidates: candidates.filter(c => c.relative >= 1).slice(0, 3).map(({ tile, score, value, risk, shanten }) => ({ tile, score, value, risk, shanten })),
+  const discardDistribution = distribution(discards, recommendedDiscard, item => item.tile);
+  const defaultValue = Math.max(0, Number(player.eval_shoupai(player.shoupai, paishu)) || 0);
+  const maxDiscardLogit = discards.length ? Math.max(...discards.map(c => c.logit)) : Math.log1p(defaultValue);
+  const actions = input.legal.map(action => {
+    let value = defaultValue, risk = 0, shanten = baseline, logit = Math.log1p(defaultValue);
+    const discard = discards.find(c => c.tile === action.tile);
+    if (['Discard', 'DiscardWithRiichi'].includes(action.type)) {
+      if (!discard) throw new Error('Missing legal discard evaluation');
+      ({ value, risk, shanten, logit } = discard);
+      if (action.type === 'DiscardWithRiichi') logit += .15;
+    } else if (['Chi', 'Pon', 'Daiminkan', 'Ankan', 'Kakan'].includes(action.type)) {
+      const hand = player.shoupai.clone();
+      const notation = legalMeld(action, input);
+      if (['Ankan', 'Kakan'].includes(action.type)) hand.gang(notation);
+      else hand.fulou(notation);
+      shanten = Majiang.Util.xiangting(hand);
+      value = Math.max(0, Number(player.eval_shoupai(hand, paishu)) || 0);
+      const utility = value * Math.exp(-3 * Math.max(0, shanten - baseline));
+      logit = Math.log1p(utility);
+    } else if (['DeclareTsumo', 'DeclareRon', 'DeclareChankan'].includes(action.type)) {
+      // The authoritative Java engine supplies legality; the deterministic BOT always takes a legal win.
+      logit = maxDiscardLogit + 2;
+    } else if (action.type === 'KyuushuAbort') logit -= 1;
+    return { index: action.index, type: action.type, tile: action.tile ?? null,
+      value, risk, shanten, logit };
+  });
+  return { id: snapshot.id, engine: Names.HARD, policy: Policy,
+    selected, selectedDiscard: recommendedDiscard,
+    candidates: discardDistribution,
+    actions: distribution(actions, selected, item => item.index),
   };
 }
 
@@ -319,4 +367,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { decide, analyze, makePlayer, meldNotation, legalMeld, Names };
+module.exports = { decide, analyze, distribution, Policy, makePlayer, meldNotation, legalMeld, Names };

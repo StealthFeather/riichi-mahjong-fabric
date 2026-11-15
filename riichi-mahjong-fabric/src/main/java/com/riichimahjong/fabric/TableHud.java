@@ -26,7 +26,7 @@ final class TableHud {
         for(int i=0;i<board.seats().size();i++){
             var s=board.seats().get(i);if(s.handCount()==0&&s.points()==0)continue;
             String text=(board.turnSeat()==i?"▶ ":"")+TableSeating.wind(s.wind())+" · "+s.name()+" "+s.points()+(s.riichi()?" 立直":"");
-            if(grades.containsKey(i))text+=" · 本局 "+grades.get(i)+"分";
+            if(grades.containsKey(i))text+=" · 本局均值 "+grades.get(i)+"%";
             if(i<2)scores1+=(scores1.isEmpty()?"":"   |   ")+text;else scores2+=(scores2.isEmpty()?"":"   |   ")+text;
         }
         String result=board.label().replace('\n',' ').trim();

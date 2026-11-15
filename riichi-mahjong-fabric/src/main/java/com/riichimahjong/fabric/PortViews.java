@@ -280,15 +280,9 @@ public final class PortViews {
                         TableLayout.handAnchor(pos,dir,TableLayout.handAlong(s.handSlots().get(i),s.handGapStarts()),revealed),
                         TableLayout.TILE_SCALE,rotation(dir,revealed,false),revealed?null:s.owner());
                 for(int i=0;i<s.river().size();i++){var t=s.river().get(i);tile("river/"+seat+"/"+i,t.code(),dir,(i%6-2.5)*.073,.59,.26+(i/6)*.09,true,false,t.sideways(),null);}
-                double cursor=0;for(int m=0;m<s.melds().size();m++){
-                    var meld=s.melds().get(m);double width=meld.tiles().stream().filter(t->!t.stacked()).mapToDouble(t->t.sideways()?.090:.073).sum();
-                    double offset=0,last=0;
-                    for(int i=0;i<meld.tiles().size();i++){
-                        var t=meld.tiles().get(i);double step=t.sideways()?.090:.073;
-                        double x=t.stacked()?last:.90-cursor-width+offset+step/2;
-                        tile("meld/"+seat+"/"+m+"/"+i,t.code(),dir,x,.59+(t.stacked()?.058:0),.89,true,t.faceDown(),t.sideways(),null);
-                        if(!t.stacked()){last=x;offset+=step;}
-                    }cursor+=width+.020;
+                for(var placed:MeldGeometry.arrange(s.melds())){
+                    var t=placed.tile();
+                    tile("meld/"+seat+"/"+placed.meld()+"/"+placed.index(),t.code(),dir,placed.along(),placed.height(),placed.distance(),true,t.faceDown(),t.sideways(),null);
                 }
                 for(int i=0;i<s.kita();i++)tile("kita/"+seat+"/"+i,30,dir,-.53+i*.073,.59,.57,true,false,false,null);
                 if(s.riichiStick()){

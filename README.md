@@ -2,7 +2,7 @@
 
 基于 [caxapexac/MinecraftRiichiMahjong](https://github.com/caxapexac/MinecraftRiichiMahjong) 的独立 Fabric 服务端移植，保留原项目麻将规则、3D 模型、材质和音效。仅服务端安装 Mod，玩家使用原版客户端并接受资源包。
 
-当前分支试验版：`0.4.2+fabric.26.3.25-replay.1`（`codex/mahjong-replay-analysis`）。新增完整对局数据库归档、牌谱日历、桌沿逐步回放和 AI 分析。此分支没有合并或部署；用法与评分说明见 [牌谱回放与分析](riichi-mahjong-fabric/docs/26.3.25-replay.1.md)。下文正式版发布记录为本分支的基线。
+当前分支试验版：`0.4.2+fabric.26.3.25-replay.2`（`codex/mahjong-replay-analysis`）。新增完整对局数据库归档、牌谱日历、牌河侧逐步回放和 AI 分析。此分支没有合并；本次 replay.2 尚未部署，正式服当前为 replay.1。用法与评分说明见 [牌谱回放与分析](riichi-mahjong-fabric/docs/26.3.25-replay.2.md)。下文正式版发布记录为本分支的基线。
 
 基线正式版：`0.4.2+fabric.26.3.24`，鸣牌风牌名称显示为“东、南、西、北”，中心风盘潜行右键统一打开桌主菜单，开局由菜单按钮执行。保留 26.3.23 的离线座位 AI 接替、菜单结束对局二次确认和离线桌主接管。保留 26.3.22 的立直横放标记继承、终盘主动展示及主手持镐拆桌要求（创造模式同样适用）。保留 26.3.21 的实际宝牌和赤宝牌原版附魔光效；未公开暗手的牌面及光效仅本人可见。保留 26.3.20 的流局连庄与本场修复、吃碰杠立直音效和隐藏鸣牌等待提示，以及模型边界交互、0.5–1.5 秒随机 BOT 思考、最右和牌张、空点保护和确认重置。适用于 Minecraft **26.3**、Fabric Loader **0.19.5**、Fabric API **0.163.0**、Java **25**。
 

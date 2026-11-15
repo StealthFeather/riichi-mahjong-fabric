@@ -137,27 +137,30 @@ test('a three-player or inconsistent snapshot is rejected explicitly', () => {
   assert.throws(() => makePlayer(bad), /Inconsistent public tile counts/);
 });
 
-test('analysis uses the existing hard strategy and grades only legal distinct discards', () => {
-  const { analyze } = require('./worker.cjs');
+test('analysis models complete legal discard and action probabilities separately, each totaling 100', () => {
+  const { analyze, Policy } = require('./worker.cjs');
   const s = fixture();
+  s.legal.push({ index: 100, type: 'DiscardWithRiichi', tile: 'z4' });
   const result = analyze(s);
   assert.equal(result.id, s.id);
   assert.equal(result.engine, Names.HARD);
-  assert.ok(result.candidates.length >= 1 && result.candidates.length <= 3);
+  assert.equal(result.policy.name, Policy.name);
+  assert.equal(result.policy.version, 2);
   assert.equal(result.candidates[0].tile, 'z4');
-  assert.equal(result.candidates[0].score, 99);
-  assert.equal(result.scores.length, new Set(s.legal.map(a => a.tile)).size);
-  assert.equal(new Set(result.candidates.map(a => a.tile)).size, result.candidates.length);
-  for (const score of result.scores) {
-    assert.ok(s.legal.some(a => a.tile === score.tile));
-    assert.ok(Number.isInteger(score.score) && score.score >= 0 && score.score <= 99);
-    assert.ok(Number.isFinite(score.value) && Number.isFinite(score.risk));
+  assert.equal(result.candidates.length, new Set(s.legal.map(a => a.tile)).size);
+  assert.equal(result.actions.length, s.legal.length);
+  for (const choices of [result.candidates, result.actions]) {
+    assert.equal(choices.reduce((sum, c) => sum + c.probability, 0), 100);
+    assert.ok(Math.abs(choices.reduce((sum, c) => sum + c.policyProbability, 0) - 1) < 1e-12);
+    assert.deepEqual(choices.map(c => c.rank), choices.map((_, i) => i + 1));
+    assert.ok(choices.every(c => Number.isInteger(c.probability) && c.probability >= 0 && c.probability <= 100));
   }
-  assert.ok(result.candidates.every(c => c.score >= 1));
+  assert.equal(result.actions[0].index, decide(s).index);
+  assert.ok(result.actions.some(c => c.type === 'DiscardWithRiichi'));
   assert.deepEqual(analyze(structuredClone(s)), result);
 });
 
-test('analysis preserves the strategy defensive choice rather than sorting attacking EV', () => {
+test('modeled policy preserves the strategy defensive choice as the strict largest probability', () => {
   const { analyze } = require('./worker.cjs');
   const hand = ['m2', 'm4', 'm6', 'p1', 'p4', 'p8', 's1', 's5', 's9', 'z1', 'z2', 'z3', 'z4', 'z7'];
   const s = fixture({ hand, drawn: 'z7', doraIndicators: ['p9'], riichi: [false, true, false, false],
@@ -166,14 +169,54 @@ test('analysis preserves the strategy defensive choice rather than sorting attac
   const result = analyze(s);
   assert.equal(result.candidates[0].tile, s.legal.find(a => a.index === decide(s).index).tile);
   assert.equal(result.candidates[0].tile, 'z4');
-  assert.equal(result.candidates[0].score, 99);
+  assert.ok(result.candidates.slice(1).every(c => c.policyProbability < result.candidates[0].policyProbability));
+  assert.equal(result.candidates.reduce((sum, c) => sum + c.probability, 0), 100);
 });
 
-test('analysis JSON-line protocol coexists with normal bot decisions and survives invalid phases', () => {
+test('largest remainders conserve 100 percent, including ties and a single legal choice', () => {
+  const { distribution } = require('./worker.cjs');
+  const three = distribution([{ key: 'a', logit: 0 }, { key: 'b', logit: 0 }, { key: 'c', logit: 0 }], null, c => c.key);
+  assert.deepEqual(three.map(c => c.probability), [34, 33, 33]);
+  const single = distribution([{ key: 'only', logit: -1000 }], 'only', c => c.key);
+  assert.equal(single[0].policyProbability, 1);
+  assert.equal(single[0].probability, 100);
+  assert.equal(single[0].rank, 1);
+});
+
+test('claim policy exposes pon and pass without inventing discards, and supports forced wins', () => {
+  const { analyze } = require('./worker.cjs');
+  const hand = ['z5', 'z5', 'm1', 'm2', 'm3', 'p1', 'p2', 'p3', 's4', 's5', 's6', 'z1', 'z2'];
+  const s = fixture({ hand, drawn: null, phase: 'claim', claimSource: 'DISCARD',
+    lastDiscard: { seat: 3, tile: 'z5' }, rivers: [[], [], [], [{ tile: 'z5', riichi: false, called: false }]],
+    legal: [{ index: 4, type: 'Pon', handTiles: ['z5', 'z5'] }, { index: 7, type: 'Pass' }] });
+  const result = analyze(s);
+  assert.deepEqual(result.candidates, []);
+  assert.equal(result.actions.length, 2);
+  assert.equal(result.actions[0].type, 'Pon');
+  assert.equal(result.actions.reduce((sum, a) => sum + a.probability, 0), 100);
+  const forced = analyze({ ...s, legal: [{ index: 9, type: 'DeclareRon' }] });
+  assert.equal(forced.actions[0].type, 'DeclareRon');
+  assert.equal(forced.actions[0].probability, 100);
+});
+
+test('discard policy remains normalized with a simultaneous legal win or kan', () => {
+  const { analyze } = require('./worker.cjs');
+  const s = fixture();
+  s.legal.push({ index: 200, type: 'DeclareTsumo' });
+  const result = analyze(s);
+  assert.equal(result.actions[0].type, 'DeclareTsumo');
+  assert.equal(result.candidates.reduce((sum, a) => sum + a.probability, 0), 100);
+  assert.equal(result.actions.reduce((sum, a) => sum + a.probability, 0), 100);
+  const hand = ['m1', 'm1', 'm1', 'm1', 'p1', 'p2', 'p3', 's1', 's2', 's3', 'z5', 'z5', 'z4', 'z4'];
+  const kan = fixture({ hand, drawn: 'm1', legal: [{ index: 12, type: 'Ankan', handTiles: ['m1', 'm1', 'm1', 'm1'] },
+    ...[...new Set(hand)].map((tile, index) => ({ index, type: 'Discard', tile }))] });
+  assert.ok(analyze(kan).actions.some(a => a.type === 'Ankan'));
+});
+
+test('analysis JSON-line protocol coexists with normal bot decisions and rejects invalid phases', () => {
   const a = fixture({ mode: 'analysis', id: 701 });
   const b = fixture({ id: 702 });
-  const c = fixture({ mode: 'analysis', id: 703, phase: 'claim', drawn: null,
-    lastDiscard: { seat: 1, tile: 'z4' }, legal: [{ index: 0, type: 'Pass' }] });
+  const c = fixture({ mode: 'analysis', id: 703, phase: 'invalid' });
   const run = spawnSync(process.execPath, [require.resolve('./worker.cjs')], {
     input: [a, c, b].map(s => JSON.stringify(s)).join('\n') + '\n', encoding: 'utf8', timeout: 20000,
   });
@@ -184,4 +227,20 @@ test('analysis JSON-line protocol coexists with normal bot decisions and survive
   assert.equal(replies[1].index, -1);
   assert.equal(replies[2].id, 702);
   assert.ok(Number.isInteger(replies[2].index));
+});
+
+test('claim policy preserves distinct chi options and legal ron while a forced draw is 100 percent', () => {
+  const { analyze } = require('./worker.cjs');
+  const hand = ['m1', 'm2', 'm4', 'm5', 'm7', 'm8', 'p1', 'p2', 'p3', 's1', 's2', 'z1', 'z2'];
+  const s = fixture({ hand, drawn: null, phase: 'claim', claimSource: 'DISCARD',
+    lastDiscard: { seat: 3, tile: 'm3' }, rivers: [[], [], [], [{ tile: 'm3', riichi: false, called: false }]],
+    legal: [{ index: 10, type: 'Chi', handTiles: ['m1', 'm2'] }, { index: 11, type: 'Chi', handTiles: ['m4', 'm5'] }, { index: 12, type: 'Pass' }] });
+  const result = analyze(s);
+  assert.deepEqual(result.actions.map(a => a.index).sort((a, b) => a - b), [10, 11, 12]);
+  assert.equal(result.actions.reduce((sum, a) => sum + a.probability, 0), 100);
+  const ron = analyze({ ...s, legal: [...s.legal, { index: 15, type: 'DeclareRon' }] });
+  assert.equal(ron.actions[0].type, 'DeclareRon');
+  const drawn = analyze(fixture({ hand, drawn: null, phase: 'draw', legal: [{ index: 20, type: 'Draw' }] }));
+  assert.deepEqual(drawn.candidates, []);
+  assert.equal(drawn.actions[0].probability, 100);
 });

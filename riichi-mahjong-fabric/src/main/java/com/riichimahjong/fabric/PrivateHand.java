@@ -30,7 +30,7 @@ final class PrivateHand {
         int count=table.handDisplayOrder(seat).size();if(d.currentPhase() instanceof MatchPhase.Dealing dealing){double fraction=switch(dealing.stage()){case WALL_BUILDING->0;case DEALING_HANDS->Math.min(1,dealing.elapsed()/dealing.stage().buildDuration());case DORA_FLIP->1;};count=(int)Math.round(count*fraction);}
         boolean queued=!ResultHandReveals.canReveal(d)&&d.playerAt(seat) instanceof MahjongTableHumanPlayer h&&h.hasQueued();
         var discards=d.legalActions(seat).stream().filter(a->a instanceof PlayerAction.DiscardWithRiichi).map(a->PublicTable.code(((PlayerAction.DiscardWithRiichi)a).tile())).toList();
-        return new Snapshot(d,r,d.currentPhase(),table.handDisplayOrder(seat).stream().limit(count).map(PublicTable::code).toList(),table.handDisplaySlots(seat).stream().limit(count).toList(),table.handDisplayGapStarts(seat),queued?List.of():List.copyOf(table.tableButtonsForSeat(seat)),discards,DoraGlint.tiles(r,d.currentPhase()),queued,table.hasSeparatedDrawnTile(seat),PublicTable.revealedSeats(table).contains(seat));
+        return new Snapshot(d,r,d.currentPhase(),table.handDisplayOrder(seat).stream().limit(count).map(PublicTable::code).toList(),table.handDisplaySlots(seat).stream().limit(count).toList(),table.handDisplayGapStarts(seat),queued?List.of():List.copyOf(table.tableButtonsForSeat(seat)),discards,DoraGlint.tiles(r,table.displayPhase()),queued,table.hasSeparatedDrawnTile(seat),PublicTable.revealedSeats(table).contains(seat));
     }
     PrivateHand(MahjongTableBlockEntity table,ServerPlayer owner,int seat,Snapshot snapshot){
         this.table=table;this.owner=owner;this.seat=seat;this.snapshot=snapshot;

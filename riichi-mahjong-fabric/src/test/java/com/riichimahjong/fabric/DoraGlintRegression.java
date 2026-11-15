@@ -6,6 +6,15 @@ import com.themahjong.driver.*;
 import java.util.*;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.RegistryAccess;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.util.ProblemReporter;
+import net.minecraft.world.level.storage.TagValueInput;
+import net.minecraft.world.level.storage.TagValueOutput;
+import java.util.stream.Stream;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.syncher.EntityDataSerializers;
+import io.netty.buffer.Unpooled;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.data.registries.VanillaRegistries;
 import net.minecraft.resources.Identifier;
@@ -171,6 +180,34 @@ public final class DoraGlintRegression {
                 "a second riichi winner in double ron did not reveal ura glint");
     }
 
+    private static void terminalResultVisibility() {
+        for(boolean declared:List.of(false,true)) {
+            var hands=players(4);var winner=new ArrayList<>(waiting(1));winner.add(tile(4,1));
+            hands.set(0,riichi(player(winner),declared?TheMahjongPlayer.RiichiState.RIICHI:TheMahjongPlayer.RiichiState.NONE));
+            // A losing declaration still must not reveal ura for a non-riichi winner.
+            hands.set(1,riichi(hands.get(1),TheMahjongPlayer.RiichiState.RIICHI));
+            var driver=restored(round(hands,DORA,URA,1));
+            var win=driver.legalActions(0).stream().filter(a->a instanceof PlayerAction.DeclareTsumo).findFirst().orElseThrow();
+            act(driver,0,win);
+            var display=new RoundResultDisplay();display.observe(driver.currentPhase());
+            var before=DoraGlint.tiles(driver.currentRound(),driver.currentPhase());
+            var terminal=new MatchPhase.MatchEnded();display.observe(terminal);
+            check(display.phase(terminal) instanceof MatchPhase.RoundEnded,"terminal display lost the final hand result");
+            check(DoraGlint.uraVisible(driver.currentRound(),display.phase(terminal))==declared,
+                    "terminal result changed the publicly revealed ura boundary");
+            check(DoraGlint.tiles(driver.currentRound(),display.phase(terminal)).equals(before),
+                    "terminal result removed a final-hand dora glint");
+            var out=TagValueOutput.createWithoutContext(ProblemReporter.DISCARDING);display.write(out);
+            var reloaded=new RoundResultDisplay();
+            reloaded.read(TagValueInput.create(ProblemReporter.DISCARDING,HolderLookup.Provider.create(Stream.empty()),out.buildResult()));
+            check(DoraGlint.tiles(driver.currentRound(),reloaded.phase(terminal)).equals(before),
+                    "world reload removed final-hand dora glint");
+            reloaded.observe(new MatchPhase.AwaitingDraw(0,false));
+            check(reloaded.phase(terminal) instanceof MatchPhase.MatchEnded,
+                    "a previous hand's result leaked into a new match");
+        }
+    }
+
     private static void vanillaGlintComponents() {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
@@ -191,15 +228,31 @@ public final class DoraGlintRegression {
         check(!back.hasFoil() && Identifier.fromNamespaceAndPath("riichi_mahjong","bridge/tile_back")
                         .equals(back.get(DataComponents.ITEM_MODEL)),
                 "opponents' concealed model must stay an unenchanted tile back");
+        // Item-display metadata uses this exact serializer. Test the decoded client stack,
+        // not merely hasFoil() on the stack before a packet is written.
+        for(var source:List.of(plain,glowing,back)) {
+            var buffer=new RegistryFriendlyByteBuf(Unpooled.buffer(),
+                    RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY));
+            try {
+                EntityDataSerializers.ITEM_STACK.codec().encode(buffer,source);
+                var decoded=EntityDataSerializers.ITEM_STACK.codec().decode(buffer);
+                check(decoded.hasFoil()==source.hasFoil(),"item-display packet lost enchantment glint override");
+                check(Objects.equals(decoded.get(DataComponents.ITEM_MODEL),source.get(DataComponents.ITEM_MODEL)),
+                        "item-display packet changed the tile model");
+                check(decoded.get(DataComponents.ENCHANTMENTS)==null||decoded.get(DataComponents.ENCHANTMENTS).isEmpty(),
+                        "enchantment glint unexpectedly requires a gameplay enchantment");
+            } finally {buffer.release();}
+        }
     }
 
     public static void main(String[] args) {
         cyclesAndHiddenIndicators();
         acceptedKanReveals();
         winAndDrawVisibility();
+        terminalResultVisibility();
         vanillaGlintComponents();
         System.out.println("PASS: 3p/4p dora cycles, red fives, concealed/delayed kan reveals and hidden indicator boundaries");
         System.out.println("PASS: riichi/double-riichi and double-ron ura reveal, non-riichi wins and draws preserve hidden ura");
-        System.out.println("PASS: vanilla enchantment glint retains tile models, resets cleanly and leaves concealed backs plain");
+        System.out.println("PASS: terminal result and reload retain public ura/glint; item-display network codec retains vanilla glint and plain backs");
     }
 }

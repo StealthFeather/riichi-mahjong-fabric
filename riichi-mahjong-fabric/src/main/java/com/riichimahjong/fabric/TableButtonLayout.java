@@ -11,15 +11,18 @@ final class TableButtonLayout {
     static final double EDGE_DISTANCE=.965;
     static final double MAX_WIDTH=1.76;
     static final int GAP_PIXELS=3*9; // Three fullwidth glyph advances in minecraft:uniform.
-    record Button(int index,String text,int pixels,float scale,double along){
+    record Button(int index,String text,int pixels,float scale,double along,double height,double distance){
+        Button(int index,String text,int pixels,float scale,double along){
+            this(index,text,pixels,scale,along,HEIGHT,EDGE_DISTANCE);
+        }
         double pixelSize(){return .025*scale;}
         double width(){return (pixels+1)*pixelSize();}
         double depth(){return 10*pixelSize();}
-        Vec3 centre(BlockPos pos,Direction dir){return TableLayout.anchor(pos,dir,along,HEIGHT,EDGE_DISTANCE);}
+        Vec3 centre(BlockPos pos,Direction dir){return TableLayout.anchor(pos,dir,along,height,distance);}
         Vec3 textPosition(BlockPos pos,Direction dir){
             // TextDisplayRenderer's background spans [-1,-1]..[fontWidth,9],
             // after translating by [1-fontWidth/2,-9] and scaling by .025.
-            return TableLayout.anchor(pos,dir,along-.5*pixelSize(),HEIGHT,EDGE_DISTANCE+5*pixelSize());
+            return TableLayout.anchor(pos,dir,along-.5*pixelSize(),height,distance+5*pixelSize());
         }
         Optional<Vec3> hit(BlockPos pos,Direction dir,Vec3 start,Vec3 end){
             var centre=centre(pos,dir);double dy=end.y-start.y;
@@ -45,10 +48,20 @@ final class TableButtonLayout {
         }
         return List.copyOf(out);
     }
+    /** Two columns on the felt, between this perspective's river and the wall. */
+    static List<Button> replayPanel(List<String> labels,boolean right){
+        var out=new ArrayList<Button>();
+        for(int i=0;i<labels.size();i++){
+            String text=labels.get(i);int pixels=textWidth(text);
+            float scale=(float)Math.min(.14,.22/((pixels+1)*.025));
+            out.add(new Button(i,text,pixels,scale,right?.38:-.38,TableLayout.TABLE_TOP+.012,.255+i*.040));
+        }
+        return List.copyOf(out);
+    }
     static int textWidth(String text){
         // Forced minecraft:uniform: CJK/fullwidth overrides are 16 texels wide,
         // digit 1 is 5 texels and other digits 6. Unihex advance is width/2+1.
         // These are the complete glyph classes used by PrivateHand.label().
-        return text.codePoints().map(c->c==' '?4:c=='1'?3:c>='0'&&c<='9'?4:9).sum();
+        return text.codePoints().map(c->c==' '?4:c=='%'?4:c=='.'?2:c=='1'?3:c>='0'&&c<='9'?4:9).sum();
     }
 }
