@@ -3,19 +3,23 @@ package com.riichimahjong.mahjongtable;
 
 import com.riichimahjong.mahjongcore.MahjongRoundResolvedEvent;
 import com.riichimahjong.mahjongcore.MahjongWinEffects;
+import com.riichimahjong.analysis.MatchAnalysisSession;
+import com.riichimahjong.replay.*;
+import com.riichimahjong.fabric.RoundResultDisplay;
 import com.riichimahjong.cuterenderer.CuteClickHandler;
 import com.riichimahjong.cuterenderer.InteractKey;
 import com.riichimahjong.themahjongcompat.DriverNbt;
 import com.riichimahjong.fabric.HandDisplayState;
 import com.riichimahjong.fabric.ResultHandReveals;
-import com.riichimahjong.fabric.RoundResultDisplay;
 import com.riichimahjong.fabric.TableOwnership;
 import com.riichimahjong.fabric.WinningHandDisplay;
-import com.riichimahjong.replay.ReplayRecord;
-import com.riichimahjong.replay.ReplayArchiveQueue;
-import com.riichimahjong.replay.ReplayRecorder;
-import com.riichimahjong.replay.ReplaySession;
-import com.riichimahjong.replay.ReplayStore;
+import com.riichimahjong.fabric.WinEffectTriggers;
+import com.riichimahjong.fabric.WinResultLabels;
+import com.riichimahjong.fabric.ExchangePresentation.Session;
+import com.riichimahjong.fabric.wineffect.WinEffectContext;
+import com.riichimahjong.fabric.wineffect.DeferredWinQueue;
+import com.riichimahjong.fabric.wineffect.WinEffectSession;
+import com.riichimahjong.fabric.wineffect.WinEffects;
 import com.riichimahjong.ai.BotDifficulty;
 import com.riichimahjong.ai.KobalabBot;
 import com.riichimahjong.ai.RandomThinkingBot;
@@ -127,16 +131,141 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     private boolean lastPowered;
     private List<SeatInfo> seats = defaultSeats();
     private final ReturningSeats returningSeats = new ReturningSeats();
-    private final SpectatorAccess spectatorAccess = new SpectatorAccess();
+    private final SpectatorParticipants spectatorParticipants = new SpectatorParticipants();
     private final TableOwnership ownership = new TableOwnership();
+    private final com.riichimahjong.fabric.SpectatorSeats spectators = new com.riichimahjong.fabric.SpectatorSeats();
+    private boolean spectatorHandsVisible;
     private final Map<UUID,Long> privateClicks = new HashMap<>();
     private final HandDisplayState handDisplay = new HandDisplayState();
     private final ResultHandReveals resultHandReveals = new ResultHandReveals();
     private final RoundResultDisplay roundResultDisplay = new RoundResultDisplay();
     @Nullable private WinningHandDisplay winningHandDisplay;
+    private String winEffectId = WinEffects.DEFAULT;
+    @Nullable private WinEffectSession winEffectSession;
+    private final Set<String> consumedWinTileSlots = new HashSet<>();
+    private Set<Integer> finalWinningSeats = Set.of();
+    private final DeferredWinQueue deferredWinQueue = new DeferredWinQueue();
+    private final Set<Integer> completedWinSeats = new HashSet<>();
+    private boolean winPlaybackPrepared;
+    private List<WinResultLabels.Result> finalResultLabels = List.of();
+    @Nullable private Session exchangePresentation;
+
+
+    public Set<Integer> completedWinPresentationSeats() {
+        var seats=new HashSet<>(completedWinSeats);seats.addAll(deferredWinQueue.completed());return Set.copyOf(seats);
+    }
+    public List<WinResultLabels.Result> winResultLabels() { return finalResultLabels; }
+    public Set<Integer> publicWinningSeats() {
+        if(driver==null)return Set.of();
+        if(!driver.rules().bloodBattle()){
+            if(driver.sichuanState()!=null)return driver.sichuanState().winners();
+            return finalWinningSeats;
+        }
+        if(!ResultHandReveals.canReveal(driver))return Set.of();
+        var visible=new HashSet<>(completedWinPresentationSeats());
+        if(winEffectSession!=null)winEffectSession.context().winners().forEach(w->visible.add(w.seat()));
+        return Set.copyOf(visible);
+    }
+    @Nullable public Session exchangePresentation() { return exchangePresentation; }
+    private boolean exchanging() { return exchangePresentation!=null; }
+    private boolean exchangeCompleted() {
+        if(driver==null)return false;
+        if(driver.exchangeState()!=null)return driver.exchangeState().complete();
+        return driver.sichuanState()!=null&&driver.rules().exchangeThree()
+                &&driver.sichuanState().stage()!=com.themahjong.sichuan.SichuanState.Stage.EXCHANGE;
+    }
+    private void captureExchange(boolean wasComplete) {
+        if(!wasComplete&&exchangeCompleted()) {
+            exchangePresentation=com.riichimahjong.fabric.ExchangePresentation.captureAfterExchange(driver);
+            handDisplay.clear();
+        }
+    }
+    private void prepareBloodBattlePlayback() {
+        if(driver==null||!driver.rules().bloodBattle()||!ResultHandReveals.canReveal(driver)||winPlaybackPrepared)return;
+        WinEffectTriggers.history(driver,winEffectId).forEach(deferredWinQueue::add);
+        winPlaybackPrepared=true;
+        finalResultLabels=WinResultLabels.captureResults(driver);
+        playNextDeferredWin();
+    }
+    private void playNextDeferredWin() {
+        var context=deferredWinQueue.next();
+        if(context!=null){
+            winEffectSession=new WinEffectSession(context);
+            finalWinningSeats=context.winners().stream().map(WinEffectContext.Winner::seat).collect(java.util.stream.Collectors.toUnmodifiableSet());
+        }
+    }
+    private void recordWinPresentation(WinEffectContext context) {
+        if(context==null)return;
+        if(driver.rules().bloodBattle())deferredWinQueue.add(context);
+        else{
+            winEffectSession=new WinEffectSession(context);
+            finalWinningSeats=context.winners().stream().map(WinEffectContext.Winner::seat).collect(java.util.stream.Collectors.toUnmodifiableSet());
+        }
+    }
+
+    public String winEffectId() { return winEffectId; }
+    @Nullable public WinEffectSession winEffectSession() { return winEffectSession; }
+    public Set<String> consumedWinTileSlots() { return Set.copyOf(consumedWinTileSlots); }
+    public void selectWinEffect(String id) {
+        if (hasActiveMatch()) return;
+        winEffectId = WinEffects.resolve(id).id();
+        markChangedAndSynced();
+    }
+
+    private void finishWinEffect() {
+        if (winEffectSession != null && winEffectSession.effect().consumesSource()) {
+            String slot=winEffectSession.context().source().slot();
+            if(slot.startsWith("river/"))consumedWinTileSlots.add(slot);
+        }
+        if(winEffectSession!=null){
+            winEffectSession.context().winners().forEach(w->completedWinSeats.add(w.seat()));
+            if(driver!=null&&driver.rules().bloodBattle())deferredWinQueue.complete(winEffectSession.context());
+        }
+        winEffectSession=null;
+    }
+
+    private void clearWinPresentation() {
+        winEffectSession=null;
+        consumedWinTileSlots.clear();
+        finalWinningSeats=Set.of();
+        deferredWinQueue.clear();completedWinSeats.clear();winPlaybackPrepared=false;finalResultLabels=List.of();
+        exchangePresentation=null;
+    }
     @Nullable private TheMahjongDriver handDisplayDriver;
     private RuleSetPreset preset = RuleSetPreset.MAHJONG_SOUL_4P;
     private MatchLength matchLength = MatchLength.SOUTH;
+    @Nullable private MatchAnalysisSession playerAnalysis;
+
+    private void bindPlayerAnalysis() {
+        if (playerAnalysis == null || driver == null) return;
+        playerAnalysis.bind(driver, this::setChanged, settlement -> {
+            if (!(level instanceof ServerLevel serverLevel)) return;
+            var player = serverLevel.getServer().getPlayerList().getPlayer(settlement.player());
+            if (player == null) return;
+            String message;
+            if (settlement.quotedTenths() != null) {
+                message = "本场积分 " + String.format(java.util.Locale.ROOT, "%+.1f", settlement.actualTenths()/10.0)
+                        + " · 累计 " + String.format(java.util.Locale.ROOT, "%.1f", settlement.totalTenths()/10.0);
+            } else message = settlement.botOperated()
+                    ? "本场有机器人操作，已记录统计，不累计积分。"
+                    : "本场已记录统计，该场不累计积分。";
+            player.sendSystemMessage(Component.literal(message));
+        });
+    }
+
+    private void startPlayerAnalysis() {
+        if (playerAnalysis != null) playerAnalysis.close();
+        var mode = com.riichimahjong.analysis.AnalysisMode.of(effectivePreset(), matchLength,
+                driver.rules().exchangeThree(), driver.rules().jokersEnabled(), driver.rules().bloodBattle());
+        var owners = java.util.stream.IntStream.range(0, driver.match().playerCount())
+                .mapToObj(seat -> seats.get(seat).occupant().orElse(null)).toList();
+        playerAnalysis = new MatchAnalysisSession(mode, owners);
+        bindPlayerAnalysis();
+        playerAnalysis.beginHand();
+    }
+    private boolean exchangeThreeTiles;
+    private boolean jokersEnabled;
+    private boolean bloodBattle;
     private BotDifficulty defaultBotDifficulty = BotDifficulty.NORMAL;
     private final Map<Integer, BotDifficulty> seatBotDifficulties = new HashMap<>();
     private boolean botsSuspended;
@@ -186,12 +315,11 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     @Nullable
     public TheMahjongDriver driver() { return driver; }
 
-    /** Public result presentation can outlive the rule phase without making the game actionable. */
-    @Nullable public MatchPhase displayPhase() {
-        return driver==null?null:roundResultDisplay.phase(driver.currentPhase());
-    }
-
     public long matchRevision() { return matchRevision; }
+
+    @Nullable public MatchPhase displayPhase() {
+        return driver == null ? null : roundResultDisplay.phase(driver.currentPhase());
+    }
 
     @Nullable public ReplaySession replay() { return replay; }
 
@@ -293,7 +421,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         if (driver == null || level == null) return false;
         var round = driver.match().currentRound().orElse(null);
         if (round == null) { handDisplay.clear(); return false; }
-        handDisplay.update(round, level.getGameTime());
+        handDisplay.update(round, level.getGameTime(),driver.match().ruleSet().jokersEnabled());
         return true;
     }
 
@@ -318,8 +446,28 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     private Optional<WinningHandDisplay.Layout> winningHandLayout(int seat) {
-        if(winningHandDisplay==null||driver==null)return Optional.empty();
-        return driver.match().currentRound().flatMap(round -> winningHandDisplay.layout(round,displayPhase(),seat));
+        if(driver==null)return Optional.empty();
+        if(driver.sichuanState()!=null || driver.bloodBattleState()!=null){
+            var state=driver.sichuanState();
+            boolean won=state!=null?state.won(seat):driver.bloodBattleState().won(seat);
+            if(!won)return Optional.empty();
+            var tile=state!=null?state.winningTile(seat):driver.bloodBattleState().winningTile(seat);
+            var round=driver.match().currentRound().orElse(null);
+            if(tile==null||round==null)return Optional.empty();
+            var hand=new ArrayList<>(round.players().get(seat).currentHand());
+            if(!hand.remove(tile))return Optional.empty();
+            hand.sort(TheMahjongTile.DISPLAY_ORDER);
+            if(driver.match().ruleSet().jokersEnabled())hand.sort(Comparator.comparingInt(t->
+                    (state!=null?t.suit()==TheMahjongTile.Suit.DRAGON&&t.rank()==3:com.themahjong.variants.Jokers.isJoker(t))?0:1));
+            hand.add(tile);
+            var slots=java.util.stream.IntStream.range(0,hand.size()).boxed().toList();
+            return Optional.of(new WinningHandDisplay.Layout(List.copyOf(hand),slots,
+                    hand.size()>1?List.of(hand.size()-1):List.of()));
+        }
+        if(winningHandDisplay==null)return Optional.empty();
+        if(driver.currentPhase() instanceof MatchPhase.MatchEnded)
+            return driver.match().currentRound().flatMap(round -> winningHandDisplay.layout(round,finalWinningSeats,seat));
+        return driver.match().currentRound().flatMap(round -> winningHandDisplay.layout(round,driver.currentPhase(),seat));
     }
 
     public List<SeatInfo> seats() { return List.copyOf(seats); }
@@ -355,8 +503,32 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
 
     public MatchLength matchLength() { return matchLength; }
 
+    public boolean exchangeThreeTiles() { return exchangeThreeTiles; }
+    public boolean jokersEnabled() { return jokersEnabled; }
+    public boolean bloodBattle() { return bloodBattle; }
+    public void setBloodBattle(boolean enabled) {
+        if (driver != null || bloodBattle == enabled) return;
+        bloodBattle = enabled;
+        matchRevision++;
+        markChangedAndSynced();
+    }
+
+    public void setExchangeThreeTiles(boolean enabled) {
+        if (driver != null || exchangeThreeTiles == enabled) return;
+        exchangeThreeTiles = enabled;
+        matchRevision++;
+        markChangedAndSynced();
+    }
+
+    public void setJokersEnabled(boolean enabled) {
+        if (driver != null || jokersEnabled == enabled) return;
+        jokersEnabled = enabled;
+        matchRevision++;
+        markChangedAndSynced();
+    }
+
     public void selectMatchLength(MatchLength length) {
-        if (driver != null || replay != null || length == null || matchLength == length) return;
+        if (driver != null || length == null || matchLength == length) return;
         matchLength = length;
         matchRevision++;
         markChangedAndSynced();
@@ -394,41 +566,43 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     public RuleSetPreset effectivePreset() {
-        if (preset == RuleSetPreset.MAHJONG_SOUL_4P
-                && seats.size() >= 4 && !seats.get(3).enabled()) {
-            return RuleSetPreset.MAHJONG_SOUL_SANMA_3P;
+        if (preset.family().supportsThreePlayers() && seats.size() >= 4 && !seats.get(3).enabled()) {
+            return preset.family().preset(3);
         }
         return preset;
+    }
+
+    public Set<UUID> spectators() { return spectators.players(); }
+    public boolean isWatching(UUID uuid) { return spectators.contains(uuid); }
+    public void stopWatching(UUID uuid) { spectators.remove(uuid); }
+    public void clearSpectators() { spectators.clear(); }
+    public boolean spectatorHandsVisible() { return spectatorHandsVisible; }
+    public boolean spectatorHandsVisibleTo(UUID player) {
+        return driver != null && replay == null && spectatorHandsVisible && isWatching(player) && spectatorCanSeeHands(player);
+    }
+    public boolean spectatorCanSeeHands(UUID player) {
+        return !spectatorParticipants.contains(player) && returningSeats.seat(player).isEmpty()
+                && seatOfPlayer(player).isEmpty();
+    }
+    public void setSpectatorHandsVisible(boolean visible) {
+        if (spectatorHandsVisible == visible) return;
+        spectatorHandsVisible = visible;
+        matchRevision++;
+        markChangedAndSynced();
+    }
+    public boolean watch(ServerPlayer player) {
+        if (level != player.level() || isRemoved() || !(level instanceof ServerLevel sl)
+                || sl.getServer().getPlayerList().getPlayer(player.getUUID()) != player
+                || !sl.hasChunkAt(getBlockPos()) || sl.getBlockEntity(getBlockPos()) != this
+                || player.distanceToSqr(getBlockPos().getX()+.5,getBlockPos().getY()+.5,getBlockPos().getZ()+.5)>64
+                || seatOfPlayer(player.getUUID()).isPresent()) return false;
+        spectators.add(player.getUUID());
+        return true;
     }
 
     public Optional<UUID> owner() { return ownership.owner(); }
 
     public boolean isHost(UUID uuid) { return ownership.isHost(uuid); }
-
-    public boolean spectatorHandsEnabled() { return spectatorAccess.enabled(); }
-
-    /** Live match participants, including former occupants, may never view other concealed hands. */
-    public boolean spectatorHandsVisibleTo(UUID viewer) {
-        return spectatorAccess.canSee(viewer, driver != null && replay == null,
-                viewer != null && seatOfPlayer(viewer).isPresent(), viewer != null && returningSeats.seat(viewer).isPresent());
-    }
-
-    /** Only the current nearby table owner may change this table setting. */
-    public boolean setSpectatorHandsEnabled(ServerPlayer player, boolean enabled,
-            @Nullable TheMahjongDriver expectedDriver, long expectedRevision) {
-        if (replay != null || !validMenuActor(player) || !isHost(player.getUUID())
-                || driver != expectedDriver || matchRevision != expectedRevision) return false;
-        if (spectatorAccess.enabled() != enabled) {
-            spectatorAccess.setEnabled(enabled);
-            matchRevision++;
-            markChangedAndSynced();
-        }
-        return true;
-    }
-
-    private void beginSpectatorParticipants() {
-        spectatorAccess.begin(seats.stream().flatMap(seat -> seat.occupant().stream()).toList());
-    }
 
     private boolean playerOnline(UUID uuid) {
         return level instanceof ServerLevel sl && sl.getServer().getPlayerList().getPlayer(uuid) != null;
@@ -464,6 +638,20 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         return true;
     }
 
+    public boolean transferHost(ServerPlayer player, int seat, UUID expectedOccupant,
+            @Nullable TheMahjongDriver expectedDriver, long expectedRevision) {
+        if (expectedOccupant == null || !validMenuActor(player) || driver != expectedDriver || matchRevision != expectedRevision
+                || seat < 0 || seat >= seats.size() || !seats.get(seat).enabled()
+                || seats.get(seat).occupant().filter(expectedOccupant::equals).isEmpty()
+                || !(level instanceof ServerLevel sl)) return false;
+        var target = sl.getServer().getPlayerList().getPlayer(expectedOccupant);
+        if (target == null || !validMenuActor(target)
+                || !ownership.transfer(player.getUUID(),player.getUUID(),expectedOccupant)) return false;
+        matchRevision++;
+        markChangedAndSynced();
+        return true;
+    }
+
     public record OfflineSeatCandidate(int seat, UUID occupant, boolean reserved) {}
 
     public List<OfflineSeatCandidate> offlineSeatCandidates() {
@@ -475,7 +663,8 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     /** Permanently turn this offline assignment into an ordinary, unreserved AI seat. */
     public boolean replaceOfflineWithAI(ServerPlayer player, int seat, UUID expectedOccupant,
             @Nullable TheMahjongDriver expectedDriver, long expectedRevision) {
-        if (replay!=null || !validMenuActor(player) || !isHost(player.getUUID())
+        if (replay != null) return false;
+        if (!validMenuActor(player) || !isHost(player.getUUID())
                 || !OfflineSeats.matches(driver, matchRevision, expectedDriver, expectedRevision,
                         seat, expectedOccupant, offlineSeatCandidates())) return false;
         // Leaving has already installed a BOT. Keep that controller and any accepted claim decision.
@@ -493,7 +682,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     public OptionalInt returningSeat(UUID uuid) { return returningSeats.seat(uuid); }
 
     public boolean canClaimSeat(int seat, UUID uuid) {
-        if (replay!=null) return false;
+        if (replay != null) return false;
         if (seat < 0 || seat >= seats.size()) return false;
         if (!seats.get(seat).enabled()) return false;
         if (seats.get(seat).occupant().filter(id->!id.equals(uuid)).isPresent()) return false;
@@ -509,18 +698,19 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         if (!canClaimSeat(seat,uuid)) return false;
         if (seats.get(seat).occupant().filter(uuid::equals).isPresent()) return true;
         if (driver != null) {
-            spectatorAccess.remember(uuid);
             returningSeats.remember(uuid,seat);
+            spectatorParticipants.remember(uuid);
+            if (replayRecorder != null) {
+                var person = level.getServer().getPlayerList().getPlayer(uuid);
+                replayRecorder.remember(seat, uuid, person == null ? "离线玩家" : person.getName().getString());
+            }
             replaceController(seat, buildPlayer(SeatInfo.claimed(uuid), seat, driver.match().playerCount(), activeRedFives()));
         }
         seatOfPlayer(uuid).ifPresent(prev -> {
             if (prev != seat) seats.set(prev, SeatInfo.open());
         });
+        spectators.remove(uuid);
         seats.set(seat, SeatInfo.claimed(uuid));
-        if(replayRecorder!=null&&driver!=null&&level!=null) {
-            var person=level.getServer().getPlayerList().getPlayer(uuid);
-            replayRecorder.remember(seat,uuid,person==null?"离线玩家":person.getName().getString());
-        }
         ownership.claimIfAbsent(uuid);
         matchRevision++;
         markChangedAndSynced();
@@ -528,7 +718,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     public void releaseSeat(int seat) {
-        if (replay!=null) return;
+        if (replay != null) return;
         if (seat < 0 || seat >= seats.size()) return;
         SeatInfo info = seats.get(seat);
         if (info.occupant().isPresent()) {
@@ -543,7 +733,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     public void selectPreset(RuleSetPreset newPreset) {
-        if (driver != null) return;
+        if (driver != null || newPreset == null) return;
         this.preset = newPreset;
         matchRevision++;
         padSeatsAtLeast(DEFAULT_SEAT_COUNT);
@@ -558,7 +748,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     public void toggleSeatEnabled(int seat) {
-        if (driver != null) return;
+        if (driver != null || !preset.family().supportsThreePlayers()) return;
         if (seat < 0 || seat >= seats.size()) return;
         SeatInfo current = seats.get(seat);
         seats.set(seat, current.enabled() ? SeatInfo.closed() : SeatInfo.open());
@@ -577,7 +767,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     private void onRisingEdge() {
-        if (replay!=null) return;
+        if (replay != null) return;
         if (driver == null) {
             tryStartMatch(new Random().nextLong());
         } else {
@@ -600,17 +790,18 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             return StartMatchResult.SEATS_MISMATCH_PRESET;
         }
 
-        TheMahjongMatch match = effective.newMatch(matchLength).validate();
+        TheMahjongMatch match = effective.newMatch(matchLength, exchangeThreeTiles, jokersEnabled, bloodBattle).validate();
         List<SeatInfo> activeSeats = new ArrayList<>(match.playerCount());
         for (int i = 0; i < match.playerCount(); i++) activeSeats.add(seats.get(i));
 
         resetReturningSeats();
-        beginSpectatorParticipants();
+        spectatorParticipants.begin(activeSeats.stream().flatMap(info -> info.occupant().stream()).toList());
         this.randomSeed = seed;
         this.driver = new TheMahjongDriver(match, buildPlayersFromSeats(activeSeats, match.tileSet().tiles().stream().anyMatch(TheMahjongTile::redDora)), new java.security.SecureRandom());
         this.driver.setAnimationsEnabled(true);
-        beginRecording(effective);
+        beginRecording(effectivePreset());
         this.driver.startMatch();
+        startPlayerAnalysis();
         matchRevision++;
         markChangedAndSynced();
         return StartMatchResult.STARTED;
@@ -645,6 +836,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         }
 
         this.preset = preset;
+
         this.matchLength = MatchLength.fromMatch(fixedMatch);
 
         padSeatsAtLeast(DEFAULT_SEAT_COUNT);
@@ -665,7 +857,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
                  false,
                 java.util.OptionalInt.empty());
         resetReturningSeats();
-        beginSpectatorParticipants();
+        spectatorParticipants.begin(activeSeats.stream().flatMap(info -> info.occupant().stream()).toList());
         this.randomSeed = seed;
         this.driver = new TheMahjongDriver(
                 fixedMatch, buildPlayersFromSeats(activeSeats, fixedMatch.tileSet().tiles().stream().anyMatch(TheMahjongTile::redDora)), new Random(seed), snap);
@@ -686,6 +878,11 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         if (driver != null) return StartMatchResult.NOT_IDLE;
 
         CompoundTag patched = snapshot.copy();
+        patched.remove("ReplayArchives");
+        patched.remove("ReplayRecording");
+        // Imported records are practice, never a second application of the source game's statistics.
+        patched.remove("PlayerAnalysis");
+        patched.remove("SpectatorMatchParticipants");
         // A record copies a game, not the source table's administration rights.
         patched.store("TableOwner", UUIDUtil.CODEC, owner().orElse(hostUuid));
 
@@ -701,11 +898,8 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             }
         }
 
-        // Preserve the destination toggle and start a new practice participation set.
-        patched.putBoolean("SpectatorHandsEnabled", spectatorAccess.enabled());
         loadAdditional(TagValueInput.create(ProblemReporter.DISCARDING, level.registryAccess(), patched));
         resetReturningSeats();
-        beginSpectatorParticipants();
         markChangedAndSynced();
         return StartMatchResult.STARTED;
     }
@@ -771,15 +965,16 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     private void clearMatchState() {
-        replay=null;replayRecorder=null;appliedReplayRevision=-1;
-        roundResultDisplay.clear();
+        replay=null; replayRecorder=null; appliedReplayRevision=-1; roundResultDisplay.clear();
+        if (playerAnalysis != null) { playerAnalysis.tick(); playerAnalysis.close(); playerAnalysis = null; }
+        clearWinPresentation();
         resultHandReveals.clear();
         winningHandDisplay = null;
         closeBotPlayers();
         this.driver = null;
         botsSuspended = false;
         returningSeats.clear();
-        spectatorAccess.clearMatch();
+        spectatorParticipants.clear();
         privateClicks.clear();
         this.randomSeed = 0L;
         handDisplay.clear();
@@ -796,8 +991,8 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     public List<MahjongTableHumanPlayer.TableButton> tableButtonsForSeat(int seat) {
-        if (replay!=null) return List.of();
-        if (driver == null || seat < 0 || seat >= driver.match().playerCount()
+        if (replay != null) return List.of();
+        if (winEffectSession != null || exchanging() || driver == null || seat < 0 || seat >= driver.match().playerCount()
                 || !(driver.playerAt(seat) instanceof MahjongTableHumanPlayer)) return List.of();
         if (ResultHandReveals.canReveal(driver)) {
             return com.riichimahjong.fabric.PublicTable.revealedSeats(this).contains(seat) ? List.of()
@@ -807,7 +1002,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     public boolean showHand(ServerPlayer player, TheMahjongDriver expectedDriver, TheMahjongRound expectedRound) {
-        if (replay!=null) return false;
+        if (replay != null) return false;
         if (!(level instanceof ServerLevel) || player.level() != level || player.isSpectator() || isRemoved()
                 || driver == null || driver != expectedDriver
                 || player.distanceToSqr(getBlockPos().getX() + .5, getBlockPos().getY() + .5,
@@ -823,8 +1018,8 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
 
     @Override
     public void onCuteClick(ServerPlayer player, InteractKey key) {
-        if (replay!=null) return;
-        if (driver == null) return;
+        if (replay != null) return;
+        if (driver == null || winEffectSession != null || exchanging()) return;
         int seat = seatOfOccupant(player.getUUID());
         if (seat < 0) return;
         if (!(driver.playerAt(seat) instanceof MahjongTableHumanPlayer human)) return;
@@ -849,7 +1044,9 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             displayedDiscard = slot.index();
             key = new InteractKey.SeatSlot(slot.seat(), slot.area(), (short)canonical);
         }
+        boolean exchangeWasComplete=exchangeCompleted();
         human.onCuteClick(key, driver, seat, player);
+        captureExchange(exchangeWasComplete);
         if (displayedDiscard >= 0 && !queuedBefore && human.hasQueued()
                 && driver.currentPhase() instanceof MatchPhase.AwaitingDiscard discard && discard.seat() == seat) {
             handDisplay.recordDiscardSlot(seat, displayedDiscard);
@@ -879,8 +1076,8 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     public void onTableRightClick(ServerPlayer player) {
-        if (replay!=null) return;
-        if (driver == null) return;
+        if (replay != null) return;
+        if (driver == null || winEffectSession != null || exchanging()) return;
 
         if (level != null && level.getGameTime() == lastCuteClickGameTime) return;
         int seat = seatOfOccupant(player.getUUID());
@@ -923,7 +1120,8 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     private MahjongPlayerInterface buildBot(int seat, int playerCount, boolean redFives) {
-        return playerCount == 4 ? new KobalabBot(botDifficulty(seat), redFives) : new RandomThinkingBot();
+        return playerCount == 4 && preset.family() != RuleSetPreset.Family.SICHUAN
+                ? new KobalabBot(botDifficulty(seat), redFives) : new RandomThinkingBot();
     }
 
     private boolean activeRedFives() {
@@ -945,6 +1143,14 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
 
     @Override
     public void setRemoved() {
+        if (playerAnalysis != null) { playerAnalysis.tick(); playerAnalysis.close(); }
+        finishWinEffect();
+        if(driver!=null&&driver.rules().bloodBattle()&&ResultHandReveals.canReveal(driver)){
+            deferredWinQueue.finishAll();completedWinSeats.addAll(deferredWinQueue.winners());
+            for(var context:deferredWinQueue.contexts())if(WinEffects.resolve(context.effectId()).consumesSource()
+                    &&context.source().slot().startsWith("river/"))consumedWinTileSlots.add(context.source().slot());
+        }
+        exchangePresentation=null;
         matchRevision++;
         closeBotPlayers();
         botsSuspended = true;
@@ -954,6 +1160,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     @Override
     public void clearRemoved() {
         super.clearRemoved();
+        bindPlayerAnalysis();
         if (!botsSuspended) return;
         botsSuspended = false;
         if (driver == null) return;
@@ -965,18 +1172,41 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     private void serverTick() {
-        if(level instanceof ServerLevel sl&&sl.getGameTime()>=nextArchiveAttempt)flushReplayArchives();
-        if(replay!=null) {
+        if (!(level instanceof ServerLevel sl)) return;
+        if(sl.getGameTime() >= nextArchiveAttempt) flushReplayArchives();
+        if(replay != null) {
             if(replay.tick()){applyReplayFrame();markChangedAndSynced();}
             return;
         }
         if (driver == null) return;
-        if (!(level instanceof ServerLevel sl)) return;
+        if (playerAnalysis != null) playerAnalysis.tick();
 
         updateHandDisplay();
+        if(exchangePresentation!=null){
+            if(exchangePresentation.advance()){exchangePresentation=null;handDisplay.clear();markChangedAndSynced();}
+            return;
+        }
+        prepareBloodBattlePlayback();
+
+        // A presentation pauses the driver, including blood-battle play and human timeouts.
+        // The rule win is already committed; removal/reload can safely finish presentation.
+        if (winEffectSession != null) {
+            if (winEffectSession.advance()) {
+                finishWinEffect();
+                if(driver.rules().bloodBattle())playNextDeferredWin();
+                if (winEffectSession==null && driver.currentPhase() instanceof MatchPhase.RoundEnded re
+                        && resultAnimStage == ResultAnimStage.NONE) startResultAnimation(sl,re);
+                markChangedAndSynced();
+            }
+            return;
+        }
 
         MatchPhase prevPhase = driver.currentPhase();
         TheMahjongMatch prevMatch = driver.match();
+        int previousSichuanWins = driver.sichuanState()!=null?driver.sichuanState().wins().size():driver.bloodBattleState()!=null?driver.bloodBattleState().wins().size():0;
+        long sichuanRevision = driver.sichuanState()==null ? -1 : driver.sichuanState().revision();
+        long exchangeRevision = driver.exchangeState()==null ? -1 : driver.exchangeState().revision();
+        long bloodBattleRevision = driver.bloodBattleState()==null ? -1 : driver.bloodBattleState().revision();
 
         for (int i = 0; i < driver.match().playerCount(); i++) {
             if (driver.playerAt(i) instanceof MahjongTableHumanPlayer human) {
@@ -985,12 +1215,14 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         }
 
         boolean animating = resultAnimStage != ResultAnimStage.NONE;
+        boolean exchangeWasComplete=exchangeCompleted();
         if (!animating) {
             driver.advance(SECONDS_PER_TICK);
+            if (playerAnalysis != null) playerAnalysis.tick();
+            captureExchange(exchangeWasComplete);
             playAcceptedActionSounds(sl, prevMatch);
         }
         MatchPhase nextPhase = driver.currentPhase();
-        roundResultDisplay.observe(nextPhase);
         if (!(prevPhase instanceof MatchPhase.RoundEnded) && nextPhase instanceof MatchPhase.RoundEnded) {
             winningHandDisplay = WinningHandDisplay.capture(driver.winningTile(), nextPhase);
         } else if (!(nextPhase instanceof MatchPhase.RoundEnded) && !(nextPhase instanceof MatchPhase.MatchEnded)) {
@@ -998,7 +1230,17 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         }
         updateHandDisplay();
 
-        boolean playerStateChanged = false;
+        var effectContext=WinEffectTriggers.capture(driver,prevPhase,previousSichuanWins,winEffectId);
+        recordWinPresentation(effectContext);
+        if(nextPhase instanceof MatchPhase.RoundEnded){
+            finalResultLabels=WinResultLabels.captureResults(driver);
+            prepareBloodBattlePlayback();
+        }
+
+        boolean playerStateChanged = driver.sichuanState()!=null
+                && driver.sichuanState().revision()!=sichuanRevision;
+        playerStateChanged |= driver.exchangeState()!=null && driver.exchangeState().revision()!=exchangeRevision;
+        playerStateChanged |= driver.bloodBattleState()!=null && driver.bloodBattleState().revision()!=bloodBattleRevision;
         for (int i = 0; i < driver.match().playerCount(); i++) {
             if (driver.playerAt(i) instanceof MahjongTableHumanPlayer human) {
                 if (human.tickAfterAdvance(sl, this, i, nextPhase)) playerStateChanged = true;
@@ -1011,8 +1253,8 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             return;
         }
 
-        if (!(prevPhase instanceof MatchPhase.RoundEnded)
-                && nextPhase instanceof MatchPhase.RoundEnded re) {
+        if (nextPhase instanceof MatchPhase.RoundEnded re
+                && resultAnimStage == ResultAnimStage.NONE && winEffectSession == null) {
             startResultAnimation(sl, re);
         }
         if (prevMatch != driver.match() || prevPhase != nextPhase || playerStateChanged) {
@@ -1162,8 +1404,8 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     public void advanceRoundAfterResult() {
-        if (replay!=null) return;
-        if (driver == null) return;
+        if (replay != null) return;
+        if (driver == null || winEffectSession!=null || exchanging()) return;
         if (resultAnimStage != ResultAnimStage.AWAITING_ADVANCE) return;
         if (!(driver.currentPhase() instanceof MatchPhase.RoundEnded)) {
             clearResultAnimState();
@@ -1171,12 +1413,18 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             return;
         }
         var next = com.riichimahjong.fabric.RoundProgression.next(driver);
+        for(int seat:com.riichimahjong.fabric.PublicTable.revealedSeats(this))
+            resultHandReveals.show(driver,driver.currentRound(),seat);
         clearResultAnimState();
         try {
+            if (playerAnalysis != null) playerAnalysis.tick();
             roundResultDisplay.observe(driver.currentPhase());
             driver.advanceRound(next.renchan(), next.nextHonba());
-            roundResultDisplay.observe(driver.currentPhase());
-            if(!(driver.currentPhase() instanceof MatchPhase.MatchEnded))winningHandDisplay=null;
+            if (playerAnalysis != null) {
+                if (driver.currentPhase() instanceof MatchPhase.MatchEnded) playerAnalysis.tick();
+                else playerAnalysis.nextHand();
+            }
+            if (!(driver.currentPhase() instanceof MatchPhase.MatchEnded)) clearWinPresentation();
             matchRevision++;
             resultHandReveals.shownSeats(driver);
         } catch (Exception ignored) {
@@ -1355,15 +1603,38 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         super.saveAdditional(out);
 
         ownership.write(out);
-        // Independent of the live match: ending/resetting a table must not discard an unacknowledged archive.
         replayArchives.write(out.child("ReplayArchives"));
+        roundResultDisplay.write(out.child("RoundResultDisplay"));
+        if (driver != null) spectatorParticipants.write(out);
+        if (driver != null && replay == null && replayRecorder != null) out.store("ReplayRecording", CompoundTag.CODEC, replayRecorder.toNbt());
+        if (playerAnalysis != null && driver != null) playerAnalysis.write(out.child("PlayerAnalysis"));
         out.putBoolean(NBT_LAST_POWERED, lastPowered);
         out.putString(NBT_PRESET, preset.name());
         matchLength.write(out);
+        out.putBoolean("ExchangeThreeTiles", exchangeThreeTiles);
+        out.putBoolean("JokersEnabled", jokersEnabled);
+        out.putBoolean("BloodBattle", bloodBattle);
+        out.putBoolean("SpectatorHandsVisible", spectatorHandsVisible);
         out.putString(NBT_BOT_DIFFICULTY, defaultBotDifficulty.name());
         out.putBoolean(NBT_MINT_TILES, mintTilesFromNothing);
         out.putBoolean(NBT_DELIVER_TO_MAIN_HAND, deliverToMainHand);
-        spectatorAccess.write(out, driver != null && replay == null);
+        out.putString("WinEffect",winEffectId);
+        deferredWinQueue.write(out.child("DeferredWins"));
+        WinResultLabels.write(out.child("WinResultLabels"),finalResultLabels);
+        var completedToSave=new HashSet<>(completedWinPresentationSeats());
+        if(winEffectSession!=null)winEffectSession.context().winners().forEach(w->completedToSave.add(w.seat()));
+        if(driver!=null&&driver.rules().bloodBattle()&&ResultHandReveals.canReveal(driver))completedToSave.addAll(deferredWinQueue.winners());
+        out.putIntArray("CompletedWinSeats",completedToSave.stream().mapToInt(Integer::intValue).sorted().toArray());
+        out.putIntArray("FinalWinningSeats",finalWinningSeats.stream().mapToInt(Integer::intValue).sorted().toArray());
+        var consumed=out.childrenList("ConsumedWinTiles");
+        var finishedSlots=new HashSet<>(consumedWinTileSlots);
+        if(winEffectSession!=null && winEffectSession.effect().consumesSource()
+                && winEffectSession.context().source().slot().startsWith("river/"))
+            finishedSlots.add(winEffectSession.context().source().slot());
+        if(driver!=null&&driver.rules().bloodBattle()&&ResultHandReveals.canReveal(driver))
+            for(var context:deferredWinQueue.contexts())if(WinEffects.resolve(context.effectId()).consumesSource()
+                    &&context.source().slot().startsWith("river/"))finishedSlots.add(context.source().slot());
+        finishedSlots.stream().sorted().forEach(slot->consumed.addChild().putString("Slot",slot));
 
         out.putString(NBT_RESULT_ANIM_STAGE, resultAnimStage.name());
         out.putInt(NBT_RESULT_ANIM_YAKU_IDX, resultAnimYakuIdx);
@@ -1387,12 +1658,10 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             entry.store(NBT_INVENTORY_ITEM, ItemStack.CODEC, stack);
         }
 
-        if (driver != null && replay==null) {
+        if (driver != null && replay == null) {
             DriverNbt.writeDriver(out.child(NBT_DRIVER), driver);
-            roundResultDisplay.write(out.child("RoundResultDisplay"));
-            if(replayRecorder!=null)out.store("ReplayRecording",CompoundTag.CODEC,replayRecorder.toNbt());
             resultHandReveals.write(out.child("ShownHands"), driver);
-            if (winningHandDisplay != null && displayPhase() instanceof MatchPhase.RoundEnded) {
+            if (winningHandDisplay != null && ResultHandReveals.canReveal(driver)) {
                 winningHandDisplay.write(out.child("WinningHandDisplay"));
             }
             out.putLong(NBT_RANDOM_SEED, randomSeed);
@@ -1415,20 +1684,38 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     @Override
     protected void loadAdditional(ValueInput in) {
         super.loadAdditional(in);
-        replay=null;replayRecorder=null;appliedReplayRevision=-1;nextArchiveAttempt=0;
-        spectatorAccess.read(in);
-        roundResultDisplay.clear();
-        replayArchives.read(in.childOrEmpty("ReplayArchives"));
 
+        replay=null; replayRecorder=null; appliedReplayRevision=-1; nextArchiveAttempt=0;
+        replayArchives.read(in.childOrEmpty("ReplayArchives"));
+        roundResultDisplay.read(in.childOrEmpty("RoundResultDisplay"));
         matchRevision++;
+        if (playerAnalysis != null) { playerAnalysis.close(); playerAnalysis = null; }
         closeBotPlayers();
         botsSuspended = false;
         defaultBotDifficulty = BotDifficulty.parse(in.getString(NBT_BOT_DIFFICULTY).orElse(null));
         seatBotDifficulties.clear();
 
         lastPowered = in.getBooleanOr(NBT_LAST_POWERED, false);
+        exchangeThreeTiles = in.getBooleanOr("ExchangeThreeTiles", false);
+        jokersEnabled = in.getBooleanOr("JokersEnabled", false);
+        bloodBattle = in.getBooleanOr("BloodBattle", false);
+        spectatorHandsVisible = in.getBooleanOr("SpectatorHandsVisible", false);
+        spectators.clear();
+        spectatorParticipants.read(in);
         mintTilesFromNothing = in.getBooleanOr(NBT_MINT_TILES, true);
         deliverToMainHand = in.getBooleanOr(NBT_DELIVER_TO_MAIN_HAND, true);
+        clearWinPresentation();
+        winEffectId=WinEffects.resolve(in.getStringOr("WinEffect",WinEffects.DEFAULT)).id();
+        deferredWinQueue.read(in.childOrEmpty("DeferredWins"));
+        completedWinSeats.addAll(java.util.Arrays.stream(in.getIntArray("CompletedWinSeats").orElseGet(()->new int[0]))
+                .filter(seat->seat>=0&&seat<4).boxed().toList());
+        finalResultLabels=WinResultLabels.read(in.childOrEmpty("WinResultLabels"));
+        finalWinningSeats=java.util.Arrays.stream(in.getIntArray("FinalWinningSeats").orElseGet(()->new int[0]))
+                .filter(seat->seat>=0&&seat<4).boxed().collect(java.util.stream.Collectors.toUnmodifiableSet());
+        for(var entry:in.childrenListOrEmpty("ConsumedWinTiles")) {
+            String slot=entry.getStringOr("Slot","");
+            if(slot.matches("river/[0-3]/[0-9]+"))consumedWinTileSlots.add(slot);
+        }
 
         resultAnimStage = in.getString(NBT_RESULT_ANIM_STAGE)
                 .map(name -> {
@@ -1467,6 +1754,14 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             seats = loaded;
         });
         if (seats.isEmpty()) seats = defaultSeats();
+        if (in.child(NBT_DRIVER).isPresent()
+                && in.childOrEmpty(NBT_DRIVER).childOrEmpty("match").getBooleanOr("sichuan", false))
+            preset = RuleSetPreset.SICHUAN_4P;
+        if (preset.family() == RuleSetPreset.Family.SICHUAN) {
+            padSeatsAtLeast(DEFAULT_SEAT_COUNT);
+            for (int seat=0; seat<DEFAULT_SEAT_COUNT; seat++)
+                if (!seats.get(seat).enabled()) seats.set(seat, SeatInfo.open());
+        }
         ownership.read(in, seats.stream().flatMap(info -> info.occupant().stream()).findFirst());
 
         inventory.clear();
@@ -1503,9 +1798,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
                     new java.security.SecureRandom());
             this.driver.setAnimationsEnabled(true);
             resultHandReveals.read(in.childOrEmpty("ShownHands"), driver);
-            roundResultDisplay.read(in.childOrEmpty("RoundResultDisplay"));
-            roundResultDisplay.observe(driver.currentPhase());
-            if (displayPhase() instanceof MatchPhase.RoundEnded) {
+            if (ResultHandReveals.canReveal(driver)) {
                 winningHandDisplay = in.child("WinningHandDisplay").map(WinningHandDisplay::read).orElse(null);
             }
 
@@ -1520,9 +1813,9 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
                 if (uuid!=null&&returningSeats.allows(uuid,seat)) returningSeats.remember(uuid,seat);
             }
 
-            // Preserve every recoverable player even if the reservation is later revoked.
-            returningSeats.snapshot().keySet().forEach(spectatorAccess::remember);
-            seats.stream().flatMap(seat -> seat.occupant().stream()).forEach(spectatorAccess::remember);
+            // Older active tables have no participant history. Restore identities still known to the table.
+            returningSeats.snapshot().keySet().forEach(spectatorParticipants::remember);
+            seats.stream().flatMap(info -> info.occupant().stream()).forEach(spectatorParticipants::remember);
 
             for (ValueInput entry : in.childrenListOrEmpty(NBT_HUMAN_PLAYERS)) {
                 int seat = entry.getIntOr("Seat", 0);
@@ -1531,25 +1824,36 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
                     h.readNbt(entry);
                 }
             }
-            // A pre-feature save has no complete action history: never mislabel it a full replay.
-            try {
-                replayRecorder=in.read("ReplayRecording",CompoundTag.CODEC).map(ReplayRecorder::fromNbt).orElse(null);
-                if(driver.currentPhase() instanceof MatchPhase.MatchEnded
-                        &&displayPhase() instanceof MatchPhase.MatchEnded&&replayRecorder!=null) {
-                    replayRecorder.lastRoundResult().ifPresent(frame->{
-                        roundResultDisplay.observe(frame.restore(in.lookup()).currentPhase());
-                        var resultInput=TagValueInput.create(ProblemReporter.DISCARDING,in.lookup(),frame.driver());
-                        winningHandDisplay=resultInput.child("ReplayWinningHand").map(WinningHandDisplay::read).orElse(null);
-                    });
-                }
-                // Older live saves can recover former participants from the existing recorder.
-                if (replayRecorder != null) replayRecorder.participantUuids().forEach(spectatorAccess::remember);
-                attachRecordingObserver();
-            } catch(RuntimeException error) {
-                replayRecorder=null;
-                System.getLogger("riichi_mahjong/replay").log(System.Logger.Level.WARNING,"Cannot resume replay recording",error);
-            }
         }
         matchLength = MatchLength.read(in, driver == null ? null : driver.match());
+        if (driver != null) {
+            if (driver.match().ruleSet().sichuan()) preset = RuleSetPreset.SICHUAN_4P;
+            else if(driver.match().ruleSet().competitiveProfile()==com.themahjong.competition.CompetitiveRules.Profile.JPML_A)
+                preset=RuleSetPreset.JPML_4P;
+            else if(driver.match().ruleSet().competitiveProfile()==com.themahjong.competition.CompetitiveRules.Profile.M_LEAGUE)
+                preset=RuleSetPreset.M_LEAGUE_4P;
+            exchangeThreeTiles = driver.match().ruleSet().exchangeThree();
+            jokersEnabled = driver.match().ruleSet().jokersEnabled();
+            bloodBattle = driver.match().ruleSet().bloodBattle();
+            if(driver.rules().bloodBattle()){
+                WinEffectTriggers.history(driver,winEffectId).forEach(deferredWinQueue::add);
+                if(ResultHandReveals.canReveal(driver)){
+                    deferredWinQueue.finishAll();completedWinSeats.addAll(deferredWinQueue.winners());winPlaybackPrepared=true;
+                    for(var context:deferredWinQueue.contexts())if(WinEffects.resolve(context.effectId()).consumesSource()
+                            &&context.source().slot().startsWith("river/"))consumedWinTileSlots.add(context.source().slot());
+                }else completedWinSeats.clear();
+            }else if(ResultHandReveals.canReveal(driver))completedWinSeats.addAll(finalWinningSeats);
+            if(finalResultLabels.isEmpty()&&ResultHandReveals.canReveal(driver))finalResultLabels=WinResultLabels.captureResults(driver);
+            playerAnalysis = MatchAnalysisSession.read(in.childOrEmpty("PlayerAnalysis"));
+            bindPlayerAnalysis();
+            try {
+                replayRecorder=in.read("ReplayRecording", CompoundTag.CODEC).map(ReplayRecorder::fromNbt).orElse(null);
+                if (replayRecorder != null) replayRecorder.participantUuids().forEach(spectatorParticipants::remember);
+                attachRecordingObserver();
+            } catch (RuntimeException error) {
+                replayRecorder=null;
+                System.getLogger("riichi_mahjong/replay").log(System.Logger.Level.WARNING, "Cannot resume replay recording", error);
+            }
+        }
     }
 }

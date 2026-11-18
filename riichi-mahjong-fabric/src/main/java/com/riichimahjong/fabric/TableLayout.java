@@ -37,6 +37,18 @@ public final class TableLayout {
         double support=flat?TILE_MODEL_BOUNDS.maxZ:-TILE_MODEL_BOUNDS.minY;
         return anchor(pos,dir,along,TABLE_TOP,.85).add(0,support*TILE_SCALE,0);
     }
+    /** Ground the full rotated model during a push, including its item-display right rotation. */
+    static Vec3 handAnchor(BlockPos pos,Direction dir,double along,Quaternionf rotation){
+        var modelRotation=new Quaternionf(rotation).rotateY((float)Math.PI);
+        double minY=Double.POSITIVE_INFINITY;
+        for(double x:new double[]{TILE_MODEL_BOUNDS.minX,TILE_MODEL_BOUNDS.maxX})
+            for(double y:new double[]{TILE_MODEL_BOUNDS.minY,TILE_MODEL_BOUNDS.maxY})
+                for(double z:new double[]{TILE_MODEL_BOUNDS.minZ,TILE_MODEL_BOUNDS.maxZ}){
+                    var corner=modelRotation.transform(new org.joml.Vector3f((float)x,(float)y,(float)z));
+                    minY=Math.min(minY,corner.y);
+                }
+        return anchor(pos,dir,along,TABLE_TOP,.85).add(0,-minY*TILE_SCALE,0);
+    }
     static Vec3 anchor(BlockPos pos,Direction dir,double along,double height,double distance){
         return PortViews.anchor(pos,dir,along*TILE_ENLARGEMENT,
                 TABLE_TOP+(height-TABLE_TOP)*TILE_ENLARGEMENT,distance*TABLE_HORIZONTAL_SCALE);

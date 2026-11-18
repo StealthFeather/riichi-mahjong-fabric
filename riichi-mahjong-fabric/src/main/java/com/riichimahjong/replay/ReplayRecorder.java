@@ -2,7 +2,6 @@ package com.riichimahjong.replay;
 
 import com.riichimahjong.fabric.WinningHandDisplay;
 import com.riichimahjong.themahjongcompat.DriverNbt;
-import com.themahjong.TheMahjongMatch;
 import com.themahjong.driver.MatchPhase;
 import com.themahjong.driver.TheMahjongDriver;
 import java.util.ArrayList;
@@ -19,8 +18,6 @@ public final class ReplayRecorder {
     private final String preset;
     private final List<ReplayRecord.Participant> people=new ArrayList<>();
     private final List<ReplayRecord.Frame> frames=new ArrayList<>();
-    private TheMahjongMatch lastMatch;
-    private MatchPhase lastPhase;
     private boolean finished;
 
     public ReplayRecorder(String preset,List<ReplayRecord.Participant> participants) {
@@ -52,8 +49,6 @@ public final class ReplayRecorder {
     public void capture(TheMahjongDriver driver) {
         var match=driver.match();var phase=driver.currentPhase();
         if(finished||match.currentRound().isEmpty()||phase instanceof MatchPhase.NotStarted||phase instanceof MatchPhase.Dealing)return;
-        if(match==lastMatch&&phase.equals(lastPhase))return;
-        lastMatch=match;lastPhase=phase;
         var out=TagValueOutput.createWithoutContext(ProblemReporter.DISCARDING);
         DriverNbt.writeReplayDriver(out,driver);
         var winning=WinningHandDisplay.capture(driver.winningTile(),phase);

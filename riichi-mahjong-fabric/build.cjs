@@ -6,7 +6,7 @@ fs.mkdirSync(build,{recursive:true});fs.mkdirSync(p.join(build,'libs'),{recursiv
 const compile=(name,args)=>{const f=p.join(build,name+'.args');fs.writeFileSync(f,args.map(s=>'"'+s.replaceAll('\\','/')+'"').join('\n'));exec(javaTool('javac'),['-J-Duser.language=en','-J-Duser.country=US','@'+f],{stdio:'inherit',windowsHide:true});};
 const ruleSources=files(p.join(project,'upstream/themahjong/src/main/java'),'.java');
 const patches=require('./rules-patches.cjs');
-for(const [relative,patch] of [['driver/TheMahjongDriver.java',patches],['TheMahjongRound.java',patches.round]]){
+for(const [relative,patch] of [['driver/TheMahjongDriver.java',patches],['TheMahjongRound.java',patches.round],['TheMahjongRuleSet.java',patches.ruleSet],['yaku/NonYakuman.java',patches.nonYakuman],['TheMahjongMatch.java',patches.match],['TheMahjongTile.java',patches.tile],['TheMahjongMeld.java',patches.meld],['yaku/HandShape.java',patches.handShape],['yaku/WinCalculator.java',patches.winCalculator],['yaku/Furiten.java',patches.furiten],['driver/WinResultBuilder.java',patches.winResultBuilder]]){
  const sourceIndex=ruleSources.findIndex(f=>f.endsWith(p.join('com','themahjong',relative)));
  if(sourceIndex<0)throw Error('Missing upstream rule source: '+relative);
  const patched=p.join(build,'rule-patches/com/themahjong',relative);

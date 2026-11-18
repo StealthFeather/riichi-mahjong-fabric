@@ -38,6 +38,14 @@ public final class TableOwnership {
         return true;
     }
 
+    /** Only the expected current owner may explicitly hand authority to another player. */
+    public boolean transfer(UUID actor, UUID expectedOwner, UUID target) {
+        if (owner == null || actor == null || target == null || !owner.equals(expectedOwner)
+                || !owner.equals(actor) || actor.equals(target)) return false;
+        owner = target;
+        return true;
+    }
+
     /** Virtual table collisions synthesize a centre block hit; use the actual sight ray instead. */
     public static boolean hitsCentre(BlockPos master, Vec3 eye, Vec3 end) {
         double height = master.getY() + TableLayout.TABLE_TOP;

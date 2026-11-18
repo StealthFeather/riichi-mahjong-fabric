@@ -133,18 +133,6 @@ public class MahjongTableBlock extends BaseMultipartBlock {
             return InteractionResult.PASS;
         }
 
-        ItemStack held = player.getItemInHand(hand);
-        if (held.getItem() instanceof MahjongTableRecordItem record && player instanceof ServerPlayer sp) {
-            if (!record.isPredefinedFixtureForRouting()) {
-                com.riichimahjong.replay.ReplayMenus.overview(sp);
-            } else if (table.state() != MahjongTableBlockEntity.State.IDLE) {
-                sp.sendSystemMessage(Component.literal("请先结束当前对局再载入练习牌谱。"), true);
-            } else if (requireHost(player, table)) {
-                record.applyToTable(sp, table, held);
-            }
-            return InteractionResult.CONSUME;
-        }
-
         if (player instanceof ServerPlayer serverPlayer && routeWindPlateUse(serverPlayer,table)) {
             return InteractionResult.CONSUME;
         }
@@ -153,6 +141,24 @@ public class MahjongTableBlock extends BaseMultipartBlock {
                 && com.riichimahjong.fabric.PortViews.handleTileHit(sp, table)) {
             return InteractionResult.CONSUME;
         }
+        ItemStack held = player.getItemInHand(hand);
+        if (held.getItem() instanceof MahjongTableRecordItem record && player instanceof ServerPlayer sp) {
+            if (table.state() != MahjongTableBlockEntity.State.IDLE) {
+                sp.sendSystemMessage(
+                        Component.literal("End the current match before using a table record."), true);
+                return InteractionResult.CONSUME;
+            }
+            boolean filled = record.isPredefinedFixtureForRouting()
+                    || MahjongTableRecordItem.hasRecordedTableState(held);
+            if (filled) {
+                if (!requireHost(player,table)) return InteractionResult.CONSUME;
+                record.applyToTable(sp, table, held);
+            } else {
+                record.recordFromTable(sp, table, held);
+            }
+            return InteractionResult.CONSUME;
+        }
+
         if (table.state() == MahjongTableBlockEntity.State.GAME) {
             if (!holdsWrench(player) && player instanceof ServerPlayer sp
                     && table.seatOfPlayer(sp.getUUID()).isEmpty()) {
@@ -205,7 +211,7 @@ public class MahjongTableBlock extends BaseMultipartBlock {
     public static boolean routeWindPlateUse(ServerPlayer player, MahjongTableBlockEntity table) {
         var level = player.level();
         var master = table.getBlockPos();
-        if (table.getLevel() != level || player.isSpectator() || table.isRemoved()
+        if (table.getLevel() != level || table.isRemoved()
                 || player.distanceToSqr(master.getX()+.5,master.getY()+.5,master.getZ()+.5) > 64
                 || !level.hasChunkAt(master)) return false;
         var state = level.getBlockState(master);
@@ -217,16 +223,9 @@ public class MahjongTableBlock extends BaseMultipartBlock {
                 player.isShiftKeyDown(),table.hasActiveMatch(),table.seatOfPlayer(player.getUUID()).isPresent());
         if (action == TableCentreInteraction.Action.NONE) return false;
         if (action == TableCentreInteraction.Action.MENU) {
-            if (table.hasOfflineHost()) {
-                var owner = table.owner().orElseThrow();
-                if (table.takeOverHost(player,owner,table.matchRevision())) {
-                    player.sendSystemMessage(Component.literal("已取得麻将桌的桌主权限。"),true);
-                }
-            }
-            // The settings entry claims an unowned table before checking its strict host predicate.
-            if (table.owner().isEmpty() || requireHost(player,table)) {
-                com.riichimahjong.fabric.PortMenus.settings(player,table);
-            }
+            com.riichimahjong.fabric.PortMenus.settings(player,table);
+        } else if (player.isSpectator()) {
+            return true;
         } else if (action == TableCentreInteraction.Action.ADVANCE) {
             // The table itself accepts this only after its result animation is finished.
             table.advanceRoundAfterResult();

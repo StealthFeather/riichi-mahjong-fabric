@@ -15,6 +15,7 @@ public final class KobalabBot implements MahjongPlayerInterface, AutoCloseable {
     private DecisionRequest current;
     private CompletableFuture<Integer> pending;
     private final BotThinkTime thinking=new BotThinkTime();
+    private final BotDiscardAnimation discardAnimation=new BotDiscardAnimation();
     private PlayerAction automatic;
 
     public KobalabBot(BotDifficulty difficulty) { this(difficulty, null); }
@@ -22,12 +23,14 @@ public final class KobalabBot implements MahjongPlayerInterface, AutoCloseable {
     private KobalabBot(BotDifficulty difficulty, Boolean redFives) { this.difficulty = Objects.requireNonNull(difficulty); this.redFives = redFives; }
     public BotDifficulty difficulty() { return difficulty; }
     public boolean isClosed() { return closed; }
+    public BotDiscardAnimation discardAnimation() { return discardAnimation; }
 
     @Override public Optional<PlayerAction> chooseAction(DecisionRequest request, double deltaSeconds) {
         if (closed || request.legalActions().isEmpty()) return Optional.empty();
         if (!Objects.equals(current, request)) {
             if (pending != null) pending.cancel(false);
-            current = request; automatic = forced(request); pending = null;
+            current = request; automatic = forced(request);
+            if (automatic == null && (request.rules().jokersEnabled() || request.rules().bloodBattle())) automatic = com.riichimahjong.ai.VariantBotPolicy.choose(request); pending = null;
             if (automatic == null) {
                 var snapshot = redFives == null ? AiSnapshot.create(request, difficulty) : AiSnapshot.create(request, difficulty, redFives);
                 pending = AiRuntime.choose(snapshot);
@@ -39,8 +42,7 @@ public final class KobalabBot implements MahjongPlayerInterface, AutoCloseable {
             int index = pending.getNow(-1);
             if (index >= 0 && index < request.legalActions().size()) chosen = request.legalActions().get(index);
         }
-        if (chosen == null) return Optional.empty();
-        return ready ? Optional.of(chosen) : Optional.empty();
+        return discardAnimation.select(request, chosen, deltaSeconds, ready);
     }
 
     private static PlayerAction forced(DecisionRequest request) {
@@ -54,5 +56,6 @@ public final class KobalabBot implements MahjongPlayerInterface, AutoCloseable {
         closed = true;
         if (pending != null) pending.cancel(false);
         pending = null; current = null; automatic = null;
+        discardAnimation.clear();
     }
 }

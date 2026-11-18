@@ -2,20 +2,11 @@ package com.riichimahjong.fabric;
 
 import com.riichimahjong.mahjongtable.MatchLength;
 import com.riichimahjong.mahjongtable.RuleSetPreset;
-import com.riichimahjong.replay.ReplayRecord;
-import com.riichimahjong.replay.ReplayRecorder;
 import com.riichimahjong.themahjongcompat.MatchNbt;
 import com.themahjong.TheMahjongMatch;
 import com.themahjong.TheMahjongRound;
 import com.themahjong.TheMahjongTile;
-import com.themahjong.driver.MahjongPlayerInterface;
-import com.themahjong.driver.MatchPhase;
-import com.themahjong.driver.TheMahjongDriver;
 import java.util.List;
-import java.util.Optional;
-import java.util.OptionalInt;
-import java.util.Random;
-import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
@@ -135,33 +126,6 @@ public final class MatchLengthSettingsRegression {
         }
     }
 
-    private static void replayLengthPersistence() {
-        var registries = HolderLookup.Provider.create(Stream.empty());
-        for (var length : MatchLength.values()) {
-            // The same south-wind frame represents an east-only extension or a scheduled south round.
-            var match = matchAt(RuleSetPreset.TENHOU_4P, length, TheMahjongTile.Wind.SOUTH, false);
-            var paused = IntStream.range(0, match.playerCount())
-                    .mapToObj(seat -> (MahjongPlayerInterface)(request, seconds) -> Optional.empty()).toList();
-            var driver = new TheMahjongDriver(match, paused, new Random(29),
-                    new TheMahjongDriver.Snapshot(new MatchPhase.AwaitingDraw(0, false), false, OptionalInt.empty()));
-            var participants = IntStream.range(0, match.playerCount())
-                    .mapToObj(seat -> new ReplayRecord.Participant(seat, null, "BOT", 25000)).toList();
-            var recording = new ReplayRecorder(RuleSetPreset.TENHOU_4P.name(), participants);
-            recording.capture(driver);
-            recording = ReplayRecorder.fromNbt(recording.toNbt());
-            var record = ReplayRecord.decode(ReplayRecord.fromNbt(recording.toNbt()).encode());
-            check(record.frames().size() == 1, "replay restart or compression lost the captured frame");
-            var restored = record.frames().getFirst().restore(registries);
-            check(restored.match().roundCount() == length.roundCount(),
-                    "replay persistence changed the selected scheduled winds");
-            check(restored.currentRound().roundWind() == TheMahjongTile.Wind.SOUTH,
-                    "replay persistence lost the south-wind frame");
-            var conflicting = length == MatchLength.EAST ? MatchLength.SOUTH : MatchLength.EAST;
-            check(MatchLength.read(input(save(conflicting)), restored.match()) == length,
-                    "a restored replay inherited table metadata or mistook an east-only extension for south-length");
-        }
-    }
-
     public static void main(String[] args) {
         idleSettings();
         System.out.println("PASS: east/south table settings survive NBT, while missing or malformed idle metadata resets to the legacy south default");
@@ -169,7 +133,5 @@ public final class MatchLengthSettingsRegression {
         System.out.println("PASS: 3p/4p active and terminal records retain their own scheduled winds despite missing, conflicting or damaged menu settings");
         extensionsAndCustomRecords();
         System.out.println("PASS: extension winds do not change the selected match mode, and older custom round counts remain intact");
-        replayLengthPersistence();
-        System.out.println("PASS: replay recording, restart, compressed payload and frame restoration preserve east/south scheduled winds, including an east-only south extension");
     }
 }

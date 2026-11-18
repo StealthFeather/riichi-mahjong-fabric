@@ -1,0 +1,81 @@
+{
+  "textures": {
+    "fangs": "riichi_mahjong:block/win_fangs",
+    "particle": "riichi_mahjong:block/win_fangs"
+  },
+  "elements": [
+    {
+      "from": [
+        3,
+        8,
+        3
+      ],
+      "to": [
+        13,
+        20,
+        13
+      ],
+      "faces": {
+        "west": {
+          "texture": "#fangs",
+          "uv": [
+            0.0,
+            5.0,
+            2.5,
+            11.0
+          ],
+          "rotation": 180
+        },
+        "north": {
+          "texture": "#fangs",
+          "uv": [
+            2.5,
+            5.0,
+            5.0,
+            11.0
+          ],
+          "rotation": 180
+        },
+        "east": {
+          "texture": "#fangs",
+          "uv": [
+            5.0,
+            5.0,
+            7.5,
+            11.0
+          ],
+          "rotation": 180
+        },
+        "south": {
+          "texture": "#fangs",
+          "uv": [
+            7.5,
+            5.0,
+            10.0,
+            11.0
+          ],
+          "rotation": 180
+        },
+        "up": {
+          "texture": "#fangs",
+          "uv": [
+            5,
+            5,
+            7.5,
+            0
+          ]
+        },
+        "down": {
+          "texture": "#fangs",
+          "uv": [
+            2.5,
+            0,
+            5,
+            5
+          ]
+        }
+      }
+    }
+  ],
+  "gui_light": "side"
+}

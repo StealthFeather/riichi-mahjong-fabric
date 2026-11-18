@@ -72,12 +72,13 @@ public final class MatchLengthRegression {
 
     private static void initialPresetsAndPersistence() {
         for (var preset : RuleSetPreset.values()) {
+            if (preset.family() == RuleSetPreset.Family.SICHUAN) continue; // Covered by SichuanSettingsRegression.
             var original = preset.newMatch();
             check(original.roundCount()==2,"default match length changed from the existing South game");
             for (var length : MatchLength.values()) {
                 var match = preset.newMatch(length).validate();
                 int scheduledWinds = length==MatchLength.EAST ? 1 : 2;
-                int starting = preset==RuleSetPreset.WRC_4P ? 30000 : preset.playerCount()==3 ? 35000 : 25000;
+                int starting = (preset==RuleSetPreset.WRC_4P || preset==RuleSetPreset.JPML_4P) ? 30000 : preset.playerCount()==3 ? 35000 : 25000;
                 int target = preset.playerCount()==3 ? 40000 : 30000;
                 check(match.roundCount()==scheduledWinds,"East/South selection did not set the scheduled wind count");
                 check(match.playerCount()==preset.playerCount() && match.startingPoints()==starting
@@ -135,6 +136,7 @@ public final class MatchLengthRegression {
 
     private static void scheduledEndpointsAndRenchan() {
         for (var preset : RuleSetPreset.values()) for (var length : MatchLength.values()) {
+            if (preset.family() == RuleSetPreset.Family.SICHUAN) continue; // These assertions exercise riichi continuation/extension rules.
             var base = preset.newMatch(length);
             int last = base.playerCount()-1;
             var points = scores(base,0);
@@ -169,6 +171,7 @@ public final class MatchLengthRegression {
 
     private static void existingSuddenDeathBoundaries() {
         for (var preset : RuleSetPreset.values()) for (var length : MatchLength.values()) {
+            if (preset.family() == RuleSetPreset.Family.SICHUAN) continue; // These assertions exercise riichi continuation/extension rules.
             var base = preset.newMatch(length);
             if (!base.ruleSet().suddenDeathRound()) continue;
             var low = Collections.nCopies(base.playerCount(),base.startingPoints());

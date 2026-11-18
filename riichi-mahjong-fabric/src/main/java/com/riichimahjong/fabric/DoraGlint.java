@@ -11,6 +11,10 @@ import java.util.Set;
 final class DoraGlint {
     private DoraGlint() {}
 
+    static boolean uraVisible(TheMahjongRound round, MatchPhase phase, com.themahjong.TheMahjongRuleSet rules) {
+        return rules.uraDoraAllowed() && uraVisible(round,phase);
+    }
+
     static boolean uraVisible(TheMahjongRound round, MatchPhase phase) {
         if (round == null || !(phase instanceof MatchPhase.RoundEnded ended)) return false;
         for (var win : ended.winResults()) {
@@ -22,6 +26,10 @@ final class DoraGlint {
     }
 
     static Set<Integer> tiles(TheMahjongRound round, MatchPhase phase) {
+        return tiles(round,phase,com.themahjong.TheMahjongRuleSet.wrc());
+    }
+
+    static Set<Integer> tiles(TheMahjongRound round, MatchPhase phase, com.themahjong.TheMahjongRuleSet rules) {
         if (round == null) return Set.of();
         var codes = new HashSet<>(Set.of(MahjongTileItems.CODE_MAN_5_AKA,
                 MahjongTileItems.CODE_PIN_5_AKA, MahjongTileItems.CODE_SOU_5_AKA));
@@ -31,7 +39,7 @@ final class DoraGlint {
             for (var indicator : round.doraIndicators().subList(0, count)) {
                 codes.add(MahjongTileItems.codeForTile(DoraIndicators.dora(indicator, round.players().size())));
             }
-            if (uraVisible(round, phase)) {
+            if (uraVisible(round, phase,rules)) {
                 for (var indicator : round.uraDoraIndicators().subList(0, count)) {
                     codes.add(MahjongTileItems.codeForTile(DoraIndicators.dora(indicator, round.players().size())));
                 }

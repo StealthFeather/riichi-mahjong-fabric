@@ -10,11 +10,12 @@ public record RoundProgression(boolean renchan, int nextHonba) {
         if (!(driver.currentPhase() instanceof MatchPhase.RoundEnded ended)) {
             throw new IllegalStateException("Round progression requires a round result");
         }
+        if (driver.match().ruleSet().sichuan()) return new RoundProgression(false, 0);
         var round = driver.currentRound();
         int dealer = round.dealerSeat();
         boolean draw = ended.winResults().isEmpty();
         boolean renchan = draw
-                ? driver.abortiveDraw() || DrawSettlement.inTenpai(round.players().get(dealer))
+                ? driver.abortiveDraw() || driver.rules().dealerTenpaiContinues() && DrawSettlement.inTenpai(round.players().get(dealer))
                 : ended.winResults().stream().anyMatch(win -> win.pointDeltas().get(dealer) > 0);
         // Draws increase honba even when the dealer rotates; a non-dealer win resets it.
         return new RoundProgression(renchan, draw || renchan ? round.honba() + 1 : 0);

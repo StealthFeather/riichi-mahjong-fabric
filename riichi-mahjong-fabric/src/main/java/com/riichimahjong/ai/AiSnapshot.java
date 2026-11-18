@@ -18,7 +18,7 @@ public final class AiSnapshot {
     private AiSnapshot() {}
 
     public static JsonObject create(DecisionRequest request, BotDifficulty difficulty) {
-        return create(request, difficulty, !request.rules().equals(TheMahjongRuleSet.wrc()));
+        return create(request, difficulty, request.rules().redDoraAllowed() && !request.rules().equals(TheMahjongRuleSet.wrc()));
     }
 
     public static JsonObject create(DecisionRequest request, BotDifficulty difficulty, boolean redFives) {
@@ -97,6 +97,14 @@ public final class AiSnapshot {
         var options = new JsonObject();
         options.addProperty("openTanyao", true);
         options.addProperty("redFives", redFives);
+        options.addProperty("competitiveProfile", rules.competitiveProfile().name());
+        options.addProperty("ippatsuAllowed", rules.ippatsuAllowed());
+        options.addProperty("uraDoraAllowed", rules.uraDoraAllowed());
+        options.addProperty("kanDoraAllowed", rules.kanDoraAllowed());
+        options.addProperty("countedYakumanAllowed", rules.countedYakumanAllowed());
+        options.addProperty("multipleYakumanAllowed", rules.multipleYakumanAllowed());
+        options.addProperty("dealerTenpaiContinues", rules.dealerTenpaiContinues());
+        options.addProperty("minimumRiichiWallTiles", rules.minimumRiichiWallTiles());
         options.addProperty("kiriageMangan", rules.kiriageMangan());
         options.addProperty("doubleWindPairFu4", rules.doubleWindPairFu4());
         options.addProperty("renhouAllowed", rules.renhouAllowed());

@@ -104,6 +104,17 @@ function makePlayer(snapshot) {
   const red = r.redFives !== false ? 1 : 0;
   const rule = Majiang.rule({
     '赤牌': { m: red, p: red, s: red },
+    '配給原点': r.competitiveProfile === 'JPML_A' ? 30000 : 25000,
+    '順位点': r.competitiveProfile === 'M_LEAGUE' ? ['30.0', '10.0', '-10.0', '-30.0'] : ['20.0', '10.0', '-10.0', '-20.0'],
+    '一発あり': r.ippatsuAllowed !== false,
+    '裏ドラあり': r.uraDoraAllowed !== false,
+    'カンドラあり': r.kanDoraAllowed !== false,
+    'カン裏あり': r.kanDoraAllowed !== false && r.uraDoraAllowed !== false,
+    '数え役満あり': r.countedYakumanAllowed !== false,
+    '役満の複合あり': r.multipleYakumanAllowed !== false,
+    'ダブル役満あり': !['JPML_A', 'M_LEAGUE'].includes(r.competitiveProfile),
+    '連荘方式': r.dealerTenpaiContinues === false ? 1 : 2,
+    'ツモ番なしリーチあり': r.minimumRiichiWallTiles === 1,
     'クイタンあり': r.openTanyao !== false,
     '切り上げ満貫あり': !!r.kiriageMangan,
     '連風牌は2符': !r.doubleWindPairFu4,

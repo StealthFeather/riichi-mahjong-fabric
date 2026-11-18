@@ -33,13 +33,13 @@ const polymerClasspath = () => process.env.RIICHI_POLYMER_RUNTIME && !process.en
   : JSON.parse(fs.readFileSync(polymerClasspathFile, 'utf8')).filter(file => file.includes('polymer-'));
 const build = p.join(project, 'build');
 const version = metadata.version;
-const jarName = `riichi-mahjong-${version}.jar`;
+const jarName = `timory-mahjong-${version}.jar`;
 const resourceRoot = configuredPath('RIICHI_RESOURCE_ROOT', p.join(root, 'TimoryResource'));
 
 module.exports = {
   project, root, metadata, version, files, copyTree, javaTool, server, polymerJar, polymerClasspath,
   build, jarName, jarPath: p.join(build, 'libs', jarName), resourceRoot,
-  release: configuredPath('RIICHI_RELEASE_DIR', p.join(root, 'deploy', `RiichiMahjong-${version}`)),
+  release: configuredPath('RIICHI_RELEASE_DIR', p.join(root, 'deploy', `TimoryMahjong-${version}`)),
   baselinePack: configuredPath('RIICHI_RESOURCE_PACK_BASELINE', p.join(root, 'deploy/TimoryGameplay-2.7.18+26.3/TimoryResource-26.3.zip')),
-  changelog: configuredPath('RIICHI_CHANGELOG', p.join(project, 'docs', `${version.split('+fabric.')[1]}.md`))
+  changelog: configuredPath('RIICHI_CHANGELOG', p.join(project, 'docs', `${version.includes('+fabric.') ? version.split('+fabric.')[1] : version}.md`))
 };

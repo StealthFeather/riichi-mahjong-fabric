@@ -30,8 +30,13 @@ public record WinningHandDisplay(TheMahjongTile tile,boolean selfDraw) {
     }
 
     public Optional<Layout> layout(TheMahjongRound round,MatchPhase phase,int seat) {
-        if(!PublicTable.revealedSeats(phase,round).contains(seat)
-                ||!(phase instanceof MatchPhase.RoundEnded ended)||ended.winResults().isEmpty())return Optional.empty();
+        if(!(phase instanceof MatchPhase.RoundEnded ended)||ended.winResults().isEmpty())return Optional.empty();
+        return layout(round,PublicTable.revealedSeats(phase,round),seat);
+    }
+
+    /** Keep the last result displayed when advancing finishes the entire match. */
+    public Optional<Layout> layout(TheMahjongRound round,java.util.Set<Integer> winners,int seat) {
+        if(!winners.contains(seat))return Optional.empty();
         if(selfDraw&&seat!=round.currentTurnSeat())return Optional.empty();
         var order=new ArrayList<>(round.players().get(seat).currentHand());
         // Tsumo already belongs to the hand; ron/chankan is an extra display tile only.

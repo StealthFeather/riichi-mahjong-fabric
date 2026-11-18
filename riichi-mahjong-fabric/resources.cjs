@@ -1,6 +1,6 @@
 // Copy upstream resources byte-for-byte; add vanilla display wrappers separately.
 const fs=require('node:fs'),p=require('node:path');
-const project=__dirname,root=p.resolve(project,'..'),source=p.join(project,'upstream/neoforge/src/main/resources'),resources=p.join(project,'src/main/resources'),pack=p.join(root,'TimoryResource');
+const project=__dirname,root=p.resolve(project,'../..'),source=p.join(project,'upstream/neoforge/src/main/resources'),resources=p.join(project,'src/main/resources'),pack=p.join(root,'TimoryResource');
 fs.mkdirSync(resources,{recursive:true});
 fs.cpSync(p.join(source,'data'),p.join(resources,'data'),{recursive:true});
 fs.cpSync(p.join(source,'assets/riichi_mahjong'),p.join(pack,'assets/riichi_mahjong'),{recursive:true});

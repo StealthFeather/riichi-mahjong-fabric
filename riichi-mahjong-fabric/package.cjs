@@ -34,14 +34,25 @@ if(fs.existsSync(databaseVerification)){
  fs.copyFileSync(databaseVerification,p.join(release,'replay-database-verification.json'));
 }
 fs.copyFileSync(jarPath,p.join(release,jar));
-exec(javaTool('jar'),['--create','--no-manifest','--file',p.join(release,'TimoryResource-26.3.zip'),'-C',pack,'.'],{windowsHide:true});
+if(process.env.RIICHI_RESOURCE_PACK_BASELINE_IS_FINAL==='1'){
+ // A published complete pack must retain its exact bytes and download hash.
+ const assetRoot=p.join(project,'src/main/resources/assets/riichi_mahjong');
+ // Check the published archive itself, independently of the overlay staging tree.
+ const check=p.join(build,'published-pack-check');fs.rmSync(check,{recursive:true,force:true});fs.mkdirSync(check,{recursive:true});
+ exec(javaTool('jar'),['--extract','--file',baselinePack],{cwd:check,windowsHide:true});
+ for(const file of fileList(assetRoot)){
+  const entry=p.join(check,'assets/riichi_mahjong',p.relative(assetRoot,file));
+  if(!fs.existsSync(entry)||!fs.readFileSync(entry).equals(fs.readFileSync(file)))throw Error('Published pack does not match compiled assets: '+file);
+ }
+ fs.copyFileSync(baselinePack,p.join(release,'TimoryResource-26.3.zip'));
+}else exec(javaTool('jar'),['--create','--no-manifest','--file',p.join(release,'TimoryResource-26.3.zip'),'-C',pack,'.'],{windowsHide:true});
 if(p.relative(project,sources)!==p.join('build','release-sources'))throw Error('Unexpected source staging directory');
 fs.rmSync(sources,{recursive:true,force:true});fs.mkdirSync(sources,{recursive:true});
-for(const name of ['src','upstream','resource-overrides','ai','build-config.cjs','prepare-local-deps.cjs','build.cjs','rules-patches.cjs','test.cjs','test-replay-database.cjs','resources.cjs','package.cjs','install-local.cjs','BUILDING.md','README.md','PORTING.md','prepare.cjs','adapt.cjs','docs','integration'])copyTree(p.join(project,name),p.join(sources,'riichi-mahjong-fabric',name));
+for(const name of ['src','upstream','resource-overrides','ai','build-config.cjs','prepare-local-deps.cjs','build.cjs','rules-patches.cjs','analysis-patches.cjs','sichuan-patches.cjs','joker-patches.cjs','exchange-patches.cjs','riichi-blood-patches.cjs','competition-patches.cjs','test.cjs','test-replay-database.cjs','resources.cjs','package.cjs','install-local.cjs','BUILDING.md','README.md','PORTING.md','prepare.cjs','adapt.cjs','docs','integration'])copyTree(p.join(project,name),p.join(sources,'riichi-mahjong-fabric',name));
 fs.copyFileSync(p.join(project,'BUILDING.md'),p.join(sources,'BUILDING.md'));
 fs.writeFileSync(p.join(sources,'README.md'),'# 立直麻将源码归档\n\n源码位于 riichi-mahjong-fabric/。请阅读 BUILDING.md 与 PORTING.md；JDK、Minecraft/Polymer 依赖和合并资源包基准需另行准备。\n');
 exec(javaTool('jar'),['--create','--no-manifest','--file',p.join(release,'riichi-mahjong-fabric-sources.zip'),'-C',sources,'.'],{windowsHide:true});
-const manifest={version,upstream:'https://github.com/caxapexac/MinecraftRiichiMahjong',commit:'fe469836ed461d44998819dd3004c8dea01f5be0',minecraft:'26.3',loader:'Fabric',clientModRequired:false,resourcePack:'TimoryResource-26.3.zip',resourcePackSha1:hash(p.join(release,'TimoryResource-26.3.zip'),'sha1'),acceptance:'user',checks:{compiled:true,packaged:true,gameplayTests:false,protocolTests:false,visualTests:false,rulesTests:true,humanControlTests:true,geometryTests:true},limitations:['原版客户端无法执行客户端 FOV 修改与渲染编辑器；交互采用显示实体、私有 interaction、ActionBar 与原版容器','原版流体使用水投影，客户端占位碰撞无法完全等同原 Mod','能源兼容需服务端具有 Team Reborn Energy API']};
+const manifest={name:'Timory Mahjong',version,channel:'stable',upstream:'https://github.com/caxapexac/MinecraftRiichiMahjong',commit:'fe469836ed461d44998819dd3004c8dea01f5be0',minecraft:'26.3',loader:'Fabric',clientModRequired:false,resourcePack:'TimoryResource-26.3.zip',resourcePackSha1:hash(p.join(release,'TimoryResource-26.3.zip'),'sha1'),acceptance:'pending',checks:{compiled:true,packaged:true,gameplayTests:false,protocolTests:false,visualTests:false,rulesTests:true,humanControlTests:true,geometryTests:true},limitations:['原版客户端无法执行客户端 FOV 修改与渲染编辑器；交互采用显示实体、私有 interaction、ActionBar 与原版容器','原版流体使用水投影，客户端占位碰撞无法完全等同原 Mod','能源兼容需服务端具有 Team Reborn Energy API']};
 manifest.baseRelease=verification.baseRelease;
 manifest.ai={...verification.ai,requires:'Node.js >=22',runtimeBundled:false,algorithmsBundled:true,networkServiceRequired:false};
 manifest.checks.serverIntegrationTests=!!verification.serverIntegrationTest;

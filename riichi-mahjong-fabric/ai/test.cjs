@@ -137,6 +137,34 @@ test('a three-player or inconsistent snapshot is rejected explicitly', () => {
   assert.throws(() => makePlayer(bad), /Inconsistent public tile counts/);
 });
 
+
+test('tournament snapshots configure actual AI evaluation for JPML and M-League', () => {
+  for (const profile of ['JPML_A', 'M_LEAGUE']) {
+    const jpml = profile === 'JPML_A';
+    const snapshot = fixture({ rules: { competitiveProfile: profile, redFives: !jpml,
+      ippatsuAllowed: !jpml, uraDoraAllowed: !jpml, kanDoraAllowed: !jpml,
+      countedYakumanAllowed: jpml, multipleYakumanAllowed: true,
+      dealerTenpaiContinues: true, minimumRiichiWallTiles: jpml ? 4 : 1, kiriageMangan: !jpml, doubleWindPairFu4: jpml,
+      abortiveDrawsAllowed: false, nagashiManganAllowed: false, doubleRonAllowed: false,
+      bustingEndsGame: false, agariYameAllowed: false, suddenDeathRound: false } });
+    const player = makePlayer(snapshot);
+    assert.equal(player._rule['一発あり'], !jpml);
+    assert.equal(player._rule['裏ドラあり'], !jpml);
+    assert.equal(player._rule['カンドラあり'], !jpml);
+    assert.equal(player._rule['カン裏あり'], !jpml);
+    assert.equal(player._rule['数え役満あり'], jpml);
+    assert.equal(player._rule['連風牌は2符'], !jpml);
+    assert.equal(player._rule['ツモ番なしリーチあり'], !jpml);
+    assert.equal(player._rule['ダブル役満あり'], false);
+    assert.equal(player._rule['役満の複合あり'], true);
+    assert.equal(player._rule['連荘方式'], 2);
+    assert.deepEqual(player._rule['赤牌'], { m: jpml ? 0 : 1, p: jpml ? 0 : 1, s: jpml ? 0 : 1 });
+    assert.equal(player._rule['最大同時和了数'], 1);
+    assert.equal(player._rule['トビ終了あり'], false);
+    assert.ok(snapshot.legal.some(action => action.index === decide(snapshot).index));
+  }
+});
+
 test('analysis models complete legal discard and action probabilities separately, each totaling 100', () => {
   const { analyze, Policy } = require('./worker.cjs');
   const s = fixture();

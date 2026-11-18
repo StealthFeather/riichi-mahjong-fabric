@@ -59,6 +59,11 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
         record ConfirmSkip(UUID token) implements TableButton {}
         record CancelSkip(UUID token) implements TableButton {}
         record ShowHand(TheMahjongRound round) implements TableButton {}
+        record ConfirmExchange(List<TheMahjongTile> selection) implements TableButton {
+            public ConfirmExchange { selection = List.copyOf(selection); }
+        }
+        record ClearExchange() implements TableButton {}
+        record ChooseVoidSuit(TheMahjongTile.Suit suit) implements TableButton {}
     }
 
     public Optional<UUID> occupant() {
@@ -223,7 +228,11 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
             List<TheMahjongTile> hand = round.handDisplayOrder(seatIndex);
             int idx = ss.index();
             if (idx < 0 || idx >= hand.size()) return;
-            tryDiscard(sender, hand.get(idx), driver, seatIndex);
+            var sichuan = driver.sichuanState();
+            if (driver.pendingExchange(seatIndex)
+                    && !(driver.currentPhase() instanceof MatchPhase.Dealing)) {
+                driver.toggleExchangeTile(seatIndex, hand.get(idx));
+            } else tryDiscard(sender, hand.get(idx), driver, seatIndex);
         } else if (ss.area() == InteractKey.SeatSlot.AREA_BUTTON) {
             List<TableButton> buttons = tableButtons(driver, seatIndex, riichiPending);
             int idx = ss.index();
@@ -236,6 +245,9 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
     public boolean selectTableButton(TableButton button, TheMahjongDriver driver,
                                      int seatIndex, ServerPlayer sender) {
         if (hasQueued() || !tableButtons(driver, seatIndex, riichiPending).contains(button)) return false;
+        if (button instanceof TableButton.ConfirmExchange) return driver.confirmExchange(seatIndex);
+        if (button instanceof TableButton.ClearExchange) return driver.clearExchangeSelection(seatIndex);
+        if (button instanceof TableButton.ChooseVoidSuit choice) return driver.chooseVoidSuit(seatIndex, choice.suit());
         if (button instanceof TableButton.ConfirmSkip confirm) {
             var pending=skipConfirmation;
             if(pending==null||!pending.token().equals(confirm.token()))return false;
@@ -329,6 +341,18 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
     }
 
     public static List<TableButton> tableButtons(TheMahjongDriver driver, int seat, boolean riichiPending) {
+        var sichuan = driver.sichuanState();
+        if (driver.exchangeInProgress() && !(driver.currentPhase() instanceof MatchPhase.Dealing)) {
+            return driver.pendingExchange(seat) ? List.of(new TableButton.ConfirmExchange(driver.exchangeSelection(seat)), new TableButton.ClearExchange()) : List.of();
+        }
+        if (sichuan != null && !(driver.currentPhase() instanceof MatchPhase.Dealing)) {
+            if (sichuan.pendingExchange(seat)) return List.of(
+                    new TableButton.ConfirmExchange(driver.exchangeSelection(seat)), new TableButton.ClearExchange());
+            if (sichuan.pendingVoidSuit(seat)) return List.of(
+                    new TableButton.ChooseVoidSuit(TheMahjongTile.Suit.MANZU),
+                    new TableButton.ChooseVoidSuit(TheMahjongTile.Suit.PINZU),
+                    new TableButton.ChooseVoidSuit(TheMahjongTile.Suit.SOUZU));
+        }
         List<PlayerAction> legal = driver.legalActions(seat);
         var human=driver.playerAt(seat) instanceof MahjongTableHumanPlayer h?h:null;
         boolean hideTsumo=false;

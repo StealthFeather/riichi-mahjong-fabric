@@ -59,11 +59,20 @@ public final class AiRuntime {
     }
 
     public static CompletableFuture<Integer> choose(JsonObject snapshot) {
+        return choose(snapshot, false);
+    }
+
+    /** Analysis must never present an emergency fallback as an engine recommendation. */
+    public static CompletableFuture<Integer> analyze(JsonObject snapshot) {
+        return choose(snapshot, true);
+    }
+
+    private static CompletableFuture<Integer> choose(JsonObject snapshot, boolean analysis) {
         // Ownership transfers to this method; copying also prevents a caller changing a queued request.
         JsonObject input = snapshot.deepCopy();
         long id = IDS.incrementAndGet();
         input.addProperty("id", id);
-        int emergency = FallbackPolicy.cheapIndex(input);
+        int emergency = analysis ? -1 : FallbackPolicy.cheapIndex(input);
         var result = new DecisionFuture();
         var running = new AtomicReference<Worker>();
         long timeoutMillis = Math.max(100, Math.min(10_000, Long.getLong("riichi.ai.timeoutMillis", 1500L)));
@@ -97,7 +106,7 @@ public final class AiRuntime {
             EXECUTOR.execute(() -> {
                 if (result.isDone()) return;
                 if (System.nanoTime() < retryAfterNanos) {
-                    int fallback = FallbackPolicy.chooseIndex(input);
+                    int fallback = analysis ? -1 : FallbackPolicy.chooseIndex(input);
                     degraded(result, fallback, "AI 暂不可用，使用基础牌效");
                     return;
                 }
@@ -122,7 +131,7 @@ public final class AiRuntime {
                         retryAfterNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
                         warn("AI unavailable (" + error.getClass().getSimpleName() + "); using a legal fallback. Configure riichi.ai.node / RIICHI_AI_NODE if Node.js is not on PATH.");
                         int fallback;
-                        try { fallback = FallbackPolicy.chooseIndex(input); }
+                        try { fallback = analysis ? -1 : FallbackPolicy.chooseIndex(input); }
                         catch (RuntimeException ignored) { fallback = emergency; }
                         degraded(result, fallback, "AI 暂不可用，使用基础牌效");
                     }

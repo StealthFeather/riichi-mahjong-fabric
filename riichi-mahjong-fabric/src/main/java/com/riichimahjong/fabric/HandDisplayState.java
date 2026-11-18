@@ -29,7 +29,9 @@ public final class HandDisplayState {
 
     public void clear(){seats.clear();key=null;lastRound=null;lastTick=Long.MIN_VALUE;}
 
-    public void update(TheMahjongRound round,long tick){
+    public void update(TheMahjongRound round,long tick){ update(round,tick,false); }
+
+    public void update(TheMahjongRound round,long tick,boolean jokerFirst){
         if(lastRound==round&&lastTick==tick)return;
         var previousRound=lastRound;
         var nextKey=new RoundKey(round.roundWind(),round.handNumber(),round.honba(),round.dealerSeat());
@@ -38,6 +40,11 @@ public final class HandDisplayState {
         for(int index=0;index<round.players().size();index++){
             var player=round.players().get(index);
             var canonical=round.handDisplayOrder(index);
+            if(jokerFirst){
+                var pinned=new ArrayList<>(canonical);
+                pinned.sort(java.util.Comparator.comparingInt(tile->(round.doraIndicators().isEmpty()?tile.suit()==TheMahjongTile.Suit.DRAGON&&tile.rank()==3:com.themahjong.variants.Jokers.isJoker(tile))?0:1));
+                canonical=List.copyOf(pinned);
+            }
             boolean drawing=index==round.currentTurnSeat()&&round.activeTile() instanceof TheMahjongRound.ActiveTile.Drawn;
             TheMahjongTile drawn=drawing?((TheMahjongRound.ActiveTile.Drawn)round.activeTile()).tile():null;
             var state=seats.get(index);

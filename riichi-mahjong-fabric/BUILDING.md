@@ -37,7 +37,7 @@ $env:RIICHI_RESOURCE_PACK_BASELINE = 'D:\Minecraft\mahjong-test\server\polymer\r
 node riichi-mahjong-fabric/package.cjs
 ```
 
-输出默认位于 `deploy/RiichiMahjong-<元数据版本>/`，包含模组、合并资源包、源码、验证记录和 SHA-256。基准包提供其他命名空间，打包器用当前模组源码中的 `assets/riichi_mahjong` 覆盖麻将命名空间，并合并图集来源。没有额外资源工作区时，保留基准的 `pack.mcmeta`，使用固定上游的麻将图集；不会重新生成或覆盖源码资产。测试服生成的纯麻将包不得用来覆盖生产的完整 TimoryResource。
+输出默认位于 `deploy/TimoryMahjong-<元数据版本>/`，包含模组、合并资源包、源码、验证记录和 SHA-256。基准包提供其他命名空间，打包器用当前模组源码中的 `assets/riichi_mahjong` 覆盖麻将命名空间，并合并图集来源。没有额外资源工作区时，保留基准的 `pack.mcmeta`，使用固定上游的麻将图集；不会重新生成或覆盖源码资产。测试服生成的纯麻将包不得用来覆盖生产的完整 TimoryResource。
 
 ## 可配置路径与旧默认值
 
@@ -52,7 +52,9 @@ node riichi-mahjong-fabric/package.cjs
 | `RIICHI_POLYMER_CLASSPATH_FILE` | Polymer 编译 classpath JSON 数组，设置后优先于目录扫描 | `<仓库>/build/kaleidoscope/classpath.json` |
 | `RIICHI_RESOURCE_PACK_BASELINE` | 合并资源包基准 ZIP，仅打包需要 | `<仓库>/deploy/TimoryGameplay-2.7.18+26.3/TimoryResource-26.3.zip` |
 | `RIICHI_RESOURCE_ROOT` | 可选额外资源工作区，提供图集及 `pack.mcmeta` | `<仓库>/TimoryResource` |
-| `RIICHI_RELEASE_DIR` | 发布附件目录 | `<仓库>/deploy/RiichiMahjong-<版本>` |
-| `RIICHI_CHANGELOG` | 本次发布说明 | `riichi-mahjong-fabric/docs/<fabric后的版本>.md` |
+| `RIICHI_RELEASE_DIR` | 发布附件目录 | `<仓库>/deploy/TimoryMahjong-<版本>` |
+| `RIICHI_CHANGELOG` | 本次发布说明 | `riichi-mahjong-fabric/docs/<版本>.md`（旧版使用 fabric 后的版本） |
 
 服务端 classpath 读取 `versions/26.3/server-26.3.jar`、`libraries/**/*.jar`、`.fabric/processedMods/**/*.jar`。构建产物、下载依赖、运行目录与本地环境变量无需提交。`install-local.cjs` 面向原工作区的测试服管理器，其他环境请直接按 README 安装发布附件。
+
+已发布完整资源包时，可设置 `RIICHI_RESOURCE_PACK_BASELINE_IS_FINAL=1` 并将 `RIICHI_RESOURCE_PACK_BASELINE` 指向该 ZIP。打包器会核对其中的麻将资产与本次模组一致，再按原字节复制到发布附件，使下载包和发布清单的哈希一致。

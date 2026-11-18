@@ -52,6 +52,11 @@ public final class MatchNbt {
         out.putBoolean("tsumoLoss", match.ruleSet().tsumoLoss());
         out.putBoolean("kitaDeclineCausesFuriten", match.ruleSet().kitaDeclineCausesFuriten());
         out.putBoolean("sanchahouAbortive", match.ruleSet().sanchahouAbortive());
+        out.putBoolean("sichuan", match.ruleSet().sichuan());
+        out.putBoolean("exchangeThree", match.ruleSet().exchangeThree());
+        out.putBoolean("jokersEnabled", match.ruleSet().jokersEnabled());
+        out.putBoolean("bloodBattle", match.ruleSet().bloodBattle());
+        out.putString("competitiveProfile", match.ruleSet().competitiveProfile().name());
 
         if(completed) {
             ValueOutput.ValueOutputList completedRounds = out.childrenList("completedRounds");
@@ -95,7 +100,12 @@ public final class MatchNbt {
                 in.getBooleanOr("kitaCountsAsDora", false),
                 in.getBooleanOr("tsumoLoss", false),
                 in.getBooleanOr("kitaDeclineCausesFuriten", false),
-                in.getBooleanOr("sanchahouAbortive", false));
+                in.getBooleanOr("sanchahouAbortive", false),
+                in.getBooleanOr("sichuan", false),
+                in.getBooleanOr("exchangeThree", false),
+                in.getBooleanOr("jokersEnabled", false),
+                in.getBooleanOr("bloodBattle", in.getBooleanOr("sichuan", false) && state != TheMahjongMatch.State.NOT_STARTED))
+                .withCompetitiveProfile(readCompetitiveProfile(in));
 
         List<TheMahjongRound> completedRounds = new ArrayList<>();
         for (ValueInput round : in.childrenListOrEmpty("completedRounds")) {
@@ -105,6 +115,14 @@ public final class MatchNbt {
         TheMahjongRound currentRound = in.child("currentRound").map(MatchNbt::readRound).orElse(null);
 
         return new TheMahjongMatch(playerCount, startingPoints, targetPoints, roundCount, state, tileSet, ruleSet, completedRounds, currentRound);
+    }
+
+    private static com.themahjong.competition.CompetitiveRules.Profile readCompetitiveProfile(ValueInput in) {
+        try {
+            return com.themahjong.competition.CompetitiveRules.Profile.valueOf(in.getStringOr("competitiveProfile", "STANDARD"));
+        } catch (IllegalArgumentException ignored) {
+            return com.themahjong.competition.CompetitiveRules.Profile.STANDARD;
+        }
     }
 
     private static void writeTileSet(ValueOutput out, TheMahjongTileSet tileSet) {
@@ -275,6 +293,7 @@ public final class MatchNbt {
             out.putInt("sourceDiscardIndex", pon.sourceDiscardIndex());
         } else if (meld instanceof TheMahjongMeld.Daiminkan daiminkan) {
             out.putString("type", "DAIMINKAN");
+            out.putBoolean("completesSuukantsu", daiminkan.completesSuukantsu());
             writeTileList(out, "tiles", daiminkan.tiles());
             out.putInt("claimedTileIndex", daiminkan.claimedTileIndex());
             out.putInt("sourceSeat", daiminkan.sourceSeat());
@@ -306,7 +325,8 @@ public final class MatchNbt {
                     readTileList(in, "tiles"),
                     in.getIntOr("claimedTileIndex", 0),
                     in.getIntOr("sourceSeat", 0),
-                    in.getIntOr("sourceDiscardIndex", 0));
+                    in.getIntOr("sourceDiscardIndex", 0),
+                    in.getBooleanOr("completesSuukantsu", false));
             case "KAKAN" -> {
                 TheMahjongMeld base = readMeld(in.childOrEmpty("upgradedFrom"));
                 if (!(base instanceof TheMahjongMeld.Pon pon))

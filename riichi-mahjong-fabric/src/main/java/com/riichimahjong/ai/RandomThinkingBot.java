@@ -10,10 +10,12 @@ import java.util.Optional;
 public final class RandomThinkingBot implements MahjongPlayerInterface {
     private final StupidActiveBot policy=new StupidActiveBot();
     private final BotThinkTime thinking=new BotThinkTime();
+    private final BotDiscardAnimation discardAnimation=new BotDiscardAnimation();
+    public BotDiscardAnimation discardAnimation(){return discardAnimation;}
     @Override public Optional<PlayerAction> chooseAction(DecisionRequest request,double deltaSeconds){
         if(request.legalActions().isEmpty())return Optional.empty();
         boolean ready=thinking.ready(request,deltaSeconds);
         var action=policy.chooseAction(request,0);
-        return ready?action:Optional.empty();
+        return discardAnimation.select(request,action.orElse(null),deltaSeconds,ready);
     }
 }
