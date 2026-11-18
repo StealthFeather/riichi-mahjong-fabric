@@ -1,0 +1,29 @@
+{
+  "fangsItemDisplayCount": 3,
+  "fangsMaximumHeight": 0.35000001390775043,
+  "entityElementLifecycleTest": true,
+  "bloodBattleActiveNbtReloads": 5,
+  "bloodBattleInterruptedNbtReloads": 8,
+  "floatingResultEntityLifecycleTest": true,
+  "passed": true,
+  "checks": [
+    "all-preset-table-options-and-real-block-entity-nbt",
+    "real-block-entity-effect-selection-and-unknown-id-nbt-fallback",
+    "real-table-participant-privacy-after-leave-replacement-and-block-entity-nbt",
+    "replay-record-nbt-frame-restoration-perspective-and-reveal-controls",
+    "interrupted-effect-nbt-keeps-terminal-river-winning-tile-and-double-ron-winners",
+    "presentation-does-not-replay-or-change-rules-and-points-on-load",
+    "finish-cancel-reset-unload-and-direct-reveal-cleanup",
+    "terminal-match-nbt-retains-winner-visibility-red-winning-tile-gap-and-consumed-river",
+    "real-polymer-three-scaled-fangs-displays-with-packaged-models-and-block-atlas-texture",
+    "vanilla-26.3-item-display-spawn-and-model-scale-metadata-codecs",
+    "late-watcher-current-frame-and-fangs-completion-interruption-cleanup",
+    "riichi-three-four-and-sichuan-mid-hand-wins-stay-standing-with-no-effects-or-result-entities",
+    "real-block-entity-mid-hand-nbt-preserves-ordered-deferred-wins-and-exact-paid-balances",
+    "terminal-wins-play-in-accepted-order-and-only-completed-hands-have-floating-result-entities",
+    "every-terminal-animation-boundary-save-load-finishes-once-without-effects-replay-or-repeat-payment"
+  ],
+  "serverWorldStarted": false,
+  "clientVisualTest": false,
+  "jarSha256": "5607225ed14699f9c92cf39307949a807c6bcd7f0bfb283f2b20006993666602"
+}
