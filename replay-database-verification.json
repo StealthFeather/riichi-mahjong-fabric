@@ -1,0 +1,24 @@
+{
+  "passed": true,
+  "checks": 22,
+  "h2Version": "2.3.232 (2024-08-11)",
+  "h2JarSha256": "8dae62d22db8982c3dcb3826edb9c727c5d302063a67eef7d63d82de401f07d3",
+  "jarSha256": "3d77978d10dcf185fa06ba5635aab072dbeb0cac30e4f79365018389332e1f74",
+  "isolatedDatabase": true,
+  "liveDatabaseTest": false,
+  "scenarios": [
+    "idempotent-schema",
+    "transaction-rollback",
+    "idempotent-match-UUID",
+    "participant-access-filter",
+    "configured-timezone-first-query",
+    "ordered-pagination",
+    "analysis-cache-access-filter",
+    "durable-outbox-on-SQL-outage",
+    "restart-outbox-recovery",
+    "missing-config-never-generated",
+    "unstarted-store-rejection",
+    "disk-write-failure-rejection",
+    "stopped-executor-rejection"
+  ]
+}

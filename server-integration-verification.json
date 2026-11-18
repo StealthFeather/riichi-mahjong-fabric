@@ -1,0 +1,36 @@
+{
+  "passed": true,
+  "temporaryAnalysisProfilesRemoved": true,
+  "fakePlayersRemoved": true,
+  "originalRegionRestored": true,
+  "checks": [
+    "world-store-uuid-persistence-reopen-idempotence-yaku-and-zero-score-floor",
+    "registered-stats-command-and-table-button-personal-mode-filtered-stats-and-consistency-windows",
+    "non-owner-real-shift-wind-plate-route-opens-view-menu-without-owner-takeover",
+    "six-real-rule-family-buttons-owner-selection-four-player-only-restoration-read-only-access-and-preset-nbt",
+    "jpml-mleague-real-menu-start-four-seats-initial-points-red-tile-deal-active-rule-lock-and-profile-authoritative-be-nbt",
+    "jpml-mleague-match-analysis-session-survives-real-table-nbt-and-stays-private",
+    "all-preset-owner-only-blood-battle-toggle-redstone-gunpowder-icons-and-table-nbt",
+    "non-owner-real-menu-opens-but-rule-start-reset-inventory-ai-and-visibility-buttons-remain-protected",
+    "real-seat-menu-join-profile-head-and-own-head-leave",
+    "slot-44-explicit-watch-toggle-and-owner-only-slot-20-eye-pearl-visibility-control",
+    "real-owner-transfer-confirm-cancel-target-leave-offline-old-menu-and-revoked-authority",
+    "non-owner-real-shift-wind-plate-route-opens-view-menu-without-owner-takeover",
+    "active-non-owner-wind-plate-discard-mode-personal-default-toggle-and-player-nbt-reload",
+    "real-spectator-hud-opt-in-shared-player-bars-and-private-hand-visibility-toggle-without-public-leak",
+    "active-seat-menu-leave-watch-rejoin-preserves-rules-hand-and-scores",
+    "actual-discard-selection-identical-copies-private-outline-reselection-mode-change-and-confirmation",
+    "real-server-player-confirmed-passed-ron-then-riichi-private-controls-hand-click-and-single-deposit-normal-and-south-exchange-joker-blood",
+    "riichi-chi-pon-and-sichuan-pon-no-immediate-self-kan-table-buttons-and-legal-actions",
+    "direct-daiminkan-and-post-draw-and-replacement-draw-self-kans"
+  ],
+  "clientVisualTest": false,
+  "temporaryTable": [
+    0,
+    300,
+    0
+  ],
+  "gameTestServerStarted": true,
+  "version": "0.5.2",
+  "jarSha256": "3d77978d10dcf185fa06ba5635aab072dbeb0cac30e4f79365018389332e1f74"
+}
