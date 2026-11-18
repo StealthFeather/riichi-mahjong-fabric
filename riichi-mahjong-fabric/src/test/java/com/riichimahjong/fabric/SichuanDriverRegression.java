@@ -55,7 +55,7 @@ public final class SichuanDriverRegression {
         driver.restoreSichuanState(playState(wins));
         return driver;
     }
-    private static TheMahjongDriver rig(List<TheMahjongPlayer> players, TheMahjongTile drawn) {
+    static TheMahjongDriver rig(List<TheMahjongPlayer> players, TheMahjongTile drawn) {
         return rig(players, 0, drawn, Collections.nCopies(20, tile(Suit.MANZU, 8)), List.of());
     }
     private static void act(TheMahjongDriver driver, int seat, PlayerAction action) {

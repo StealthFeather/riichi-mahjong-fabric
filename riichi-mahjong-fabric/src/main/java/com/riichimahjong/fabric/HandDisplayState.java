@@ -101,11 +101,10 @@ public final class HandDisplayState {
         if(state.pending!=null){
             // A queued discard can be accepted on the same tick an older hole expires.
             // Carry the selected equal-copy occurrence through that presentation-only sort.
-            var pending=state.pending;int selected=state.slots.indexOf(pending.slot()),occurrence=0,rebased=-1;
-            if(selected>=0&&state.order.get(selected).equals(pending.tile())){
-                for(int index=0;index<selected;index++)if(state.order.get(index).equals(pending.tile()))occurrence++;
-                for(int index=0;index<canonical.size();index++)if(canonical.get(index).equals(pending.tile())&&occurrence--==0){rebased=index;break;}
-            }
+            var pending=state.pending;
+            int selected=state.slots.indexOf(pending.slot());
+            int rebased=selected>=0&&state.order.get(selected).equals(pending.tile())
+                    ? matchingCopy(state.order,selected,canonical) : -1;
             state.pending=rebased<0?null:new PendingDiscard(pending.round(),pending.discards(),rebased,pending.tile());
         }
         state.order=canonical;state.slots=IntStream.range(0,canonical.size()).boxed().toList();
@@ -150,6 +149,24 @@ public final class HandDisplayState {
 
     /** Translate the compact displayed-list index to the rule library's canonical tile index. */
     public int canonicalIndex(int seat,int displayed,TheMahjongRound round){
-        var order=hand(seat);return displayed<0||displayed>=order.size()?-1:round.handDisplayOrder(seat).indexOf(order.get(displayed));
+        return matchingCopy(hand(seat), displayed, round.handDisplayOrder(seat));
+    }
+
+    public int displayedIndex(int seat,int canonical,TheMahjongRound round){
+        return matchingCopy(round.handDisplayOrder(seat), canonical, hand(seat));
+    }
+
+    /** Equal tiles keep their relative copy number when the presentation sorts the hand. */
+    private static int matchingCopy(List<TheMahjongTile> from, int index, List<TheMahjongTile> to) {
+        if (index < 0 || index >= from.size()) return -1;
+        var tile = from.get(index);
+        int occurrence = 0;
+        for (int i = 0; i < index; i++) {
+            if (from.get(i).equals(tile)) occurrence++;
+        }
+        for (int i = 0; i < to.size(); i++) {
+            if (to.get(i).equals(tile) && occurrence-- == 0) return i;
+        }
+        return -1;
     }
 }

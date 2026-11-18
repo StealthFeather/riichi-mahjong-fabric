@@ -3,6 +3,7 @@ package com.riichimahjong.mahjongtable;
 
 import com.riichimahjong.mahjongcore.MahjongTileItems;
 import com.riichimahjong.cuterenderer.InteractKey;
+import com.riichimahjong.fabric.DiscardPreference;
 import com.themahjong.TheMahjongRound;
 import com.themahjong.TheMahjongTile;
 import net.minecraft.world.level.storage.ValueInput;
@@ -36,6 +37,11 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
     private boolean riichiPending;
 
     private transient double riichiAutoDiscardElapsed;
+
+    // The canonical hand index distinguishes equal copies, including the separated draw.
+    private record DiscardSelection(TheMahjongDriver driver, TheMahjongRound round,
+                                    MatchPhase phase, int index) {}
+    private transient DiscardSelection selectedDiscard;
 
     private transient SkipConfirmation skipConfirmation;
     private transient WinOpportunity skippedTsumo;
@@ -71,13 +77,26 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
     }
 
     public void setOccupant(UUID uuid) {
-        if (!java.util.Objects.equals(occupant, uuid)) clearWinSkipState();
+        if (!java.util.Objects.equals(occupant, uuid)) {
+            clearDiscardSelection();
+            clearWinSkipState();
+        }
         this.occupant = uuid;
     }
 
     public void clearOccupant() {
-        clearWinSkipState();
-        this.occupant = null;
+        setOccupant(null);
+    }
+
+    public void clearDiscardSelection() {
+        selectedDiscard = null;
+    }
+
+    public int selectedDiscardIndex(TheMahjongDriver driver) {
+        if (selectedDiscard == null || selectedDiscard.driver() != driver
+                || selectedDiscard.phase() != driver.currentPhase()
+                || selectedDiscard.round() != driver.match().currentRound().orElse(null)) return -1;
+        return selectedDiscard.index();
     }
 
     public void validateBeforeAdvance(ServerLevel level) {
@@ -99,6 +118,11 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
         boolean ownTurn=phase instanceof MatchPhase.AwaitingDiscard d&&d.seat()==seatIndex;
         var driver=table.driver();
         boolean changed=driver!=null&&refreshWinSkipState(driver,seatIndex,driver.legalActions(seatIndex));
+        if (selectedDiscard != null && (selectedDiscardIndex(driver) < 0 || occupant == null
+                || !(level.getPlayerByUUID(occupant) instanceof ServerPlayer player)
+                || !DiscardPreference.requiresConfirmation(player))) {
+            clearDiscardSelection();
+        }
         if(!ownTurn&&riichiPending){riichiPending=false;changed=true;}
         if(ownTurn)maybeAutoQueueRiichiDiscard(level,table,seatIndex);
         else riichiAutoDiscardElapsed=0;
@@ -110,7 +134,7 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
 
     private void maybeAutoQueueRiichiDiscard(ServerLevel level,
                                              MahjongTableBlockEntity table, int seatIndex) {
-        if (hasQueued()) { riichiAutoDiscardElapsed = 0.0; return; }
+        if (hasQueued() || selectedDiscard != null) { riichiAutoDiscardElapsed = 0.0; return; }
         TheMahjongDriver driver = table.driver();
         if (driver == null) return;
         var roundOpt = driver.match().currentRound();
@@ -138,7 +162,7 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
         if (occupant == null) return;
         if (!(level.getPlayerByUUID(occupant) instanceof ServerPlayer sp)) return;
 
-        tryDiscard(sp, drawn.tile(), driver, seatIndex);
+        tryDiscard(sp, drawn.tile(), driver, seatIndex, -1);
     }
 
     private static TheMahjongTile currentDrawnTile(MahjongTableBlockEntity table) {
@@ -175,6 +199,7 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
 
     public void readNbt(ValueInput in) {
         // Confirmation belongs to a live opportunity, never to persisted seat state.
+        clearDiscardSelection();
         clearWinSkipState();
         drawnTileDeliveryAttempted = in.getBooleanOr("DeliveryAttempted", false);
         drawnTileDelivered = in.getBooleanOr("Delivered", false);
@@ -220,6 +245,11 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
 
     public void onCuteClick(InteractKey key, TheMahjongDriver driver, int seatIndex,
                             ServerPlayer sender) {
+        onCuteClick(key, driver, seatIndex, sender, sender != null && DiscardPreference.requiresConfirmation(sender));
+    }
+
+    public void onCuteClick(InteractKey key, TheMahjongDriver driver, int seatIndex,
+                            ServerPlayer sender, boolean confirmDiscard) {
         if (!(key instanceof InteractKey.SeatSlot ss)) return;
         if (ss.seat() != seatIndex) return;
         TheMahjongRound round = driver.match().currentRound().orElse(null);
@@ -228,11 +258,10 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
             List<TheMahjongTile> hand = round.handDisplayOrder(seatIndex);
             int idx = ss.index();
             if (idx < 0 || idx >= hand.size()) return;
-            var sichuan = driver.sichuanState();
             if (driver.pendingExchange(seatIndex)
                     && !(driver.currentPhase() instanceof MatchPhase.Dealing)) {
                 driver.toggleExchangeTile(seatIndex, hand.get(idx));
-            } else tryDiscard(sender, hand.get(idx), driver, seatIndex);
+            } else tryDiscard(sender, hand.get(idx), driver, seatIndex, confirmDiscard ? idx : -1);
         } else if (ss.area() == InteractKey.SeatSlot.AREA_BUTTON) {
             List<TableButton> buttons = tableButtons(driver, seatIndex, riichiPending);
             int idx = ss.index();
@@ -245,6 +274,7 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
     public boolean selectTableButton(TableButton button, TheMahjongDriver driver,
                                      int seatIndex, ServerPlayer sender) {
         if (hasQueued() || !tableButtons(driver, seatIndex, riichiPending).contains(button)) return false;
+        clearDiscardSelection();
         if (button instanceof TableButton.ConfirmExchange) return driver.confirmExchange(seatIndex);
         if (button instanceof TableButton.ClearExchange) return driver.clearExchangeSelection(seatIndex);
         if (button instanceof TableButton.ChooseVoidSuit choice) return driver.chooseVoidSuit(seatIndex, choice.suit());
@@ -404,7 +434,7 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
     }
 
     private void tryDiscard(ServerPlayer sender, TheMahjongTile tile,
-                            TheMahjongDriver driver, int seatIndex) {
+                            TheMahjongDriver driver, int seatIndex, int indexToConfirm) {
         if(hasQueued())return;
         TheMahjongRound round = driver.match().currentRound().orElse(null);
         if (round == null) {
@@ -438,6 +468,10 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
                     : "riichi_mahjong.hint.player.illegal_discard");
             return;
         }
+        if (indexToConfirm >= 0 && selectedDiscardIndex(driver) != indexToConfirm) {
+            selectedDiscard = new DiscardSelection(driver, round, ad, indexToConfirm);
+            return;
+        }
         if (round.activeTile() instanceof TheMahjongRound.ActiveTile.Drawn d && drawnTileDelivered) {
             Item drawnItem = MahjongTileItems.itemForCode(MahjongTileItems.codeForTile(d.tile()));
             if (drawnItem == null) return;
@@ -447,6 +481,7 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
             }
             pendingConsume = d.tile();
         }
+        clearDiscardSelection();
         clearWinSkipState();
         queue(action);
     }

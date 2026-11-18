@@ -20,16 +20,30 @@ import org.joml.Vector3f;
 
 /** A manual attachment has no chunk audience: exactly one watcher and a predicate per element. */
 final class PrivateHand {
-    record Snapshot(Object driver,Object round,Object phase,List<Integer> hand,List<Integer> handSlots,List<Integer> handGapStarts,List<MahjongTableHumanPlayer.TableButton> buttons,List<Integer> riichiDiscards,List<Integer> exchangeSelection,Set<Integer> glowingTiles,boolean queued,boolean drawnTile,boolean revealed){}
+    record Snapshot(Object driver, Object round, Object phase, List<Integer> hand,
+                    List<Integer> handSlots, List<Integer> handGapStarts,
+                    List<MahjongTableHumanPlayer.TableButton> buttons, List<Integer> riichiDiscards,
+                    List<Integer> exchangeSelection, Set<Integer> glowingTiles, boolean queued,
+                    boolean drawnTile, boolean revealed, int selectedDiscardIndex) {}
     final ServerPlayer owner;Snapshot snapshot;final ElementHolder holder=new ElementHolder();
     final MahjongTableBlockEntity table;final int seat;long nextPrompt;String lastPrompt="";
     final List<TableButtonLayout.Button> buttonLayout;
+    private final List<ItemDisplayElement> handTiles = new ArrayList<>();
+    private int outlinedIndex = -1;
     static Snapshot snapshot(MahjongTableBlockEntity table,int seat){
         var d=table.driver();var r=d.match().currentRound().orElseThrow();
         int count=table.handDisplayOrder(seat).size();if(d.currentPhase() instanceof MatchPhase.Dealing dealing){double fraction=switch(dealing.stage()){case WALL_BUILDING->0;case DEALING_HANDS->Math.min(1,dealing.elapsed()/dealing.stage().buildDuration());case DORA_FLIP->1;};count=(int)Math.round(count*fraction);}
         boolean queued=!ResultHandReveals.canReveal(d)&&d.playerAt(seat) instanceof MahjongTableHumanPlayer h&&h.hasQueued();
         var discards=d.legalActions(seat).stream().filter(a->a instanceof PlayerAction.DiscardWithRiichi).map(a->PublicTable.code(((PlayerAction.DiscardWithRiichi)a).tile())).toList();
-        return new Snapshot(d,r,d.currentPhase(),table.handDisplayOrder(seat).stream().limit(count).map(PublicTable::code).toList(),table.handDisplaySlots(seat).stream().limit(count).toList(),table.handDisplayGapStarts(seat),queued?List.of():List.copyOf(table.tableButtonsForSeat(seat)),discards,d.exchangeSelection(seat).stream().map(PublicTable::code).toList(),d.sichuanState()==null?DoraGlint.tiles(r,d.currentPhase(),d.rules()):d.match().ruleSet().jokersEnabled()?Set.of(33):Set.of(),queued,table.hasSeparatedDrawnTile(seat),PublicTable.revealedSeats(table).contains(seat));
+        return new Snapshot(d, r, d.currentPhase(),
+                table.handDisplayOrder(seat).stream().limit(count).map(PublicTable::code).toList(),
+                table.handDisplaySlots(seat).stream().limit(count).toList(), table.handDisplayGapStarts(seat),
+                queued ? List.of() : List.copyOf(table.tableButtonsForSeat(seat)), discards,
+                d.exchangeSelection(seat).stream().map(PublicTable::code).toList(),
+                d.sichuanState() == null ? DoraGlint.tiles(r, d.currentPhase(), d.rules())
+                        : d.match().ruleSet().jokersEnabled() ? Set.of(33) : Set.of(),
+                queued, table.hasSeparatedDrawnTile(seat), PublicTable.revealedSeats(table).contains(seat),
+                table.selectedDiscardIndex(seat));
     }
     PrivateHand(MahjongTableBlockEntity table,ServerPlayer owner,int seat,Snapshot snapshot){
         this.table=table;this.owner=owner;this.seat=seat;this.snapshot=snapshot;
@@ -42,6 +56,7 @@ final class PrivateHand {
         if(!snapshot.revealed)for(int i=0;i<snapshot.hand.size();i++){
             Vec3 at=TableLayout.handAnchor(pos,dir,TableLayout.handAlong(snapshot.handSlots.get(i),snapshot.handGapStarts),false);
             var tile=PortViews.display(holder,PortViews.tileModel(snapshot.hand.get(i),table.driver().sichuanState()!=null),at,TableLayout.TILE_SCALE,PortViews.rotation(dir,false,false),snapshot.glowingTiles.contains(snapshot.hand.get(i)));tile.setVisibilityPredicate(p->p==owner);
+            handTiles.add(tile);
             boolean exchangeSelected=exchangeMarks.remove(Integer.valueOf(snapshot.hand.get(i)));
             if(exchangeSelected || snapshot.buttons.stream().anyMatch(b->b instanceof MahjongTableHumanPlayer.TableButton.RiichiToggle r&&r.active())&&snapshot.riichiDiscards.contains(snapshot.hand.get(i))){
                 var mark=new TextDisplayElement(Component.literal("▼").withStyle(ChatFormatting.GREEN));mark.setOverridePos(at.add(0,.15*TableLayout.TILE_ENLARGEMENT,0));mark.setScale(new Vector3f(.18f*TableLayout.TILE_ENLARGEMENT));mark.setBillboardMode(Display.BillboardConstraints.CENTER);mark.setVisibilityPredicate(p->p==owner);holder.addElement(mark);
@@ -83,7 +98,21 @@ final class PrivateHand {
                 hit.setOverridePos(TableLayout.anchor(pos,dir,along,TableButtonLayout.HEIGHT-.003,TableButtonLayout.EDGE_DISTANCE));hit.setSize((float)button.depth()*TableLayout.TILE_ENLARGEMENT,.006f*TableLayout.TILE_ENLARGEMENT);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
             }
         }
+        updateDiscardOutline();
         holder.startWatching(owner);
+    }
+    // Move the outline without respawning the hand or replacing its interaction entities.
+    private void updateDiscardOutline() {
+        int selected = snapshot.selectedDiscardIndex;
+        if (selected < 0 || selected >= handTiles.size()) selected = -1;
+        if (outlinedIndex == selected) return;
+        if (outlinedIndex >= 0) handTiles.get(outlinedIndex).setGlowing(false);
+        if (selected >= 0) {
+            var tile = handTiles.get(selected);
+            tile.setGlowColorOverride(0xFFAA00);
+            tile.setGlowing(true);
+        }
+        outlinedIndex = selected;
     }
     boolean valid(ServerPlayer player){
         if(player!=owner||!PortViews.near(player,owner.level(),table.getBlockPos())||table.isRemoved()||table.getLevel()!=owner.level())return false;
@@ -126,6 +155,7 @@ final class PrivateHand {
     }
     static void run(ServerPlayer p,UUID token){p.sendSystemMessage(Component.literal("操作已过期，请点击当前手牌或本人面前的按钮。"),true);}
     void tick(){
+        updateDiscardOutline();
         String prompt="";
         var sichuan=table.driver()==null?null:table.driver().sichuanState();
         if(sichuan!=null&&!(snapshot.phase instanceof MatchPhase.Dealing)) {
@@ -144,7 +174,13 @@ final class PrivateHand {
         else if(snapshot.phase instanceof MatchPhase.AwaitingDiscard d&&d.seat()==seat
                 &&!table.driver().exchangeInProgress()&&(sichuan==null||sichuan.stage()==com.themahjong.sichuan.SichuanState.Stage.PLAY)){
             boolean pending=snapshot.buttons.stream().anyMatch(b->b instanceof MahjongTableHumanPlayer.TableButton.RiichiToggle r&&r.active());
-            prompt=pending?"立直已选 · 请打出绿色箭头标记的牌":"轮到你出牌 · 右键选择手牌";
+            if (snapshot.selectedDiscardIndex >= 0) {
+                prompt = (pending ? "再次右键发光的牌确认立直" : "再次右键发光的牌确认出牌") + " · 右键其他牌可改选";
+            } else if (DiscardPreference.requiresConfirmation(owner)) {
+                prompt = pending ? "立直已选 · 右键选择绿色箭头标记的牌" : "轮到你出牌 · 右键选牌，再次右键确认";
+            } else {
+                prompt = pending ? "立直已选 · 请打出绿色箭头标记的牌" : "轮到你出牌 · 右键直接出牌";
+            }
         }
         if(!snapshot.buttons.isEmpty()){
             String actions=snapshot.buttons.stream().map(PrivateHand::shortLabel).distinct().reduce((a,b)->a+" / "+b).orElse("");

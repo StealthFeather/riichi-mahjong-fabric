@@ -164,7 +164,7 @@ public final class SichuanState {
         for (var tile : new LinkedHashSet<>(player.currentHand())) {
             if (!hasMissing || tile.suit() == voidSuit(seat)) out.add(new PlayerAction.Discard(tile));
         }
-        if (!hasMissing && !round.liveWall().isEmpty()) {
+        if (drawn != null && !hasMissing && !round.liveWall().isEmpty()) {
             for (var tile : new LinkedHashSet<>(player.currentHand())) {
                 if (tile.suit() == voidSuit(seat) || SichuanScoring.isJoker(tile, rules.jokersEnabled())) continue;
                 var matching = player.currentHand().stream().filter(tile::equals).toList();

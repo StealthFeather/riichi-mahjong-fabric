@@ -15,7 +15,7 @@ git -C projects/timory-resource-pack pull --ff-only origin main
 首次使用先克隆该仓库；本地有未提交改动或分支分叉时先保留并合并，解决冲突后再修改。同步后比较并合并独立检出与 `TimoryResource/` 的差异；资源生成脚本同样遵循此顺序。保留其他项目资源、图集条目与许可证，禁止用旧快照或单项目包覆盖共享内容。验证后的材质包改动需提交并推送回独立仓库，具体流程见其 [README](https://github.com/StealthFeather/Timory-ResourcePack#readme)。
 <!-- timory-resource-repository:end -->
 
-日本立直麻将与川麻血战到底、3D 牌桌、私有手牌与原版客户端适配。当前版本为 **Timory Mahjong 0.5.1**，仅安装到 Fabric 服务端。
+日本立直麻将与川麻血战到底、3D 牌桌、私有手牌与原版客户端适配。当前版本为 **Timory Mahjong 0.5.2**，仅安装到 Fabric 服务端。
 
 已同步 [GitHub 独立仓库](https://github.com/StealthFeather/riichi-mahjong-fabric) main 提交 `decaf7b762d68dfad8ef52bfc47c982c0c3b94e0`（26.3.15），保留四麻三级 AI、TP 返回显示恢复、跳过和牌确认及手牌空槽延迟整理。
 
@@ -31,11 +31,15 @@ git -C projects/timory-resource-pack pull --ff-only origin main
 
 需要 Minecraft 26.3、Fabric Loader 0.19.5、Fabric API 0.163.0+26.3、Java 25；四麻 AI 需要服务端可执行 Node.js 22+。Polymer 和固定版本 AI 源码已内嵌。玩家使用原版客户端并接受包含麻将资产的 TimoryResource，本次尺寸修改无需新增材质。
 
-停服后将构建的 `timory-mahjong-0.5.1.jar` 替换服务端旧版 JAR，再正常开服。本版沿用现有 TimoryResource 材质包。
+停服后将构建的 `timory-mahjong-0.5.2.jar` 替换服务端旧版 JAR，再正常开服。本版沿用现有 TimoryResource 材质包。
 
-`/mahjong` 查看操作，管理员 `/mahjong give` 领物品。右键桌边入座，潜行右键中心风盘打开菜单，由桌主点击“开始对局”开局；对局结算动画完成后，已入座玩家普通右键中心风盘进入下一把。右键自己的牌出牌；吃碰杠、立直与胡牌使用本人桌沿按钮。跳过可和牌机会需要确认。主动离座使用 `/mahjong leave`；离座后 BOT 暂代，右键桌子或 `/mahjong join` 可接回原座位。
+`/mahjong` 查看操作，管理员 `/mahjong give` 领物品。右键桌边入座，潜行右键中心风盘打开菜单，由桌主点击“开始对局”开局；对局结算动画完成后，已入座玩家普通右键中心风盘进入下一把。默认右键自己的手牌即可出牌。吃碰杠、立直与胡牌使用本人桌沿按钮。跳过可和牌机会需要确认。主动离座使用 `/mahjong leave`；离座后 BOT 暂代，右键桌子或 `/mahjong join` 可接回原座位。
 
-所有玩家均可打开设置；配置只由桌主调整：潜行右键中心风盘或使用 `/mahjong menu`（`/mahjong start` 同样打开菜单）。首次打开无主牌桌的菜单时成为桌主。第一行依次选择 **雀魂、天凤、WRC、川麻、公式战、M-League**；第二行取消入座按钮，包含规则和玩法开关：
+按住 Shift 右键中心风盘，点击 **我的出牌方式** 可切换为 **二次确认**。右键一张可打的手牌时，只有本人能看见选中牌的金色轮廓。再次右键该牌即可打出，右键另一张可打的牌即可改选。个人设置在对局中也可调整，重新登录后保留。
+
+日麻吃、碰后和川麻碰后，当次出牌前不能立即暗杠或加杠。下次摸牌后可按规则开杠，杠后补牌也可继续合法开杠。
+
+所有玩家均可打开设置，牌桌规则由桌主调整。潜行右键中心风盘或使用 `/mahjong menu`（`/mahjong start` 同样打开菜单）。首次打开无主牌桌的菜单时成为桌主。第一行依次选择 **雀魂、天凤、WRC、川麻、公式战、M-League**；第二行取消入座按钮，包含规则和玩法开关：
 
 | 选项 | 牌面与状态 |
 | --- | --- |
@@ -83,7 +87,7 @@ node test.cjs
 
 也可双击 `build.cmd`。构建器兼容当前 Timory 工作区与独立源码归档，公共 JDK、Minecraft 和 Polymer 依赖默认位于工作区根目录。配置方式见 [BUILDING.md](BUILDING.md)。**不要重新运行 `prepare.cjs`、`adapt.cjs` 或 `resources.cjs`**，以免覆盖已移植内容及版本元数据。
 
-JAR 位于 `build/libs/`，回归结果和 JAR SHA-256 位于 `build/verification.json`。构建和回归验证状态以当前 `build/verification.json` 为准，该记录绑定对应 JAR 的 SHA-256。本版变更见 [0.5.1 说明](docs/0.5.1.md)。
+JAR 位于 `build/libs/`，回归结果和 JAR SHA-256 位于 `build/verification.json`。构建和回归验证状态以当前 `build/verification.json` 为准，该记录绑定对应 JAR 的 SHA-256。本版变更见 [0.5.2 说明](docs/0.5.2.md)。
 
 可选打包入口为 `node project.cjs package`，默认输出至工作区 `deploy/`；用 `RIICHI_RELEASE_DIR` 可指定其他目录。`install-local.cjs` 仅供正常停服后的主测试服安装，构建与打包不会自动部署。
 

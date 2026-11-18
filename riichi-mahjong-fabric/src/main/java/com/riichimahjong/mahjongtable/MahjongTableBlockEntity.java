@@ -430,6 +430,22 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         return winningHandLayout(seat).map(WinningHandDisplay.Layout::order).orElseGet(() -> handDisplay.hand(seat));
     }
 
+    public int selectedDiscardIndex(int seat) {
+        if (driver == null || seat < 0 || seat >= driver.match().playerCount()
+                || !(driver.playerAt(seat) instanceof MahjongTableHumanPlayer human)) return -1;
+        int canonical = human.selectedDiscardIndex(driver);
+        if (canonical < 0 || !updateHandDisplay()) return -1;
+        return handDisplay.displayedIndex(seat, canonical, driver.currentRound());
+    }
+
+    public void clearDiscardSelection(UUID player) {
+        int seat = seatOfOccupant(player);
+        if (driver != null && seat >= 0 && seat < driver.match().playerCount()
+                && driver.playerAt(seat) instanceof MahjongTableHumanPlayer human) {
+            human.clearDiscardSelection();
+        }
+    }
+
     public List<Integer> handDisplaySlots(int seat) {
         if (!updateHandDisplay()) return List.of();
         return winningHandLayout(seat).map(WinningHandDisplay.Layout::slots).orElseGet(() -> handDisplay.slots(seat));

@@ -27,8 +27,9 @@ import net.minecraft.world.item.component.ItemLore;
 /** The original custom client screens are represented by vanilla container menus. */
 public final class PortMenus {
     public static void register(){
+        DiscardPreference.register();
         CommandRegistrationCallback.EVENT.register((d,access,env)->{
-            var root=Commands.literal("mahjong").executes(c->{c.getSource().sendSuccess(()->Component.literal("立直麻将：右键桌边或座位文字入座，也可 /mahjong join；桌主潜行右键中心风盘打开菜单，再点击开始对局。右键自己的单张手牌出牌；吃碰杠、立直、胡牌看经验条上方提示并点击本人按钮。仅 /mahjong leave 离座；普通右键桌子或 /mahjong join 接回原座位。所有玩家可用 /mahjong menu 或潜行右键风盘打开菜单；设置仅桌主可调；/mahjong start 同样打开菜单。/mahjong stats 查看个人统计。管理员 /mahjong give 获得原版物品。"),false);return 1;});
+            var root=Commands.literal("mahjong").executes(c->{c.getSource().sendSuccess(()->Component.literal("立直麻将：右键桌边或座位文字入座，也可 /mahjong join；桌主潜行右键中心风盘打开菜单，再点击开始对局。右键自己的单张手牌出牌；吃碰杠、立直、胡牌看经验条上方提示并点击本人按钮。仅 /mahjong leave 离座；普通右键桌子或 /mahjong join 接回原座位。所有玩家可用 /mahjong menu 或潜行右键风盘打开菜单，切换自己的出牌方式。牌桌规则仅桌主可调。/mahjong start 同样打开菜单。/mahjong stats 查看个人统计。管理员 /mahjong give 获得原版物品。"),false);return 1;});
             root.then(Commands.literal("join").executes(c->{var p=c.getSource().getPlayerOrException();return TableSeating.joinNearest(p,nearest(p))?1:0;}).then(Commands.argument("seat",IntegerArgumentType.integer(1,4)).executes(c->{var p=c.getSource().getPlayerOrException();return TableSeating.join(p,nearest(p),IntegerArgumentType.getInteger(c,"seat")-1)?1:0;})));
             root.then(Commands.literal("menu").executes(c->{var p=c.getSource().getPlayerOrException();settings(p,nearest(p));return 1;}));
             root.then(Commands.literal("start").executes(c->{var p=c.getSource().getPlayerOrException();settings(p,nearest(p));return 1;}));
@@ -73,7 +74,7 @@ public final class PortMenus {
         }
         if(table.owner().isEmpty())table.claimHostIfUnowned(p);
         var driver=table.driver();long revision=table.matchRevision();
-        open(p,"立直麻将 · "+(host(p,table)?"桌主设置":"查看配置"),()->tableMenuValid(p,table)&&table.driver()==driver&&table.matchRevision()==revision,menu->{
+        open(p,"立直麻将 · "+(host(p,table)?"桌主设置":"牌桌菜单"),()->tableMenuValid(p,table)&&table.driver()==driver&&table.matchRevision()==revision,menu->{
             var family=table.preset().family();
             boolean locked=table.hasActiveMatch();
             String lockLabel=!host(p,table)?" · 仅桌主可调":locked?" · 对局中锁定":"";
@@ -229,6 +230,18 @@ public final class PortMenus {
             menu.button(27,icon(Items.BARREL,"牌桌库存 · 136 槽分页"),()->inventory(p,table,0));
             menu.button(28,icon(Items.BOOK,"领取空白牌谱"),()->{p.getInventory().add(new ItemStack(ModItems.MAHJONG_TABLE_RECORD.get()));p.closeContainer();});
             menu.button(29,icon(Items.WRITABLE_BOOK,"我的统计分析"),()->AnalysisMenus.open(p,com.riichimahjong.analysis.AnalysisMode.of(table.effectivePreset(),table.matchLength(),table.exchangeThreeTiles(),table.jokersEnabled(),table.bloodBattle())));
+            boolean confirmDiscard=DiscardPreference.requiresConfirmation(p);
+            var discardMode=icon(confirmDiscard?Items.GLOW_INK_SAC:Items.INK_SAC,
+                    "我的出牌方式："+(confirmDiscard?"二次确认":"右键直接出牌"));
+            discardMode.set(DataComponents.LORE,new ItemLore(List.of(
+                    Component.literal("二次确认时，右键选牌，再次右键发光的牌出牌。"),
+                    Component.literal("右键另一张手牌可改选。"),
+                    Component.literal("点击切换，仅影响自己。"))));
+            menu.button(30,discardMode,()->{
+                DiscardPreference.setConfirmation(p,!confirmDiscard);
+                table.clearDiscardSelection(p.getUUID());
+                settings(p,table);
+            });
             menu.button(35,icon(Items.BARRIER,"重置牌桌（需确认"+(host(p,table)?"":" · 仅桌主")+"）"),()->{if(host(p,table))confirmTableReset(p,table);else p.sendSystemMessage(Component.literal("只有桌主可以重置牌桌。"),true);});
         });
     }

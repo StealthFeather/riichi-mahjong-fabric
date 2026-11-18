@@ -57,6 +57,7 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.util.ProblemReporter;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.level.storage.TagValueInput;
+import net.minecraft.world.level.storage.TagValueOutput;
 
 /** Explicit, synchronous handler tests on a temporary table; never logs in a real player. */
 public final class MenuAccessIntegrationTest implements ModInitializer {
@@ -429,6 +430,7 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
     private static void activeMenu(MahjongTableBlockEntity table, MenuPlayer host, MenuPlayer visitor, MenuPlayer other) throws Exception {
         require(table.tryStartMatch(782463L) == MahjongTableBlockEntity.StartMatchResult.STARTED, "active menu fixture failed to start");
         var driver = table.driver(); var match = driver.match();
+        discardPreference(table, host, visitor);
         boolean bloodBattle=table.bloodBattle();
         var preset=table.preset();
         for(var family:RuleSetPreset.Family.values()) {
@@ -449,6 +451,7 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
                         && !SpectatorHands.eligible(table, visitor),
                 "former participant obtained concealed hands after switching to spectator");
         PortMenus.settings(host, table); click(host, 20);
+        PortMenus.settings(visitor, table);
         click(visitor, 37);
         require(table.seatOfPlayer(visitor.getUUID()).orElse(-1) == 1 && !table.isWatching(visitor.getUUID()),
                 "reclaiming a reserved playing seat did not stop watch mode");
@@ -456,6 +459,26 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         spectatorRendering(table, host, visitor, other);
         table.endGame();
         checks.add("active-seat-menu-leave-watch-rejoin-preserves-rules-hand-and-scores");
+    }
+
+    private static void discardPreference(MahjongTableBlockEntity table, MenuPlayer host, MenuPlayer visitor) {
+        require(!DiscardPreference.requiresConfirmation(host) && !DiscardPreference.requiresConfirmation(visitor),
+                "new players must start in direct discard mode");
+        windPlate(table, visitor);
+        click(visitor, 30);
+        require(DiscardPreference.requiresConfirmation(visitor) && !DiscardPreference.requiresConfirmation(host)
+                        && analysisLabel(visitor, 30).contains("二次确认"),
+                "a seated non-owner could not change only their own mode in an active match");
+        var registries = visitor.level().getServer().registryAccess();
+        var saved = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, registries);
+        visitor.saveWithoutId(saved);
+        click(visitor, 30);
+        require(!DiscardPreference.requiresConfirmation(visitor) && analysisLabel(visitor, 30).contains("右键直接出牌"),
+                "menu did not restore direct discard mode");
+        visitor.load(TagValueInput.create(ProblemReporter.DISCARDING, registries, saved.buildResult()));
+        require(DiscardPreference.requiresConfirmation(visitor), "confirm mode was lost on player NBT reload");
+        PortMenus.settings(visitor, table); click(visitor, 30);
+        checks.add("active-non-owner-wind-plate-discard-mode-personal-default-toggle-and-player-nbt-reload");
     }
 
     private static void spectatorRendering(MahjongTableBlockEntity table, MenuPlayer host, MenuPlayer seated,
@@ -541,7 +564,8 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
             var driverField=MahjongTableBlockEntity.class.getDeclaredField("driver");driverField.setAccessible(true);driverField.set(table,driver);
             PrivateHand privateHand=null;
             try {
-                submit(driver,0,new PlayerAction.Discard(white));
+                if (variants) submit(driver,0,new PlayerAction.Discard(white));
+                else confirmDuplicateDiscard(table, source, skipped, humans.get(0), white);
                 require(driver.legalActions(1).stream().anyMatch(action->action instanceof PlayerAction.DeclareRon),
                         "live handler fixture has no legal ron");
                 var pass=new TableButton.SubmitAction(PlayerAction.Pass.INSTANCE);
@@ -566,6 +590,13 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
                 privateHand.destroy();privateHand=null;
                 int displayed=table.handDisplayOrder(1).indexOf(green);
                 require(displayed>=0,"actual displayed drawn tile has no click index");
+                if (variants) {
+                    PortMenus.settings(skipped,table); click(skipped,30); skipped.closeContainer();
+                    table.onCuteClick(skipped,new InteractKey.SeatSlot((byte)1,InteractKey.SeatSlot.AREA_HAND,(short)displayed));
+                    require(!humans.get(1).hasQueued() && table.selectedDiscardIndex(1)==displayed
+                                    && driver.currentRound().players().get(1).points()==25000,
+                            "first riichi discard click queued a declaration or spent a stick");
+                }
                 table.onCuteClick(skipped,new InteractKey.SeatSlot((byte)1,InteractKey.SeatSlot.AREA_HAND,(short)displayed));
                 require(humans.get(1).hasQueued(),"actual table hand-click handler failed to queue riichi discard after passed ron");
                 driver.advance(.05);passLiveClaims(driver);
@@ -580,6 +611,46 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
             }
         }
         checks.add("real-server-player-confirmed-passed-ron-then-riichi-private-controls-hand-click-and-single-deposit-normal-and-south-exchange-joker-blood");
+    }
+
+    private static void confirmDuplicateDiscard(MahjongTableBlockEntity table, MenuPlayer owner, MenuPlayer opponent,
+            MahjongTableHumanPlayer human, TheMahjongTile white) {
+        var order = table.handDisplayOrder(0);
+        int first = order.indexOf(white), second = order.lastIndexOf(white);
+        require(first >= 0 && second > first, "fixture requires two identical white dragons");
+        var round = table.driver().currentRound();
+        PortMenus.settings(owner, table); click(owner, 30); owner.closeContainer();
+        var hand = new PrivateHand(table, owner, 0, PrivateHand.snapshot(table, 0));
+        try {
+            for (int index : List.of(first, second)) {
+                table.onCuteClick(owner, new InteractKey.SeatSlot((byte)0, InteractKey.SeatSlot.AREA_HAND, (short)index));
+                hand.snapshot = PrivateHand.snapshot(table, 0);
+                hand.tick();
+                require(!human.hasQueued() && table.driver().currentRound() == round && hand.snapshot.selectedDiscardIndex() == index,
+                        "clicking a different copy of the same tile submitted a discard or lost the selection");
+                var glowing = hand.holder.getElements().stream().filter(ItemDisplayElement.class::isInstance)
+                        .map(ItemDisplayElement.class::cast).filter(ItemDisplayElement::isGlowing).toList();
+                var direction = PortViews.outward(0, table.getBlockState());
+                var position = TableLayout.handAnchor(POS, direction,
+                        TableLayout.handAlong(hand.snapshot.handSlots().get(index), hand.snapshot.handGapStarts()), false);
+                require(glowing.size() == 1 && glowing.getFirst().getOverridePos().distanceTo(position) < 1e-7
+                                && glowing.getFirst().getVisibilityPredicate().test(owner)
+                                && !glowing.getFirst().getVisibilityPredicate().test(opponent),
+                        "the selected physical copy did not have the sole owner-only outline");
+            }
+            PortMenus.settings(owner, table); click(owner, 30);
+            require(table.selectedDiscardIndex(0) < 0 && !human.hasQueued(), "changing mode retained or submitted the preview");
+            click(owner, 30); owner.closeContainer();
+            var target = new InteractKey.SeatSlot((byte)0, InteractKey.SeatSlot.AREA_HAND, (short)second);
+            table.onCuteClick(owner, target);
+            require(!human.hasQueued(), "a cleared selection could be confirmed by one click");
+            table.onCuteClick(owner, target);
+            require(human.hasQueued() && table.selectedDiscardIndex(0) < 0, "second click did not confirm and clear the preview");
+            table.driver().advance(.05);
+            checks.add("actual-discard-selection-identical-copies-private-outline-reselection-mode-change-and-confirmation");
+        } finally {
+            hand.destroy();
+        }
     }
     private static TheMahjongTile riichiTile(int suit,int rank) {
         return new TheMahjongTile(TheMahjongTile.Suit.values()[suit],rank,false);

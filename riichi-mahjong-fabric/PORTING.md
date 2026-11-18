@@ -1,6 +1,6 @@
 # Timory Mahjong Fabric 服务端移植
 
-当前正式版本为 **Timory Mahjong 0.5.1**。玩家可使用 `/mahjong stats`，或在牌桌菜单选择“我的统计分析”，查看各模式的牌局统计、一致率与积分。本版保留 0.5.0-beta.6 的竞技预设及立直修复，沿用现有资源包。[版本说明](docs/0.5.1.md)
+当前正式版本为 **Timory Mahjong 0.5.2**。新版本在 0.5.1 正式版基础上增加个人出牌二次确认，并修复日麻吃碰、川麻碰牌后可以立即暗杠或加杠的问题。[版本说明](docs/0.5.2.md)
 
 目标环境为 Minecraft 26.3、Fabric Loader 0.19.5、Fabric API 0.163.0、Java 25。客户端使用原版 26.3，接受合并后的 TimoryResource，不安装此 Mod。
 

@@ -62,7 +62,7 @@ exports.round=source=>{
   for(const declaration of ['public TheMahjongRound declareAnkan(List<TheMahjongTile> handTiles, TheMahjongRuleSet rules) {',
       'public TheMahjongRound declareKakan(TheMahjongMeld.Pon existingPon, TheMahjongTile addedTile, TheMahjongRuleSet rules) {'])
     source=replace(source,declaration,declaration+`
-        if (rules.competitiveProfile() != com.themahjong.competition.CompetitiveRules.Profile.STANDARD && !(activeTile instanceof ActiveTile.Drawn))
+        if (!(activeTile instanceof ActiveTile.Drawn))
             throw new IllegalStateException("self kan requires a drawn tile");`,'self-kan requires draw');
   const limit='if (revealedDoraCount + pendingKanDoraReveals >= MAX_DORA_INDICATORS) {';
   if(source.split(limit).length!==4)throw Error('Competition patch expected three kan guards');
