@@ -66,15 +66,11 @@ final class SeatMenus {
                 });
                 String difficulty = table.botDifficultyOverride(seat).map(BotDifficulty::label)
                         .orElse("跟随默认（" + table.defaultBotDifficulty().label() + "）");
-                menu.button(DIFFICULTIES[seat], PortMenus.icon(Items.COMPARATOR, wind + " AI：" + difficulty + lock), () -> {
+                menu.button(DIFFICULTIES[seat], PortMenus.icon(Items.REPEATER, wind + " AI：" + difficulty + lock), () -> {
                     if (info.enabled() && difficultyLock(player, table).isEmpty()) table.cycleSeatBotDifficulty(seat);
                     open(player, table);
                 });
             }
-            menu.button(45, PortMenus.icon(Items.COMPARATOR, "默认四麻 AI：" + table.defaultBotDifficulty().label() + lock), () -> {
-                if (difficultyLock(player, table).isEmpty()) table.setDefaultBotDifficulty(table.defaultBotDifficulty().next());
-                open(player, table);
-            });
             if (PortMenus.host(player, table)) for (var candidate : table.offlineSeatCandidates()) {
                 int seat = candidate.seat();
                 if (seat >= OFFLINE_ACTIONS.length) continue;

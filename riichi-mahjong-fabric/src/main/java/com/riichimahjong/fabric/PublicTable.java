@@ -114,7 +114,7 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
         else if(phase instanceof MatchPhase.RoundEnded ended){
             if(ended.winResults().isEmpty())label="流局";
             if(table.resultAnimStage()==MahjongTableBlockEntity.ResultAnimStage.AWAITING_ADVANCE)
-                label+=(label.isEmpty()?"":" · ")+"在「牌桌操作」中继续下一局";
+                label+=(label.isEmpty()?"":" · ")+"潜行并右键中心风盘继续下一局";
         }
         var dora=round==null||sichuan!=null?List.<Integer>of():round.doraIndicators().stream().limit(round.revealedDoraCount()).map(PublicTable::code).toList();
         var uras=round!=null&&ura&&sichuan==null?round.uraDoraIndicators().stream().limit(round.revealedDoraCount()).map(PublicTable::code).toList():List.<Integer>of();

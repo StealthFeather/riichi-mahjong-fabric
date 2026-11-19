@@ -191,10 +191,11 @@ public final class AiIntegrationTest implements ModInitializer {
     private static void checkSanma() {
         table.selectPreset(RuleSetPreset.MAHJONG_SOUL_SANMA_3P);
         SeatMenus.open(menuPlayer, table);
-        require(menuText(45).contains("三麻使用本地 BOT") && menuText(13).contains("未启用"),
+        require(menuText(24).contains("三麻使用本地 BOT") && menuText(13).contains("未启用"),
                 "sanma menu does not identify its original bot and inactive difficulty settings");
-        menuClick(45);
-        require(table.defaultBotDifficulty() == BotDifficulty.HARD, "sanma menu changed four-player difficulty");
+        menuClick(24);
+        require(table.botDifficulty(0) == BotDifficulty.EASY && table.defaultBotDifficulty() == BotDifficulty.HARD,
+                "sanma menu changed four-player difficulty");
         pass("actual-sanma-menu-explains-four-player-only-ai");
         require(table.tryStartMatch(123L) == MahjongTableBlockEntity.StartMatchResult.STARTED, "sanma did not start");
         require(table.driver().match().playerCount() == 3, "sanma started with four players");
@@ -219,11 +220,12 @@ public final class AiIntegrationTest implements ModInitializer {
         require(table.defaultBotDifficulty() == BotDifficulty.HARD && table.botDifficulty(0) == BotDifficulty.EASY,
                 "active configuration lock changed a difficulty");
         SeatMenus.open(menuPlayer, table);
-        require(menuText(45).contains("对局中锁定") && menuText(4).contains("对局中锁定"),
+        require(menuText(24).contains("对局中锁定") && menuText(4).contains("对局中锁定"),
                 "active menu does not show the difficulty lock");
-        menuClick(45);
+        menuClick(24);
         menuClick(4);
-        require(table.defaultBotDifficulty() == BotDifficulty.HARD && table.botDifficultyOverride(3).isEmpty(),
+        require(table.defaultBotDifficulty() == BotDifficulty.HARD && table.botDifficulty(0) == BotDifficulty.EASY
+                        && table.botDifficultyOverride(3).isEmpty(),
                 "actual menu actions changed locked difficulties");
         pass("actual-active-menu-actions-respect-difficulty-lock");
         pass("active-match-locks-default-and-seat-settings");
@@ -231,20 +233,19 @@ public final class AiIntegrationTest implements ModInitializer {
 
     private static void checkMenuConfiguration() {
         SeatMenus.open(menuPlayer, table);
-        require(menuText(45).contains("默认四麻 AI：高级"), "default AI menu text is incorrect");
+        require(menuPlayer.opened.getSlot(45).getItem().isEmpty(), "seat page still has a default AI control");
         require(menuText(24).contains("东位 AI：初级") && menuText(40).contains("南位 AI：中级")
                 && menuText(20).contains("西位 AI：高级") && menuText(4).contains("跟随默认（高级）"),
                 "seat menu text does not match configured difficulties");
         Map<String, String> labels = new LinkedHashMap<>();
-        for (int slot : List.of(45, 24, 40, 20, 4)) labels.put(Integer.toString(slot), menuText(slot));
+        for (int slot : List.of(24, 40, 20, 4)) {
+            require(menuPlayer.opened.getSlot(slot).getItem().is(Items.REPEATER), "seat AI icon is not a repeater");
+            labels.put(Integer.toString(slot), menuText(slot));
+        }
         observations.put("headlessMenuLabels", labels);
         menuClick(45);
-        require(table.defaultBotDifficulty() == BotDifficulty.EASY && menuText(4).contains("跟随默认（初级）"),
-                "default menu click did not update inherited difficulty");
-        menuClick(45);
-        require(table.defaultBotDifficulty() == BotDifficulty.NORMAL, "default menu did not cycle to normal");
-        menuClick(45);
-        require(table.defaultBotDifficulty() == BotDifficulty.HARD, "default menu did not cycle back to hard");
+        require(table.defaultBotDifficulty() == BotDifficulty.HARD && table.botDifficultyOverride(3).isEmpty(),
+                "empty corner changed the table or inherited seat difficulty");
         menuClick(4);
         require(table.botDifficultyOverride(3).orElseThrow() == BotDifficulty.EASY, "seat menu did not select easy");
         menuClick(4);
@@ -255,7 +256,7 @@ public final class AiIntegrationTest implements ModInitializer {
         require(table.botDifficultyOverride(3).isEmpty() && menuText(4).contains("跟随默认"),
                 "seat menu did not return to inherited difficulty");
         observations.put("headlessMenuActionsVerified", true);
-        pass("actual-settings-menu-labels-default-cycle-and-seat-cycle");
+        pass("actual-seat-menu-repeater-labels-and-seat-cycle-with-empty-default-slot");
     }
 
     private static void checkSeatIcons(MinecraftServer server) {

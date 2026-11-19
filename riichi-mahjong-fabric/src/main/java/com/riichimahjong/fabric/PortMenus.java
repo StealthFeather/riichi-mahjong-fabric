@@ -172,10 +172,9 @@ public final class PortMenus {
                 backToTable(menu, p, table);
                 return;
             }
-            if (table.resultAnimStage() == MahjongTableBlockEntity.ResultAnimStage.AWAITING_ADVANCE
-                    && table.seatOfPlayer(p.getUUID()).isPresent()) {
+            if (table.canPlayerAdvanceResult(p)) {
                 menu.button(22, icon(Items.CLOCK, "继续下一局"), () -> {
-                    if (!p.isSpectator() && table.seatOfPlayer(p.getUUID()).isPresent()) {
+                    if (table.canPlayerAdvanceResult(p)) {
                         table.advanceRoundAfterResult();
                         p.closeContainer();
                     }

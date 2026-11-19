@@ -1438,6 +1438,13 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         };
     }
 
+    public boolean canPlayerAdvanceResult(ServerPlayer player) {
+        return resultAnimStage == ResultAnimStage.AWAITING_ADVANCE && replay == null
+                && winEffectSession == null && !exchanging() && driver != null
+                && driver.currentPhase() instanceof MatchPhase.RoundEnded
+                && !player.isSpectator() && seatOfPlayer(player.getUUID()).isPresent();
+    }
+
     public void advanceRoundAfterResult() {
         if (replay != null) return;
         if (driver == null || winEffectSession!=null || exchanging()) return;

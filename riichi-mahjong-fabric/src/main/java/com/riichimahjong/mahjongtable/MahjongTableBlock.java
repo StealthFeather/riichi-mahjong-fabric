@@ -167,7 +167,7 @@ public class MahjongTableBlock extends BaseMultipartBlock {
             }
             if (table.isInResultPhase()) {
                 if (player instanceof ServerPlayer sp && !holdsWrench(player)) {
-                    sp.sendSystemMessage(Component.literal("右键中心风盘，在「牌桌操作」中继续下一局。"),true);
+                    sp.sendSystemMessage(Component.literal("结算完成后，潜行并右键中心风盘可继续下一局。"),true);
                 }
                 return InteractionResult.CONSUME;
             }
@@ -219,6 +219,10 @@ public class MahjongTableBlock extends BaseMultipartBlock {
                 || level.getBlockEntity(master) != table) return false;
         if (!TableCentreInteraction.hitsWindPlate(master, player.getEyePosition(),
                 player.getEyePosition().add(player.getLookAngle().scale(8)))) return false;
+        if (player.isShiftKeyDown() && table.canPlayerAdvanceResult(player)) {
+            table.advanceRoundAfterResult();
+            return true;
+        }
         com.riichimahjong.fabric.PortMenus.settings(player, table);
         return true;
     }

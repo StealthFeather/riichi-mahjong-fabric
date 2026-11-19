@@ -15,7 +15,7 @@ git -C projects/timory-resource-pack pull --ff-only origin main
 首次使用先克隆该仓库；本地有未提交改动或分支分叉时先保留并合并，解决冲突后再修改。同步后比较并合并独立检出与 `TimoryResource/` 的差异；资源生成脚本同样遵循此顺序。保留其他项目资源、图集条目与许可证，禁止用旧快照或单项目包覆盖共享内容。验证后的材质包改动需提交并推送回独立仓库，具体流程见其 [README](https://github.com/StealthFeather/Timory-ResourcePack#readme)。
 <!-- timory-resource-repository:end -->
 
-日本立直麻将与川麻血战到底、3D 牌桌、私有手牌与原版客户端适配。当前版本为 **Timory Mahjong 0.5.3**，仅安装到 Fabric 服务端。
+日本立直麻将与川麻血战到底、3D 牌桌、私有手牌与原版客户端适配。当前版本为 **Timory Mahjong 0.5.4-beta.1**，仅安装到 Fabric 服务端。
 
 已同步 [GitHub 独立仓库](https://github.com/StealthFeather/riichi-mahjong-fabric) main 提交 `decaf7b762d68dfad8ef52bfc47c982c0c3b94e0`（26.3.15），保留四麻三级 AI、TP 返回显示恢复、跳过和牌确认及手牌空槽延迟整理。
 
@@ -27,13 +27,13 @@ git -C projects/timory-resource-pack pull --ff-only origin main
 
 ## 安装与操作
 
-胡牌特效现支持替换：每位玩家可在「个人设置」切换“唤魔尖牙 / 直接摊牌”。默认在 3.2 秒内依次播放“尖牙吞掉来源牌 → 胡牌张从赢家右侧桌下浮起 → 整副手牌推倒”，支持自摸、荣和、多人胡牌、抢杠及川麻逐次胡牌。接口、时间线与新增特效示例见 [胡牌特效开发说明](docs/win-effects.md)。
+每位玩家可在「个人设置」直接选择唤魔尖牙、末影人搬牌、监守者尖啸或直接摊牌。接口和时间线见 [胡牌特效开发说明](docs/win-effects.md)。
 
 需要 Minecraft 26.3、Fabric Loader 0.19.5、Fabric API 0.163.0+26.3、Java 25；四麻 AI 需要服务端可执行 Node.js 22+。Polymer 和固定版本 AI 源码已内嵌。玩家使用原版客户端并接受包含麻将资产的 TimoryResource。
 
-停服后将构建的 `timory-mahjong-0.5.3.jar` 替换服务端旧版 JAR，再正常开服。同时更新本版 TimoryResource 下载地址和 SHA-1，以显示新增的立直棒。
+停服后将构建的 `timory-mahjong-0.5.4-beta.1.jar` 替换服务端旧版 JAR，再正常开服。同时更新本版 TimoryResource 下载地址和 SHA-1，以显示更新后的宝牌材质。
 
-`/mahjong` 查看操作，管理员 `/mahjong give` 领物品。右键桌边入座，右键中心风盘打开「牌桌操作」，由桌主点击“开始对局”开局；对局结算动画完成后，已入座玩家可在「牌桌操作」中继续下一局。默认右键自己的手牌即可出牌。吃碰杠、立直与胡牌使用本人桌沿按钮。跳过可和牌机会需要确认。主动离座使用 `/mahjong leave`；离座后 BOT 暂代，右键桌子或 `/mahjong join` 可接回原座位。
+`/mahjong` 查看操作，管理员 `/mahjong give` 领物品。右键桌边入座，右键中心风盘打开「牌桌操作」，由桌主点击“开始对局”开局；结算动画完成后，已入座的玩家可潜行右键中心风盘或在「牌桌操作」中继续下一局。默认右键自己的手牌即可出牌。吃碰杠、立直与胡牌使用本人桌沿按钮。跳过可和牌机会需要确认。主动离座使用 `/mahjong leave`；离座后 BOT 暂代，右键桌子或 `/mahjong join` 可接回原座位。
 
 右键中心风盘，进入「个人设置」，点击 **我的出牌方式** 可切换为 **二次确认**。右键一张可打的手牌时，只有本人能看见选中牌的金色轮廓。再次右键该牌即可打出，右键另一张可打的牌即可改选。个人设置在对局中也可调整，重新登录后保留。
 
@@ -59,7 +59,7 @@ git -C projects/timory-resource-pack pull --ff-only origin main
 
 点空不会默认弃牌或跳过；桌主可在 `/mahjong menu` 选择“重置牌桌”并二次确认，结束当前牌局并释放座位。
 
-桌主可在 `/mahjong menu` 中点击离线座位的“用 AI 取代”，保留当前手牌、分数和供托，解除该玩家原座位保留。菜单“结束对局”与“重置牌桌”共用确认页。所有玩家打开配置菜单均不会自动接管现有桌主。桌主点击「牌桌座次」中其他玩家的头像可二次确认移交权限。
+桌主可在 `/mahjong menu` 中点击离线座位的“用 AI 取代”，保留当前手牌、分数和供托，解除该玩家原座位保留。菜单“结束对局”与“重置牌桌”共用确认页。所有玩家打开配置菜单均不会自动接管现有桌主。桌主点击「牌桌座次」中其他玩家的头像可二次确认移交权限，也可在开局前点击各席旁的中继器单独调整该席的四麻 AI 难度。
 
 
 配置菜单倒数第二行可点击空位入座、点击自己的头像离座；最右侧为观战按钮。第三行第三格控制观战手牌，末影之眼表示显示、末影珍珠表示隐藏。观战者获得与参战玩家一致的战局 BossBar；观战仅对当前在线、同世界且靠近牌桌的玩家有效。
@@ -87,7 +87,7 @@ node test.cjs
 
 也可双击 `build.cmd`。构建器兼容当前 Timory 工作区与独立源码归档，公共 JDK、Minecraft 和 Polymer 依赖默认位于工作区根目录。配置方式见 [BUILDING.md](BUILDING.md)。**不要重新运行 `prepare.cjs`、`adapt.cjs` 或 `resources.cjs`**，以免覆盖已移植内容及版本元数据。
 
-JAR 位于 `build/libs/`，回归结果和 JAR SHA-256 位于 `build/verification.json`。构建和回归验证状态以当前 `build/verification.json` 为准，该记录绑定对应 JAR 的 SHA-256。本版变更见 [0.5.3 说明](docs/0.5.3.md)。
+JAR 位于 `build/libs/`，回归结果和 JAR SHA-256 位于 `build/verification.json`。构建和回归验证状态以当前 `build/verification.json` 为准，该记录绑定对应 JAR 的 SHA-256。本版变更见 [0.5.4-beta.1 说明](docs/0.5.4-beta.1.md)。
 
 可选打包入口为 `node project.cjs package`，默认输出至工作区 `deploy/`；用 `RIICHI_RELEASE_DIR` 可指定其他目录。`install-local.cjs` 仅供正常停服后的主测试服安装，构建与打包不会自动部署。
 

@@ -5,6 +5,7 @@ import com.mojang.authlib.GameProfile;
 import com.riichimahjong.analysis.AnalysisMode;
 import com.riichimahjong.analysis.PlayerAnalysisStore;
 import com.riichimahjong.common.BaseMultipartBlock;
+import com.riichimahjong.fabric.wineffect.WinEffects;
 import com.riichimahjong.mahjongtable.MahjongTableBlockEntity;
 import com.riichimahjong.mahjongtable.MahjongTableBlock;
 import com.riichimahjong.mahjongtable.RuleSetPreset;
@@ -117,6 +118,7 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
             transferConfirmation(server, table, host, visitor, other);
             activeMenu(table, host, visitor);
             passedRonRiichiHandlers(table, host, visitor, other);
+            advanceWithWindPlate(table, visitor, other);
             result.put("passed", true);
         } catch (Throwable failure) {
             failure.printStackTrace(); result.put("passed", false); result.put("failure", failure.toString());
@@ -189,7 +191,16 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         String hostEffect = PlayerCosmetics.winEffect(host, table.winEffectId());
         page(visitor, table, 22);
         click(visitor, 12);
-        click(visitor, 29);
+        var effects = WinEffects.all();
+        for (int i = 0; i < effects.size(); i++) {
+            var choice = effects.get(i);
+            require(analysisLabel(visitor, 27 + i).contains(choice.displayName()), "effect not visible: " + choice.id());
+            click(visitor, 27 + i);
+            require(PlayerCosmetics.winEffect(visitor, table.winEffectId()).equals(choice.id())
+                            && analysisLabel(visitor, 27 + i).contains("已选"),
+                    "effect was not selected directly: " + choice.id());
+        }
+        require(visitor.opened.getSlot(32).getItem().isEmpty(), "old effect cycle button remains visible");
         require(PlayerCosmetics.skin(visitor).name().equals("GOLD")
                         && !PlayerCosmetics.winEffect(visitor,table.winEffectId()).equals(hostEffect)
                         && PlayerCosmetics.skin(host) == hostSkin
@@ -200,7 +211,7 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
                         && PlayerCosmetics.winEffect(reconnected,table.winEffectId()).equals(
                                 PlayerCosmetics.winEffect(visitor,table.winEffectId())),
                 "new player instance did not recover its UUID's personal cosmetics");
-        click(visitor,10); click(visitor,28);
+        click(visitor,10); click(visitor,27);
         checks.add("five-categories-return-to-home-and-non-owner-personal-cosmetics-persist-without-changing-owner");
     }
 
@@ -394,11 +405,15 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         checks.add("non-owner-real-menu-opens-but-rule-start-reset-inventory-ai-and-visibility-buttons-remain-protected");
     }
 
-    private static void windPlate(MahjongTableBlockEntity table, MenuPlayer visitor) {
+    private static void aimAtWindPlate(MenuPlayer player) {
         var target = new Vec3(POS.getX() + .5, POS.getY() + 9.5 / 16, POS.getZ() + .5);
-        var delta = target.subtract(visitor.getEyePosition());
-        visitor.setYRot((float)Math.toDegrees(Math.atan2(-delta.x, delta.z)));
-        visitor.setXRot((float)-Math.toDegrees(Math.atan2(delta.y, Math.sqrt(delta.x * delta.x + delta.z * delta.z))));
+        var delta = target.subtract(player.getEyePosition());
+        player.setYRot((float)Math.toDegrees(Math.atan2(-delta.x, delta.z)));
+        player.setXRot((float)-Math.toDegrees(Math.atan2(delta.y, Math.sqrt(delta.x * delta.x + delta.z * delta.z))));
+    }
+
+    private static void windPlate(MahjongTableBlockEntity table, MenuPlayer visitor) {
+        aimAtWindPlate(visitor);
         var originalOwner = table.owner();
         for (boolean sneaking : List.of(false,true)) {
             visitor.setShiftKeyDown(sneaking);
@@ -409,6 +424,55 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         }
         visitor.setShiftKeyDown(false);
         checks.add("non-owner-real-shift-wind-plate-route-opens-view-menu-without-owner-takeover");
+    }
+
+    private static void advanceWithWindPlate(MahjongTableBlockEntity table, MenuPlayer player, MenuPlayer watcher) throws Exception {
+        require(table.claimSeat(1, player.getUUID()) && table.seatOfPlayer(watcher.getUUID()).isEmpty(),
+                "wind plate fixture requires a seated player and an unseated observer");
+        var initial = RuleSetPreset.MAHJONG_SOUL_4P.newMatch().startRound(new Random(17));
+        var ended = initial.currentRound().orElseThrow().abortiveDraw(initial.ruleSet());
+        var match = new TheMahjongMatch(4, initial.startingPoints(), initial.targetPoints(), initial.roundCount(),
+                initial.state(), initial.tileSet(), initial.ruleSet(), List.of(), ended);
+        var humans = new ArrayList<MahjongPlayerInterface>();
+        for (int seat = 0; seat < match.playerCount(); seat++) humans.add(new MahjongTableHumanPlayer());
+        var driver = new TheMahjongDriver(match, humans, new Random(17),
+                new TheMahjongDriver.Snapshot(new MatchPhase.RoundEnded(List.of()), false, OptionalInt.empty()));
+        var driverField = MahjongTableBlockEntity.class.getDeclaredField("driver");
+        driverField.setAccessible(true);
+        driverField.set(table, driver);
+        var stage = MahjongTableBlockEntity.class.getDeclaredField("resultAnimStage");
+        stage.setAccessible(true);
+        try {
+            aimAtWindPlate(player);
+            aimAtWindPlate(watcher);
+            player.setShiftKeyDown(true);
+            stage.set(table, MahjongTableBlockEntity.ResultAnimStage.SHOW_FINAL);
+            player.closeContainer();
+            require(MahjongTableBlock.routeWindPlateUse(player, table) && player.opened instanceof PortMenus.Actions
+                            && driver.currentRound() == ended, "wind plate skipped the result presentation");
+            stage.set(table, MahjongTableBlockEntity.ResultAnimStage.AWAITING_ADVANCE);
+            watcher.setShiftKeyDown(true);
+            watcher.closeContainer();
+            require(MahjongTableBlock.routeWindPlateUse(watcher, table) && watcher.opened instanceof PortMenus.Actions
+                            && driver.currentRound() == ended, "unseated observer could advance the result");
+            player.setShiftKeyDown(false);
+            player.closeContainer();
+            require(MahjongTableBlock.routeWindPlateUse(player, table) && player.opened instanceof PortMenus.Actions
+                            && driver.currentRound() == ended, "ordinary wind plate click skipped the result");
+            player.setShiftKeyDown(true);
+            player.closeContainer();
+            require(MahjongTableBlock.routeWindPlateUse(player, table) && player.opened == player.inventoryMenu
+                            && driver.currentRound() != ended && driver.match().completedRounds().size() == 1,
+                    "seated shift-click did not advance directly to the next hand");
+            var next = driver.currentRound();
+            require(MahjongTableBlock.routeWindPlateUse(player, table) && player.opened instanceof PortMenus.Actions
+                            && driver.currentRound() == next, "a repeated wind plate click skipped the new hand");
+            checks.add("wind-plate-ready-seated-sneak-advances-once-other-clicks-open-menu");
+        } finally {
+            watcher.setShiftKeyDown(false);
+            player.setShiftKeyDown(false);
+            table.endGame();
+        }
     }
 
     private static void menuSeats(MahjongTableBlockEntity table, MenuPlayer host, MenuPlayer visitor) {
@@ -423,7 +487,21 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         require(analysisLabel(visitor,31).contains("空位"), "leaving did not restore an empty seat icon");
         page(host, table, 20); click(host, 23);
         require(table.seatOfPlayer(host.getUUID()).orElse(-1) == 0, "owner could not join their empty seat");
+        var defaultAi = table.defaultBotDifficulty();
+        int[] repeaters = {24, 40, 20, 4};
+        for (int seat = 0; seat < repeaters.length; seat++) {
+            int slot = repeaters[seat];
+            require(host.opened.getSlot(slot).getItem().is(Items.REPEATER), "missing repeater for seat " + seat);
+            click(host, slot);
+            require(table.botDifficultyOverride(seat).isPresent(), "repeater did not change seat " + seat);
+            for (int other = 0; other < repeaters.length; other++)
+                require(other == seat || table.botDifficultyOverride(other).isEmpty(), "repeater changed another seat");
+            table.setSeatBotDifficulty(seat, null);
+        }
+        require(host.opened.getSlot(45).getItem().isEmpty() && table.defaultBotDifficulty() == defaultAi,
+                "removed AI control is present or per-seat selection changed the default");
         checks.add("real-seat-menu-join-profile-head-and-own-head-leave");
+        checks.add("seat-repeaters-change-only-their-own-ai-and-no-default-control");
     }
 
     private static void viewingOptions(MahjongTableBlockEntity table, MenuPlayer host, MenuPlayer visitor) {
@@ -516,19 +594,19 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
                 "new players must start in direct discard mode");
         windPlate(table, visitor);
         click(visitor, 22);
-        click(visitor, 30);
+        click(visitor, 19);
         require(DiscardPreference.requiresConfirmation(visitor) && !DiscardPreference.requiresConfirmation(host)
-                        && analysisLabel(visitor, 30).contains("二次确认"),
+                        && analysisLabel(visitor, 19).contains("二次确认"),
                 "a seated non-owner could not change only their own mode in an active match");
         var registries = visitor.level().getServer().registryAccess();
         var saved = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, registries);
         visitor.saveWithoutId(saved);
-        click(visitor, 30);
-        require(!DiscardPreference.requiresConfirmation(visitor) && analysisLabel(visitor, 30).contains("右键直接出牌"),
+        click(visitor, 19);
+        require(!DiscardPreference.requiresConfirmation(visitor) && analysisLabel(visitor, 19).contains("右键直接出牌"),
                 "menu did not restore direct discard mode");
         visitor.load(TagValueInput.create(ProblemReporter.DISCARDING, registries, saved.buildResult()));
         require(DiscardPreference.requiresConfirmation(visitor), "confirm mode was lost on player NBT reload");
-        page(visitor, table, 22); click(visitor, 30);
+        page(visitor, table, 22); click(visitor, 19);
         checks.add("active-non-owner-wind-plate-discard-mode-personal-default-toggle-and-player-nbt-reload");
     }
 
@@ -652,7 +730,7 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
                 int displayed=table.handDisplayOrder(1).indexOf(green);
                 require(displayed>=0,"actual displayed drawn tile has no click index");
                 if (variants) {
-                    page(skipped, table, 22); click(skipped, 30); skipped.closeContainer();
+                    page(skipped, table, 22); click(skipped, 19); skipped.closeContainer();
                     table.onCuteClick(skipped,new InteractKey.SeatSlot((byte)1,InteractKey.SeatSlot.AREA_HAND,(short)displayed));
                     require(!humans.get(1).hasQueued() && table.selectedDiscardIndex(1)==displayed
                                     && driver.currentRound().players().get(1).points()==25000,
@@ -680,7 +758,7 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         int first = order.indexOf(white), second = order.lastIndexOf(white);
         require(first >= 0 && second > first, "fixture requires two identical white dragons");
         var round = table.driver().currentRound();
-        page(owner, table, 22); click(owner, 30); owner.closeContainer();
+        page(owner, table, 22); click(owner, 19); owner.closeContainer();
         var hand = new PrivateHand(table, owner, 0, PrivateHand.snapshot(table, 0));
         try {
             var goldFaces = hand.holder.getElements().stream().filter(ItemDisplayElement.class::isInstance)
@@ -709,9 +787,9 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
                                 && !glowing.getFirst().getVisibilityPredicate().test(opponent),
                         "the selected physical copy did not have the sole owner-only outline");
             }
-            page(owner, table, 22); click(owner, 30);
+            page(owner, table, 22); click(owner, 19);
             require(table.selectedDiscardIndex(0) < 0 && !human.hasQueued(), "changing mode retained or submitted the preview");
-            click(owner, 30); owner.closeContainer();
+            click(owner, 19); owner.closeContainer();
             var target = new InteractKey.SeatSlot((byte)0, InteractKey.SeatSlot.AREA_HAND, (short)second);
             table.onCuteClick(owner, target);
             require(!human.hasQueued(), "a cleared selection could be confirmed by one click");

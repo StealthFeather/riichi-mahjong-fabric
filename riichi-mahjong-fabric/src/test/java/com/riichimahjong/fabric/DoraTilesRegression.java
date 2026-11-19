@@ -1,5 +1,8 @@
 package com.riichimahjong.fabric;
 
+import com.google.gson.JsonParser;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import com.riichimahjong.mahjongcore.MahjongTileItems;
 import com.themahjong.*;
 import com.themahjong.driver.*;
@@ -245,12 +248,41 @@ public final class DoraTilesRegression {
         displayPacket(37, false, true, "bridge/tile_joker", false);
     }
 
-    public static void main(String[] args) {
+    private static void goldBodyWithOriginalBack() throws Exception {
+        try (var resource = DoraTilesRegression.class.getResourceAsStream(
+                "/assets/riichi_mahjong/models/bridge/dora_base.json");
+             var reader = new InputStreamReader(Objects.requireNonNull(resource), StandardCharsets.UTF_8)) {
+            var model = JsonParser.parseReader(reader).getAsJsonObject();
+            check(model.get("parent").getAsString().equals("riichi_mahjong:block/tile"), "ordinary shell must be inherited");
+            check(model.getAsJsonObject("textures").get("gold").getAsString().equals("minecraft:block/gold_block"),
+                    "dora body does not use the vanilla gold material");
+            var layers = model.getAsJsonArray("elements");
+            var body = layers.get(0).getAsJsonObject();
+            var back = layers.get(1).getAsJsonObject();
+            check(body.getAsJsonArray("to").get(2).getAsDouble() == 10.5
+                    && back.getAsJsonArray("from").get(2).getAsDouble() == 10.5
+                    && back.getAsJsonArray("to").get(2).getAsDouble() == 12.5, "green back must be two model pixels deep");
+            for (var face : body.getAsJsonObject("faces").asMap().values()) {
+                check(face.getAsJsonObject().get("texture").getAsString().equals("#gold"), "gold missing from front body");
+            }
+            // These rectangles sample the original 32px white/green shell at the back and along all four edges.
+            var originalGreen = Map.of("east", "[0.5,4.5,1.5,11.5]", "south", "[5,4.5,10.5,11.5]",
+                    "west", "[14,4.5,15,11.5]", "up", "[10.5,1,5,0]", "down", "[10.5,11.5,5,12.5]");
+            for (var edge : originalGreen.entrySet()) {
+                var face = back.getAsJsonObject("faces").getAsJsonObject(edge.getKey());
+                check(face.get("texture").getAsString().equals("#0")
+                        && face.get("uv").equals(JsonParser.parseString(edge.getValue())), "changed green UV on " + edge.getKey());
+            }
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
         cyclesAndHiddenIndicators();
         acceptedKanReveals();
         winAndDrawVisibility();
         terminalResultVisibility();
         tileDisplayPackets();
+        goldBodyWithOriginalBack();
         System.out.println("PASS: 3p/4p dora cycles, red fives, concealed/delayed kan reveals and hidden indicator boundaries");
         System.out.println("PASS: riichi/double-riichi and double-ron ura reveal, non-riichi wins and draws preserve hidden ura");
         System.out.println("PASS: terminal result and reload retain public ura; encoded dora use gold models and all concealed backs are byte-identical");
