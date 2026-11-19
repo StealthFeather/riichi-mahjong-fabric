@@ -1,0 +1,20 @@
+{
+  "passed": true,
+  "version": "0.5.4-beta.1",
+  "jarSha256": "a34e479d29e9e833d2f73b6acc535fe881cee0de685d5119dbed26fcd6451121",
+  "checks": [
+    "enderman north complete. Actors [class net.minecraft.world.entity.monster.Enderman] carry=true spell=false",
+    "evoker_fangs north complete. Actors [class net.minecraft.world.entity.monster.illager.Evoker] carry=false spell=true",
+    "warden north complete. Actors [class net.minecraft.world.entity.monster.warden.Warden] carry=false spell=false",
+    "enderman south complete. Actors [class net.minecraft.world.entity.monster.Enderman] carry=true spell=false",
+    "evoker_fangs south complete. Actors [class net.minecraft.world.entity.monster.illager.Evoker] carry=false spell=true",
+    "warden south complete. Actors [class net.minecraft.world.entity.monster.warden.Warden] carry=false spell=false",
+    "enderman east complete. Actors [class net.minecraft.world.entity.monster.Enderman] carry=true spell=false",
+    "evoker_fangs east complete. Actors [class net.minecraft.world.entity.monster.illager.Evoker] carry=false spell=true",
+    "warden east complete. Actors [class net.minecraft.world.entity.monster.warden.Warden] carry=false spell=false",
+    "enderman west complete. Actors [class net.minecraft.world.entity.monster.Enderman] carry=true spell=false",
+    "evoker_fangs west complete. Actors [class net.minecraft.world.entity.monster.illager.Evoker] carry=false spell=true",
+    "warden west complete. Actors [class net.minecraft.world.entity.monster.warden.Warden] carry=false spell=false"
+  ],
+  "clientVisualTest": false
+}

@@ -1,7 +1,0 @@
-{
-  "parent": "riichi_mahjong:bridge/table_riichi_stick",
-  "textures": {
-    "white": "minecraft:block/gold_block",
-    "red": "minecraft:block/red_concrete"
-  }
-}

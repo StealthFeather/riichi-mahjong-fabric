@@ -1,0 +1,41 @@
+{
+  "passed": true,
+  "temporaryAnalysisProfilesRemoved": true,
+  "fakePlayersRemoved": true,
+  "originalRegionRestored": true,
+  "checks": [
+    "five-categories-return-to-home-and-non-owner-personal-cosmetics-persist-without-changing-owner",
+    "world-store-uuid-persistence-reopen-idempotence-yaku-and-zero-score-floor",
+    "table-history-personal-replay-calendar-statistics-and-blank-record",
+    "registered-stats-command-and-table-button-personal-mode-filtered-stats-and-consistency-windows",
+    "non-owner-real-shift-wind-plate-route-opens-view-menu-without-owner-takeover",
+    "six-real-rule-family-buttons-owner-selection-four-player-only-restoration-read-only-access-and-preset-nbt",
+    "jpml-mleague-real-menu-start-four-seats-initial-points-red-tile-deal-active-rule-lock-and-profile-authoritative-be-nbt",
+    "jpml-mleague-match-analysis-session-survives-real-table-nbt-and-stays-private",
+    "all-preset-owner-only-blood-battle-toggle-redstone-gunpowder-icons-and-table-nbt",
+    "non-owner-real-menu-opens-but-rule-start-reset-inventory-ai-and-visibility-buttons-remain-protected",
+    "real-seat-menu-join-profile-head-and-own-head-leave",
+    "seat-repeaters-change-only-their-own-ai-and-no-default-control",
+    "slot-44-explicit-watch-toggle-and-owner-only-slot-20-eye-pearl-visibility-control",
+    "real-owner-transfer-confirm-cancel-target-leave-offline-old-menu-and-revoked-authority",
+    "non-owner-real-shift-wind-plate-route-opens-view-menu-without-owner-takeover",
+    "active-non-owner-wind-plate-discard-mode-personal-default-toggle-and-player-nbt-reload",
+    "active-seat-menu-leave-watch-rejoin-preserves-rules-hand-and-scores",
+    "real-spectator-hud-opt-in-shared-player-bars-and-private-hand-visibility-toggle-without-public-leak",
+    "concealed-dora-gold-for-its-owner-and-ordinary-faces-for-authorized-spectator",
+    "actual-discard-selection-identical-copies-private-outline-reselection-mode-change-and-confirmation",
+    "real-server-player-confirmed-passed-ron-then-riichi-private-controls-hand-click-and-single-deposit-normal-and-south-exchange-joker-blood",
+    "wind-plate-ready-seated-sneak-advances-once-other-clicks-open-menu",
+    "riichi-chi-pon-and-sichuan-pon-no-immediate-self-kan-table-buttons-and-legal-actions",
+    "direct-daiminkan-and-post-draw-and-replacement-draw-self-kans"
+  ],
+  "clientVisualTest": false,
+  "temporaryTable": [
+    0,
+    300,
+    0
+  ],
+  "gameTestServerStarted": true,
+  "version": "0.5.4-beta.1",
+  "jarSha256": "a34e479d29e9e833d2f73b6acc535fe881cee0de685d5119dbed26fcd6451121"
+}

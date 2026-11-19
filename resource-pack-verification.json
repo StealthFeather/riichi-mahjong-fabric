@@ -1,0 +1,26 @@
+{
+  "version": "0.5.4-beta.1",
+  "published": true,
+  "checkedAtUtc": "2026-11-19T17:44:54.425934+00:00",
+  "passed": true,
+  "sha1": "68ce48601574c498c27e848499c60c9c90113d25",
+  "sha256": "fd2b64315354e922f357a56e5d22e6cbb4f2aeb2f46a3856d0227f13f655b143",
+  "jarSha256": "a34e479d29e9e833d2f73b6acc535fe881cee0de685d5119dbed26fcd6451121",
+  "baselineSha1": "224eab704fe1ab843850f77fed7d8141a3dfe9ec",
+  "baselineSha256": "e3168931a24770fc15a1c56c10d8e45b7cc237e20fc624be4aa90cd7eca8e16c",
+  "baselineDownloadedAndVerifiedFor": [
+    "Timory_Test",
+    "Timory_TR_Test"
+  ],
+  "entriesInBaselineAndOutput": 7986,
+  "changedFiles": [
+    "assets/riichi_mahjong/models/bridge/dora_base.json"
+  ],
+  "allOtherEntriesVerified": true,
+  "matchedBuiltJarAssets": 535,
+  "hostedReadbackVerified": true,
+  "vanillaClientVisualCheck": true,
+  "vanillaClientVersion": "26.3",
+  "clientSnapshot": "/home/mcadmin/.codex/visualizations/2026/11/19/01a1f40f-73c2-7a10-b1ea-22185c51685e/dora-0.5.4-beta.1.png",
+  "clientCheck": "Paired normal and dora front and back in the same real client frame at the same angle and lighting"
+}
