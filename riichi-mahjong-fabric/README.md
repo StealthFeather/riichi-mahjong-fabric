@@ -15,7 +15,7 @@ git -C projects/timory-resource-pack pull --ff-only origin main
 首次使用先克隆该仓库；本地有未提交改动或分支分叉时先保留并合并，解决冲突后再修改。同步后比较并合并独立检出与 `TimoryResource/` 的差异；资源生成脚本同样遵循此顺序。保留其他项目资源、图集条目与许可证，禁止用旧快照或单项目包覆盖共享内容。验证后的材质包改动需提交并推送回独立仓库，具体流程见其 [README](https://github.com/StealthFeather/Timory-ResourcePack#readme)。
 <!-- timory-resource-repository:end -->
 
-日本立直麻将与川麻血战到底、3D 牌桌、私有手牌与原版客户端适配。当前版本为 **Timory Mahjong 0.5.3-beta.3**，仅安装到 Fabric 服务端。
+日本立直麻将与川麻血战到底、3D 牌桌、私有手牌与原版客户端适配。当前版本为 **Timory Mahjong 0.5.3**，仅安装到 Fabric 服务端。
 
 已同步 [GitHub 独立仓库](https://github.com/StealthFeather/riichi-mahjong-fabric) main 提交 `decaf7b762d68dfad8ef52bfc47c982c0c3b94e0`（26.3.15），保留四麻三级 AI、TP 返回显示恢复、跳过和牌确认及手牌空槽延迟整理。
 
@@ -31,7 +31,7 @@ git -C projects/timory-resource-pack pull --ff-only origin main
 
 需要 Minecraft 26.3、Fabric Loader 0.19.5、Fabric API 0.163.0+26.3、Java 25；四麻 AI 需要服务端可执行 Node.js 22+。Polymer 和固定版本 AI 源码已内嵌。玩家使用原版客户端并接受包含麻将资产的 TimoryResource。
 
-停服后将构建的 `timory-mahjong-0.5.3-beta.3.jar` 替换服务端旧版 JAR，再正常开服。同时更新本版 TimoryResource 下载地址和 SHA-1，以显示新增的立直棒。
+停服后将构建的 `timory-mahjong-0.5.3.jar` 替换服务端旧版 JAR，再正常开服。同时更新本版 TimoryResource 下载地址和 SHA-1，以显示新增的立直棒。
 
 `/mahjong` 查看操作，管理员 `/mahjong give` 领物品。右键桌边入座，右键中心风盘打开「牌桌操作」，由桌主点击“开始对局”开局；对局结算动画完成后，已入座玩家可在「牌桌操作」中继续下一局。默认右键自己的手牌即可出牌。吃碰杠、立直与胡牌使用本人桌沿按钮。跳过可和牌机会需要确认。主动离座使用 `/mahjong leave`；离座后 BOT 暂代，右键桌子或 `/mahjong join` 可接回原座位。
 
@@ -87,7 +87,7 @@ node test.cjs
 
 也可双击 `build.cmd`。构建器兼容当前 Timory 工作区与独立源码归档，公共 JDK、Minecraft 和 Polymer 依赖默认位于工作区根目录。配置方式见 [BUILDING.md](BUILDING.md)。**不要重新运行 `prepare.cjs`、`adapt.cjs` 或 `resources.cjs`**，以免覆盖已移植内容及版本元数据。
 
-JAR 位于 `build/libs/`，回归结果和 JAR SHA-256 位于 `build/verification.json`。构建和回归验证状态以当前 `build/verification.json` 为准，该记录绑定对应 JAR 的 SHA-256。本版变更见 [0.5.3-beta.3 说明](docs/0.5.3-beta.3.md)。
+JAR 位于 `build/libs/`，回归结果和 JAR SHA-256 位于 `build/verification.json`。构建和回归验证状态以当前 `build/verification.json` 为准，该记录绑定对应 JAR 的 SHA-256。本版变更见 [0.5.3 说明](docs/0.5.3.md)。
 
 可选打包入口为 `node project.cjs package`，默认输出至工作区 `deploy/`；用 `RIICHI_RELEASE_DIR` 可指定其他目录。`install-local.cjs` 仅供正常停服后的主测试服安装，构建与打包不会自动部署。
 

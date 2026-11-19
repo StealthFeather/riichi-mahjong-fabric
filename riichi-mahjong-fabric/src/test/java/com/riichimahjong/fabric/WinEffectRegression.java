@@ -4,7 +4,7 @@ import com.riichimahjong.fabric.wineffect.*;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Presentation contracts: source consumption must finish before emergence and hand reveal. */
+/** Self-draw choreography, multi-winner sessions and registration contracts. */
 public final class WinEffectRegression {
     private static void check(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
@@ -26,9 +26,10 @@ public final class WinEffectRegression {
                 &&Double.isFinite(pose.flip())&&Float.isFinite(pose.scale()),"non-finite tile pose");
         check(pose.scale()>=0&&pose.flip()>=0&&pose.flip()<=1,"invalid tile pose range");
     }
-    private static void timeline() {
-        var effect=WinEffects.resolve(WinEffects.DEFAULT);
-        var context=context(effect.id());
+    private static void selfDrawTimeline() {
+        var context=new WinEffectContext(WinEffects.DEFAULT,new WinEffectContext.Source("hand/1/13",34),
+                List.of(new WinEffectContext.Winner(1,34)));
+        var effect=new WinEffectSession(context).effect();
         var initial=effect.frame(context,0);
         check(initial.source().visible()&&!initial.winningTile().visible(),"initial source missing or duplicate destination");
         near(initial.source().y(),0,"source must start on the table");
@@ -118,7 +119,7 @@ public final class WinEffectRegression {
         near(plain.frame(context(plain.id()),0).handReveal(),1,"direct reveal still waits for animation");
     }
     public static void main(String[] args) {
-        timeline();contextAndSession();replacement();
-        System.out.println("PASS: win effects consume the source before emergence, push the hand after emergence, preserve multi-ron identity and support bounded replaceable playback with unknown-ID fallback");
+        selfDrawTimeline();contextAndSession();replacement();
+        System.out.println("PASS: self-draw fangs consume the source before emergence and hand reveal; win effects preserve multi-ron identity and support bounded replaceable playback with unknown-ID fallback");
     }
 }

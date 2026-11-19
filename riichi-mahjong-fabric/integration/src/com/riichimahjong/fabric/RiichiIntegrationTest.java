@@ -495,6 +495,7 @@ public final class RiichiIntegrationTest implements ModInitializer {
             for(int count=1;count<=3;count++)realDrawPayment(server,4,count);
             for(int count=1;count<=2;count++)realDrawPayment(server,3,count);
             fixture(server,"concealed_kan");require(owner!=null,"presentation client test requires a connected vanilla client");
+            WardenSpawnProbe.run(server.overworld(),owner);
             presentationStage=0;presentationDue=server.overworld().getGameTime()+3;
             savePresentation(false,"waiting for real client meld fixture",List.of());
         }catch(Throwable failure){failure.printStackTrace();presentationStage=-1;savePresentation(false,failure.toString(),List.of());}

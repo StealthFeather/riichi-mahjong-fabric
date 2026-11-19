@@ -7,9 +7,10 @@ import java.util.Map;
 /** Register once during server initialization; selection is stored on each table. */
 public final class WinEffects {
     public static final String DEFAULT = "riichi_mahjong:evoker_fangs";
+    private static final WinEffect SELF_DRAW = new EvokerFangsWinEffect();
     private static final Map<String,WinEffect> EFFECTS = new LinkedHashMap<>();
     static {
-        register(new EvokerFangsWinEffect());
+        for (var scene : RonWinEffect.values()) register(scene);
         register(new WinEffect() {
             public String id() { return "riichi_mahjong:none"; }
             public String displayName() { return "直接摊牌"; }
@@ -31,5 +32,10 @@ public final class WinEffects {
             throw new IllegalArgumentException("Duplicate win effect: "+effect.id());
     }
     public static WinEffect resolve(String id) { return EFFECTS.getOrDefault(id,EFFECTS.get(DEFAULT)); }
+    static WinEffect forPlayback(WinEffectContext context, String identifier) {
+        var effect = resolve(identifier);
+        if (effect instanceof RonWinEffect && context.source().slot().startsWith("hand/")) return SELF_DRAW;
+        return effect;
+    }
     public static List<WinEffect> all() { return List.copyOf(EFFECTS.values()); }
 }

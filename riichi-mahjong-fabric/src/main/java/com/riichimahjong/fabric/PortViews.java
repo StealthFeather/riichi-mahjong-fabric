@@ -391,7 +391,11 @@ public final class PortViews {
                             TableLayout.handAnchor(pos,dir,TableLayout.handAlong(s.handSlots().get(i),s.handGapStarts()),revealed),
                             TableLayout.TILE_SCALE,rotation(dir,revealed,false),revealed?null:s.owner());
                 }
-                for(int i=0;i<s.river().size();i++){var t=s.river().get(i);tile("river/"+seat+"/"+i,t.code(),dir,(i%6-2.5)*.073,.59,.26+(i/6)*.09,true,false,t.sideways(),null);}
+                for(int i=0;i<s.river().size();i++){
+                    var t=s.river().get(i);
+                    tile("river/"+seat+"/"+i,t.code(),RiverDisplay.position(pos,dir,i),
+                            TableLayout.TILE_SCALE,RiverDisplay.rotation(dir,t.sideways()),null);
+                }
                 double cursor=0;for(int m=0;m<s.melds().size();m++){
                     var meld=s.melds().get(m);double width=meld.tiles().stream().filter(t->!t.stacked()).mapToDouble(t->t.sideways()?.090:.073).sum();
                     double offset=0,last=0;
