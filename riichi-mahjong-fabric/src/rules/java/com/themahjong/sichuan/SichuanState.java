@@ -28,7 +28,20 @@ public final class SichuanState {
     public record Payment(int payer, int receiver, int amount) {}
     public record Snapshot(Stage stage, int exchangeDirection, List<List<TheMahjongTile>> selections,
             Set<Integer> confirmed, List<Integer> missingSuits, List<Win> wins, List<Payment> kanPayments,
-            boolean lastDrawRinshan, int pendingKakan) {}
+            boolean lastDrawRinshan, int pendingKakan, int firstWinCount) {
+        public Snapshot {
+            wins = List.copyOf(wins);
+            if (firstWinCount < (wins.isEmpty() ? 0 : 1) || firstWinCount > wins.size())
+                throw new IllegalArgumentException("invalid first Sichuan win count");
+        }
+        /** Older snapshots preserve win order without the boundary between claim windows. */
+        public Snapshot(Stage stage, int exchangeDirection, List<List<TheMahjongTile>> selections,
+                Set<Integer> confirmed, List<Integer> missingSuits, List<Win> wins, List<Payment> kanPayments,
+                boolean lastDrawRinshan, int pendingKakan) {
+            this(stage, exchangeDirection, selections, confirmed, missingSuits, wins, kanPayments,
+                    lastDrawRinshan, pendingKakan, wins.isEmpty() ? 0 : 1);
+        }
+    }
     public record Update(TheMahjongRound round, MatchPhase phase, List<MatchEvent> events) {}
 
     private Stage stage;
@@ -37,6 +50,7 @@ public final class SichuanState {
     private final Set<Integer> confirmed = new LinkedHashSet<>();
     private final TheMahjongTile.Suit[] missingSuits = new TheMahjongTile.Suit[4];
     private final List<Win> wins = new ArrayList<>();
+    private int firstWinCount;
     private final List<Payment> kanPayments = new ArrayList<>();
     private boolean lastDrawRinshan;
     private int pendingKakan = -1;
@@ -58,6 +72,7 @@ public final class SichuanState {
             if (suit >= 0 && suit < 3) missingSuits[seat] = TheMahjongTile.Suit.values()[suit];
         }
         confirmed.addAll(saved.confirmed()); wins.addAll(saved.wins());
+        firstWinCount = saved.firstWinCount();
         kanPayments.addAll(saved.kanPayments());
         lastDrawRinshan = saved.lastDrawRinshan(); pendingKakan = saved.pendingKakan();
     }
@@ -66,7 +81,7 @@ public final class SichuanState {
         return new Snapshot(stage, exchangeDirection,
                 selections.stream().map(List::copyOf).toList(), Set.copyOf(confirmed),
                 Arrays.stream(missingSuits).map(s -> s == null ? -1 : s.ordinal()).toList(),
-                List.copyOf(wins), List.copyOf(kanPayments), lastDrawRinshan, pendingKakan);
+                wins, List.copyOf(kanPayments), lastDrawRinshan, pendingKakan, firstWinCount);
     }
     public Stage stage() { return stage; }
     public long revision() { return revision; }
@@ -78,6 +93,12 @@ public final class SichuanState {
     public boolean won(int seat) { return wins.stream().anyMatch(win -> win.seat() == seat); }
     public Set<Integer> winners() { var out = new LinkedHashSet<Integer>(); for (var win : wins) out.add(win.seat()); return Collections.unmodifiableSet(out); }
     public List<Win> wins() { return List.copyOf(wins); }
+    public boolean dealerContinues(TheMahjongRound round, TheMahjongRuleSet rules) {
+        int dealer = round.dealerSeat();
+        if (wins.isEmpty())
+            return SichuanScoring.inTenpai(round.players().get(dealer), voidSuit(dealer), rules.jokersEnabled());
+        return wins.subList(0, firstWinCount).stream().anyMatch(win -> win.seat() == dealer);
+    }
     public TheMahjongTile winningTile(int seat) { return wins.stream().filter(w -> w.seat() == seat).map(Win::tile).findFirst().orElse(null); }
     public boolean selfDrawn(int seat) { return wins.stream().anyMatch(w -> w.seat() == seat && w.selfDrawn()); }
     private static boolean validSeat(int seat) { return seat >= 0 && seat < 4; }
@@ -227,6 +248,7 @@ public final class SichuanState {
         if (action instanceof PlayerAction.DeclareTsumo t) {
             var tile = ((TheMahjongRound.ActiveTile.Drawn)round.activeTile()).tile();
             round = applyDeltas(round, t.result().pointDeltas());
+            if (wins.isEmpty()) firstWinCount = 1;
             wins.add(new Win(seat, tile, true, t.result(), seat)); revision++;
             return continueAfterWin(round, seat, rules);
         }
@@ -276,6 +298,7 @@ public final class SichuanState {
                 round = copy(round, round.state(), round.currentTurnSeat(), from, round.activeTile(), round.liveWall(), players);
                 pendingKakan = -1;
             }
+            if (wins.isEmpty()) firstWinCount = ron.size();
             for (int seat : ron) {
                 var action = decisions.get(seat);
                 var result = action instanceof PlayerAction.DeclareRon r ? r.result() : ((PlayerAction.DeclareChankan)action).result();

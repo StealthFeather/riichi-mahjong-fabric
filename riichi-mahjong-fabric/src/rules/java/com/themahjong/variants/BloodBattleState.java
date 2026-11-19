@@ -9,13 +9,21 @@ import java.util.*;
 /** Accepted riichi wins remain separate from the immutable physical round while survivors continue. */
 public final class BloodBattleState {
     public record Win(int seat, TheMahjongTile tile, boolean selfDrawn, WinResult result, int sourceSeat) {}
-    public record Snapshot(List<Win> wins) {
-        public Snapshot { wins = List.copyOf(wins); }
+    public record Snapshot(List<Win> wins, int firstWinCount) {
+        public Snapshot {
+            wins = List.copyOf(wins);
+            if (firstWinCount < (wins.isEmpty() ? 0 : 1) || firstWinCount > wins.size())
+                throw new IllegalArgumentException("invalid first blood-battle win count");
+        }
+        // Older saves recorded winners in order, without marking simultaneous rons.
+        public Snapshot(List<Win> wins) { this(wins, wins.isEmpty() ? 0 : 1); }
     }
     private final List<Win> wins = new ArrayList<>();
+    private int firstWinCount;
     private long revision;
     public BloodBattleState() {}
     public BloodBattleState(Snapshot saved) {
+        firstWinCount = saved.firstWinCount();
         var seats = new HashSet<Integer>();
         for (var win : saved.wins()) {
             if (win.seat() < 0 || win.tile() == null || win.result() == null || !seats.add(win.seat()))
@@ -32,7 +40,22 @@ public final class BloodBattleState {
     public TheMahjongTile winningTile(int seat) { return wins.stream().filter(w -> w.seat() == seat).map(Win::tile).findFirst().orElse(null); }
     public boolean selfDrawn(int seat) { return wins.stream().anyMatch(w -> w.seat() == seat && w.selfDrawn()); }
     public long revision() { return revision; }
-    public Snapshot snapshot() { return new Snapshot(wins); }
+    public Snapshot snapshot() { return new Snapshot(wins, firstWinCount); }
+    public boolean dealerContinues(TheMahjongRound round) {
+        int dealer = round.dealerSeat();
+        if (!wins.isEmpty()) return wins.subList(0, firstWinCount).stream().anyMatch(win -> win.seat() == dealer);
+        var dealerHand = round.players().get(dealer);
+        var tiles = dealerHand.currentHand();
+        if (tiles.size() % 3 != 2) return DrawSettlement.inTenpai(dealerHand);
+        // Nine terminals can end the hand before the dealer discards the drawn tile.
+        for (var discard : new HashSet<>(tiles)) {
+            var remaining = new ArrayList<>(tiles);
+            remaining.remove(discard);
+            var afterDiscard = player(dealerHand, dealerHand.points(), remaining, dealerHand.melds(), dealerHand.kitaCount());
+            if (DrawSettlement.inTenpai(afterDiscard)) return true;
+        }
+        return false;
+    }
 
     /** A retired responsibility seat cannot erase a later survivor's otherwise payable win. */
     public WinResult adjust(WinResult result, int winner, boolean selfDrawn, TheMahjongRound round,
@@ -73,6 +96,11 @@ public final class BloodBattleState {
     /** Validate through the original riichi acceptance path, then retain the live turn and physical win tile. */
     public TheMahjongRound accept(TheMahjongRound round, int winner, int source, TheMahjongTile tile,
             boolean selfDrawn, WinResult result) {
+        return accept(round, winner, source, tile, selfDrawn, result, false);
+    }
+
+    public TheMahjongRound accept(TheMahjongRound round, int winner, int source, TheMahjongTile tile,
+            boolean selfDrawn, WinResult result, boolean sameRonEvent) {
         if (won(winner)) throw new IllegalArgumentException("winner already exited this hand");
         var settled = round.declareWin(winner, source, result);
         var players = new ArrayList<>(settled.players());
@@ -81,6 +109,7 @@ public final class BloodBattleState {
             var hand = new ArrayList<>(player.currentHand()); hand.add(tile);
             players.set(winner, player(player, player.points(), hand, player.melds(), player.kitaCount()));
         }
+        if (wins.isEmpty() || (sameRonEvent && wins.size() == firstWinCount)) firstWinCount++;
         wins.add(new Win(winner, tile, selfDrawn, result, source)); revision++;
         return copy(round, round.state(), round.currentTurnSeat(), round.claimSourceSeat().orElse(-1),
                 round.activeTile(), 0, players);

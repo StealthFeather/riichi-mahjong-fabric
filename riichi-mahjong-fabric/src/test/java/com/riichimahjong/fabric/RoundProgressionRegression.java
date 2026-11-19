@@ -1,6 +1,8 @@
 package com.riichimahjong.fabric;
 
 import com.riichimahjong.themahjongcompat.DriverNbt;
+import com.riichimahjong.mahjongtable.MatchLength;
+import com.riichimahjong.mahjongtable.RuleSetPreset;
 import com.themahjong.*;
 import com.themahjong.compat.DrawSettlement;
 import com.themahjong.driver.*;
@@ -185,8 +187,19 @@ public final class RoundProgressionRegression {
             int turn=(dealer+1)%count;var players=new ArrayList<TheMahjongPlayer>();
             for(int seat=0;seat<count;seat++)players.add(fixture(false,false));
             players.set(turn,player(orphans));
-            var driver=rig(players,dealer,turn,Collections.nCopies(12,SPARE),tile(1,2),
-                    count==3 ? TheMahjongRuleSet.mahjongSoulSanma() : TheMahjongRuleSet.mahjongSoul());
+            var rules=count==3 ? TheMahjongRuleSet.mahjongSoulSanma() : TheMahjongRuleSet.mahjongSoul();
+            var blood=rig(players,dealer,turn,Collections.nCopies(12,SPARE),tile(1,2),
+                    (count==3 ? RuleSetPreset.MAHJONG_SOUL_SANMA_3P : RuleSetPreset.MAHJONG_SOUL_4P)
+                            .newMatch(MatchLength.SOUTH,false,false,true).ruleSet());
+            act(blood,turn,action(blood,turn,PlayerAction.KyuushuAbort.class));
+            check(blood.abortiveDraw(),"blood-battle nine-terminals declaration did not abort the hand");
+            advanceAndCheck(reload(blood),false,3);
+            // As dealer, the same declarer holds all thirteen orphans and a spare on their draw.
+            var readyDealer=rig(players,turn,turn,Collections.nCopies(12,SPARE),tile(1,2),blood.rules());
+            act(readyDealer,turn,action(readyDealer,turn,PlayerAction.KyuushuAbort.class));
+            advanceAndCheck(reload(readyDealer),true,3);
+
+            var driver=rig(players,dealer,turn,Collections.nCopies(12,SPARE),tile(1,2),rules);
             act(driver,turn,action(driver,turn,PlayerAction.KyuushuAbort.class));
             check(!DrawSettlement.inTenpai(driver.currentRound().players().get(dealer)),"abortive dealer was listening");
             check(driver.abortiveDraw() && driver.snapshot().abortiveDraw(),"kyuushu lost its abortive marker");

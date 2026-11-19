@@ -61,8 +61,10 @@ public final class DriverNbt {
         }
         if (driver.bloodBattleState() != null) {
             var state = out.child("bloodBattleState");
+            var snapshot = driver.bloodBattleState().snapshot();
+            state.putInt("firstWinCount", snapshot.firstWinCount());
             var wins = state.childrenList("wins");
-            for (var win : driver.bloodBattleState().wins()) {
+            for (var win : snapshot.wins()) {
                 var entry = wins.addChild();entry.putInt("seat", win.seat());
                 entry.putBoolean("selfDrawn", win.selfDrawn());entry.putInt("sourceSeat", win.sourceSeat());
                 MatchNbt.writeTile(entry.child("tile"), win.tile());
@@ -136,7 +138,8 @@ public final class DriverNbt {
                             MatchNbt.readTile(entry.childOrEmpty("tile")), selfDrawn,
                             readWinResult(entry.childOrEmpty("result")),entry.getIntOr("sourceSeat",selfDrawn?seat:-1)));
                 }
-                driver.restoreBloodBattleState(new com.themahjong.variants.BloodBattleState.Snapshot(wins));
+                driver.restoreBloodBattleState(new com.themahjong.variants.BloodBattleState.Snapshot(wins,
+                        state.getIntOr("firstWinCount", wins.isEmpty() ? 0 : 1)));
                 var claims=new HashMap<Integer,Integer>();
                 for (var entry : state.childrenListOrEmpty("claims"))
                     claims.put(entry.getIntOr("seat",-1),entry.getIntOr("action",-1));
@@ -149,6 +152,7 @@ public final class DriverNbt {
     private static void writeSichuan(ValueOutput out, SichuanState state) {
         var snapshot = state.snapshot();
         out.putString("stage", snapshot.stage().name());
+        out.putInt("firstWinCount", snapshot.firstWinCount());
         out.putInt("exchangeDirection", snapshot.exchangeDirection());
         out.putBoolean("lastDrawRinshan", snapshot.lastDrawRinshan());
         out.putInt("pendingKakan", snapshot.pendingKakan());
@@ -201,7 +205,7 @@ public final class DriverNbt {
         }
         return new SichuanState.Snapshot(stage, in.getIntOr("exchangeDirection", 1), selections,
                 confirmed, missingSuits, wins, payments, in.getBooleanOr("lastDrawRinshan", false),
-                in.getIntOr("pendingKakan", -1));
+                in.getIntOr("pendingKakan", -1), in.getIntOr("firstWinCount", wins.isEmpty() ? 0 : 1));
     }
 
     public static void writePhase(ValueOutput out, MatchPhase phase) {

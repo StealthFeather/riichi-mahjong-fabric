@@ -88,7 +88,7 @@
             int seat = seats.get(i);
             var result = i == 0 ? bloodBattleState.withAdditionalDeposits(actions.get(i), seat, newDeposits)
                     : bloodBattleState.withoutDeposits(actions.get(i), seat, deposits);
-            round = bloodBattleState.accept(round, seat, source, tile, false, result);
+            round = bloodBattleState.accept(round, seat, source, tile, false, result, i > 0);
         }
         match = matchWithRound(round);
         submitted.clear(); claimDecisions.clear(); pendingRiichiCommit = OptionalInt.empty();
