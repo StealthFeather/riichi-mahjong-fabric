@@ -73,27 +73,8 @@ public final class TableCentreRegression {
         }
     }
 
-    private static void routing() {
-        for (boolean active : new boolean[]{false,true}) for (boolean seated : new boolean[]{false,true}) {
-            check(TableCentreInteraction.resolve(true,true,active,seated)==TableCentreInteraction.Action.MENU,
-                    "centre sneaking must request settings in idle, live and terminal tables, never start/restart");
-            check(TableCentreInteraction.resolve(false,true,active,seated)==TableCentreInteraction.Action.NONE,
-                    "table edges must not inherit a synthetic centre menu gesture");
-        }
-        check(TableCentreInteraction.resolve(true,false,true,true)==TableCentreInteraction.Action.ADVANCE,
-                "a seated participant's ordinary centre click lost next-round handling");
-        check(TableCentreInteraction.resolve(true,false,true,false)==TableCentreInteraction.Action.JOIN,
-                "an unseated observer bypassed joining and could advance someone else's result");
-        check(TableCentreInteraction.resolve(true,false,false,false)==TableCentreInteraction.Action.JOIN
-                        && TableCentreInteraction.resolve(true,false,false,true)==TableCentreInteraction.Action.JOIN,
-                "ordinary idle centre clicks must preserve seating, not start matches");
-        check(TableCentreInteraction.resolve(false,false,true,true)==TableCentreInteraction.Action.NONE,
-                "an ordinary table-edge click advanced the result as though it hit the wind plate");
-    }
-
     public static void main(String[] args) throws Exception {
-        geometry();routing();
+        geometry();
         System.out.println("PASS: centre interactions match the shipped raised wind plate; edges, synthetic hits, back-facing and distant rays are rejected");
-        System.out.println("PASS: sneaking opens settings, idle clicks join, and only seated participants' ordinary centre clicks request the next round");
     }
 }

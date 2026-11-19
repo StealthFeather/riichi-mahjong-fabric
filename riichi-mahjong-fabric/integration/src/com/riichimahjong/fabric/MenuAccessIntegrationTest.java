@@ -105,6 +105,7 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
             PortMenus.settings(host, table);
             require(table.owner().filter(host.getUUID()::equals).isPresent(), "first menu opener did not claim ownerless table");
             require(host.opened instanceof PortMenus.Actions, "owner menu did not open");
+            categoryMenus(table, host, visitor);
             analysisMenus(server, table, host, visitor);
             windPlate(table, visitor);
             ruleFamilies(table, host, visitor);
@@ -173,6 +174,36 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         return server.getWorldPath(LevelResource.ROOT).resolve("data/riichi-analysis");
     }
 
+    private static void categoryMenus(MahjongTableBlockEntity table, MenuPlayer host, MenuPlayer visitor) {
+        var titles = List.of("牌桌座次", "玩法设置", "个人设置", "历史战绩", "牌桌操作");
+        for (int i = 0; i < titles.size(); i++) {
+            PortMenus.settings(visitor, table);
+            int entry = 20 + i;
+            require(analysisLabel(visitor, entry).contains(titles.get(i)), "missing category " + titles.get(i));
+            click(visitor, entry);
+            require(visitor.title.contains(titles.get(i)), "category opened a different page: " + visitor.title);
+            click(visitor, 49);
+            require(analysisLabel(visitor,entry).contains(titles.get(i)), "category did not return home");
+        }
+        var hostSkin = PlayerCosmetics.skin(host);
+        String hostEffect = PlayerCosmetics.winEffect(host, table.winEffectId());
+        page(visitor, table, 22);
+        click(visitor, 12);
+        click(visitor, 29);
+        require(PlayerCosmetics.skin(visitor).name().equals("GOLD")
+                        && !PlayerCosmetics.winEffect(visitor,table.winEffectId()).equals(hostEffect)
+                        && PlayerCosmetics.skin(host) == hostSkin
+                        && PlayerCosmetics.winEffect(host,table.winEffectId()).equals(hostEffect),
+                "visitor cosmetics were ineffective or modified the owner's appearance");
+        var reconnected = new MenuPlayer(visitor.level().getServer(), visitor.getUUID(), "MenuReconnected");
+        require(PlayerCosmetics.skin(reconnected).name().equals("GOLD")
+                        && PlayerCosmetics.winEffect(reconnected,table.winEffectId()).equals(
+                                PlayerCosmetics.winEffect(visitor,table.winEffectId())),
+                "new player instance did not recover its UUID's personal cosmetics");
+        click(visitor,10); click(visitor,28);
+        checks.add("five-categories-return-to-home-and-non-owner-personal-cosmetics-persist-without-changing-owner");
+    }
+
     private static void analysisMenus(MinecraftServer server, MahjongTableBlockEntity table, MenuPlayer winner, MenuPlayer payer) throws Exception {
         var store = PlayerAnalysisStore.get();
         require(store != null, "world startup did not initialize the statistics store");
@@ -214,11 +245,24 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         click(winner, 11);
         require(analysisLabel(winner, 19).equals("胡牌：1"), "returning to ranked history lost the winner's profile");
 
-        PortMenus.settings(payer, table);
-        click(payer, 29);
+        page(payer, table, 23);
+        click(payer, 24);
         require(analysisLabel(payer, 19).equals("胡牌：0") && analysisLabel(payer, 22).equals("点炮：1")
                         && analysisLabel(payer, 24).equals("累计积分：0.0") && payer.opened.getSlot(27).getItem().isEmpty(),
                 "table stats showed the wrong UUID, mode, points or history");
+        click(payer, 8);
+        click(payer, 49);
+        require(analysisLabel(payer,20).contains("我的牌谱"), "refreshing stats lost the history return path");
+        click(payer, 20);
+        require(payer.title.contains("我的牌谱"), "history did not open the personal replay calendar");
+        int back = payer.opened.getSlot(45).getItem().is(Items.ARROW) ? 45 : 49;
+        require(analysisLabel(payer,back).contains("历史战绩"), "archive calendar, waiting or error page lost its return");
+        click(payer, back);
+        require(analysisLabel(payer,24).contains("我的统计"), "archive return did not open history");
+        click(payer,40);
+        require(payer.containerMenu == payer.inventoryMenu && payer.getInventory().countItem(
+                com.riichimahjong.registry.ModItems.MAHJONG_TABLE_RECORD.get()) == 1, "blank record was not delivered to viewer");
+        checks.add("table-history-personal-replay-calendar-statistics-and-blank-record");
         checks.add("registered-stats-command-and-table-button-personal-mode-filtered-stats-and-consistency-windows");
     }
 
@@ -230,7 +274,7 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         for(var family:RuleSetPreset.Family.values()) {
             // Choosing a four-player-only family must restore the fourth seat after sanma.
             table.selectPreset(RuleSetPreset.TENHOU_SANMA_3P);
-            PortMenus.settings(host,table);
+            page(host, table, 21);
             var option=host.opened.getSlot(family.ordinal()).getItem();
             require(option.getHoverName().getString().contains(family.label()),"rule family missing from first menu row: "+family);
             require(option.get(DataComponents.LORE)!=null&&!option.get(DataComponents.LORE).lines().isEmpty(),
@@ -241,11 +285,11 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
                     "selecting competition rules retained unsupported seat count: "+family);
             require(host.opened.getSlot(family.ordinal()).getItem().is(Items.EMERALD),"selected family has no selected indicator");
             var selected=table.preset();
-            PortMenus.settings(visitor,table);click(visitor,(family.ordinal()+1)%RuleSetPreset.Family.values().length);
+            page(visitor, table, 21);click(visitor,(family.ordinal()+1)%RuleSetPreset.Family.values().length);
             require(table.preset()==selected,"non-owner changed rule family through its new menu slot");
             var saved=table.saveCustomOnly(host.level().getServer().registryAccess());
             require(saved.getStringOr("Preset","").equals(selected.name()),"menu selection did not persist preset identity");
-            PortMenus.settings(host,table);click(host,10);
+            page(host, table, 21);click(host,10);
             require(table.preset()==(family.supportsThreePlayers()?family.preset(4):selected),
                     "player-count toggle changed or disabled a four-player competition rule");
             for(int slot:new int[]{11,12,13})require(!host.opened.getSlot(slot).getItem().isEmpty(),
@@ -259,7 +303,7 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         table.setExchangeThreeTiles(false);table.setJokersEnabled(false);table.setBloodBattle(false);
         require(table.claimSeat(0,host.getUUID()),"competition menu fixture could not claim the owner's seat");
         for(var preset:List.of(RuleSetPreset.JPML_4P,RuleSetPreset.M_LEAGUE_4P)) {
-            PortMenus.settings(host,table);click(host,preset.family().ordinal());click(host,18);
+            page(host, table, 21);click(host,preset.family().ordinal());page(host, table, 24);click(host,18);
             require(table.hasActiveMatch()&&table.preset()==preset,"real start button did not start selected competition rule");
             var driver=table.driver();var match=driver.match();var round=driver.currentRound();
             String profile=preset==RuleSetPreset.JPML_4P?"JPML_A":"M_LEAGUE";
@@ -278,7 +322,7 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
             dealt.addAll(round.doraIndicators());dealt.addAll(round.uraDoraIndicators());
             require(dealt.size()==136&&dealt.stream().filter(TheMahjongTile::redDora).count()==redCount,
                     "actual competition deal has the wrong tile count or red fives");
-            PortMenus.settings(host,table);click(host,RuleSetPreset.Family.TENHOU.ordinal());
+            page(host, table, 21);click(host,RuleSetPreset.Family.TENHOU.ordinal());
             require(table.preset()==preset&&table.driver()==driver&&driver.match()==match,
                     "active competition menu allowed changing its rule family");
             var saved=table.saveCustomOnly(host.level().getServer().registryAccess());
@@ -295,7 +339,7 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
                     "active competition block-entity reload lost profile, preset identity, dealt tiles or points");
             require(table.saveCustomOnly(registries).getCompoundOrEmpty("PlayerAnalysis").getStringOr("Session", "").equals(analysis),
                     "active competition table reload changed the statistics session");
-            PortMenus.settings(host,table);click(host,RuleSetPreset.Family.TENHOU.ordinal());
+            page(host, table, 21);click(host,RuleSetPreset.Family.TENHOU.ordinal());
             require(table.preset()==preset&&table.driver().rules().competitiveProfile().name().equals(profile),
                     "reloaded competition menu failed to retain active rule lock");
             table.endGame();
@@ -309,11 +353,11 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         require(!table.bloodBattle(), "new table enables blood battle by default");
         for (var preset : RuleSetPreset.values()) {
             table.selectPreset(preset);
-            PortMenus.settings(host, table);
+            page(host, table, 21);
             require(host.opened.getSlot(13).getItem().is(Items.GUNPOWDER), "disabled blood battle icon is not gunpowder");
-            PortMenus.settings(visitor, table);click(visitor, 13);
+            page(visitor, table, 21);click(visitor, 13);
             require(!table.bloodBattle(), "visitor enabled blood battle");
-            PortMenus.settings(host, table);click(host, 13);
+            page(host, table, 21);click(host, 13);
             require(table.bloodBattle() && host.opened.getSlot(13).getItem().is(Items.REDSTONE),
                     "owner could not enable the redstone blood battle switch for " + preset);
             var saved = table.saveCustomOnly(host.level().getServer().registryAccess());
@@ -332,8 +376,11 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         boolean exchange = table.exchangeThreeTiles(), jokers = table.jokersEnabled(), mint = table.mintTilesFromNothing(), bloodBattle = table.bloodBattle();
         var defaultAi = table.defaultBotDifficulty(); var effect = table.winEffectId();
         long revision = table.matchRevision();
-        for (int slot : new int[]{0,1,2,3,4,5,9,10,11,12,13,18,19,20,21,23,27,35,45,46,47,48}) {
-            PortMenus.settings(visitor, table);
+        for (int[] controls : List.of(new int[]{21,0,1,2,3,4,5,9,10,11,12,13,19,20},
+                new int[]{20,4,20,24,40,45}, new int[]{24,18,27,35})) {
+          for (int i = 1; i < controls.length; i++) {
+            int slot = controls[i];
+            page(visitor, table, controls[0]);
             require(visitor.opened instanceof PortMenus.Actions, "visitor could not open the shared configuration menu");
             click(visitor, slot);
             require(table.owner().equals(originalOwner) && table.preset() == originalPreset && table.matchLength() == originalLength
@@ -343,6 +390,7 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
                             && !table.spectatorHandsVisible() && table.bloodBattle() == bloodBattle && table.matchRevision() == revision,
                     "visitor mutated protected configuration through slot " + slot);
         }
+        }
         checks.add("non-owner-real-menu-opens-but-rule-start-reset-inventory-ai-and-visibility-buttons-remain-protected");
     }
 
@@ -351,43 +399,46 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         var delta = target.subtract(visitor.getEyePosition());
         visitor.setYRot((float)Math.toDegrees(Math.atan2(-delta.x, delta.z)));
         visitor.setXRot((float)-Math.toDegrees(Math.atan2(delta.y, Math.sqrt(delta.x * delta.x + delta.z * delta.z))));
-        visitor.setShiftKeyDown(true);
         var originalOwner = table.owner();
-        require(MahjongTableBlock.routeWindPlateUse(visitor, table)
-                        && visitor.opened instanceof PortMenus.Actions && table.owner().equals(originalOwner),
-                "an unseated visitor could not shift-right-click the real wind plate without taking ownership");
+        for (boolean sneaking : List.of(false,true)) {
+            visitor.setShiftKeyDown(sneaking);
+            require(MahjongTableBlock.routeWindPlateUse(visitor, table)
+                            && visitor.opened instanceof PortMenus.Actions && table.owner().equals(originalOwner)
+                            && analysisLabel(visitor,23).contains("历史战绩"),
+                    "a visitor could not open the real wind plate's home menu without taking ownership");
+        }
         visitor.setShiftKeyDown(false);
         checks.add("non-owner-real-shift-wind-plate-route-opens-view-menu-without-owner-takeover");
     }
 
     private static void menuSeats(MahjongTableBlockEntity table, MenuPlayer host, MenuPlayer visitor) {
-        PortMenus.settings(visitor, table); click(visitor, 37);
+        page(visitor, table, 20); click(visitor, 31);
         require(table.seatOfPlayer(visitor.getUUID()).orElse(-1) == 1, "visitor could not join an empty menu seat");
-        var head = visitor.opened.getSlot(37).getItem();
+        var head = visitor.opened.getSlot(31).getItem();
         require(head.is(Items.PLAYER_HEAD) && head.get(DataComponents.PROFILE) != null
                         && head.get(DataComponents.PROFILE).partialProfile().id().equals(visitor.getUUID()),
                 "occupied seat did not contain the seated player's profile head");
-        click(visitor, 37);
+        click(visitor, 31);
         require(table.seatOfPlayer(visitor.getUUID()).isEmpty(), "clicking own head did not leave the seat");
-        require(visitor.opened.getSlot(37).getItem().is(Items.OAK_BOAT), "leaving did not restore an empty seat icon");
-        PortMenus.settings(host, table); click(host, 36);
+        require(analysisLabel(visitor,31).contains("空位"), "leaving did not restore an empty seat icon");
+        page(host, table, 20); click(host, 23);
         require(table.seatOfPlayer(host.getUUID()).orElse(-1) == 0, "owner could not join their empty seat");
         checks.add("real-seat-menu-join-profile-head-and-own-head-leave");
     }
 
     private static void viewingOptions(MahjongTableBlockEntity table, MenuPlayer host, MenuPlayer visitor) {
-        PortMenus.settings(visitor, table);
+        page(visitor, table, 21);
         require(visitor.opened.getSlot(20).getItem().is(Items.ENDER_PEARL), "hidden spectator hands used the wrong icon");
-        click(visitor, 44);
+        page(visitor, table, 24); click(visitor, 44);
         require(table.isWatching(visitor.getUUID()) && table.seatOfPlayer(visitor.getUUID()).isEmpty(),
                 "watch button claimed a playing seat or did not register explicit audience");
         click(visitor, 44); require(!table.isWatching(visitor.getUUID()), "watch button did not let viewer leave");
-        PortMenus.settings(host, table); click(host, 20);
+        page(host, table, 21); click(host, 20);
         require(table.spectatorHandsVisible() && host.opened.getSlot(20).getItem().is(Items.ENDER_EYE),
                 "owner could not enable spectator hands with an eye icon");
-        PortMenus.settings(visitor, table); click(visitor, 20);
+        page(visitor, table, 21); click(visitor, 20);
         require(table.spectatorHandsVisible(), "viewer toggled protected spectator-hand visibility");
-        PortMenus.settings(host, table); click(host, 20);
+        page(host, table, 21); click(host, 20);
         require(!table.spectatorHandsVisible() && host.opened.getSlot(20).getItem().is(Items.ENDER_PEARL),
                 "owner could not hide spectator hands with a pearl icon");
         checks.add("slot-44-explicit-watch-toggle-and-owner-only-slot-20-eye-pearl-visibility-control");
@@ -395,34 +446,34 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
 
     private static void transferConfirmation(MinecraftServer server, MahjongTableBlockEntity table,
             MenuPlayer host, MenuPlayer target, MenuPlayer other) {
-        PortMenus.settings(target, table); click(target, 37);
-        PortMenus.settings(host, table); click(host, 37);
+        page(target, table, 20); click(target, 31);
+        page(host, table, 20); click(host, 31);
         require(table.owner().filter(host.getUUID()::equals).isPresent() && host.opened.getSlot(29).getItem().is(Items.REDSTONE_BLOCK),
                 "clicking another player's head transferred authority without a confirmation");
         click(host, 33); require(table.owner().filter(host.getUUID()::equals).isPresent(), "cancel transferred authority");
 
-        PortMenus.settings(host, table); click(host, 37); var oldConfirmation = host.opened;
-        PortMenus.settings(target, table); click(target, 37);
+        page(host, table, 20); click(host, 31); var oldConfirmation = host.opened;
+        page(target, table, 20); click(target, 31);
         oldConfirmation.clicked(29, 0, ContainerInput.PICKUP, host);
         require(table.owner().filter(host.getUUID()::equals).isPresent(), "target leaving did not invalidate a transfer confirmation");
-        PortMenus.settings(target, table); click(target, 37);
+        page(target, table, 20); click(target, 31);
 
-        PortMenus.settings(host, table); click(host, 37); var offlineConfirmation = host.opened;
+        page(host, table, 20); click(host, 31); var offlineConfirmation = host.opened;
         server.getPlayerList().getPlayersByUUID().remove(target.getUUID());
         offlineConfirmation.clicked(29, 0, ContainerInput.PICKUP, host);
         require(table.owner().filter(host.getUUID()::equals).isPresent(), "offline target received ownership");
         server.getPlayerList().getPlayersByUUID().put(target.getUUID(), target);
 
-        PortMenus.settings(host, table); click(host, 37); var confirmed = host.opened;
+        page(host, table, 20); click(host, 31); var confirmed = host.opened;
         click(host, 29);
         require(table.owner().filter(target.getUUID()::equals).isPresent(), "confirmed owner transfer failed");
         confirmed.clicked(29, 0, ContainerInput.PICKUP, host);
         require(table.owner().filter(target.getUUID()::equals).isPresent(), "former owner's repeated confirmation changed authority");
         long revision = table.matchRevision(); var preset = table.preset();
-        PortMenus.settings(host, table); click(host, 2);
+        page(host, table, 21); click(host, 2);
         require(table.matchRevision() == revision && table.preset() == preset, "former owner retained configuration authority");
 
-        PortMenus.settings(target, table); click(target, 36); click(target, 29);
+        page(target, table, 20); click(target, 23); click(target, 29);
         require(table.owner().filter(host.getUUID()::equals).isPresent(), "new owner could not deliberately transfer authority back");
         checks.add("real-owner-transfer-confirm-cancel-target-leave-offline-old-menu-and-revoked-authority");
     }
@@ -434,25 +485,25 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         boolean bloodBattle=table.bloodBattle();
         var preset=table.preset();
         for(var family:RuleSetPreset.Family.values()) {
-            PortMenus.settings(host,table);click(host,family.ordinal());
+            page(host, table, 21);click(host,family.ordinal());
             require(table.preset()==preset&&table.driver()==driver&&driver.match()==match,
                     "active match allowed rule-family change through "+family);
         }
-        PortMenus.settings(host, table); click(host, 13);
+        page(host, table, 21); click(host, 13);
         require(table.bloodBattle()==bloodBattle&&driver.match().ruleSet().bloodBattle()==bloodBattle,
                 "active match allowed its blood battle switch to change");
         require(!table.watch(visitor), "already seated player could also register as a spectator");
-        PortMenus.settings(visitor, table); click(visitor, 44);
+        page(visitor, table, 24); click(visitor, 44);
         require(table.seatOfPlayer(visitor.getUUID()).isEmpty(), "active watch button did not release the playing seat");
         require(table.driver() == driver && driver.match() == match, "menu departure changed active hand or scores");
         require(table.isWatching(visitor.getUUID()), "departing player could not enter watch mode");
-        PortMenus.settings(host, table); click(host, 20);
+        page(host, table, 21); click(host, 20);
         require(table.spectatorHandsVisible() && !table.spectatorCanSeeHands(visitor.getUUID())
                         && !SpectatorHands.eligible(table, visitor),
                 "former participant obtained concealed hands after switching to spectator");
-        PortMenus.settings(host, table); click(host, 20);
-        PortMenus.settings(visitor, table);
-        click(visitor, 37);
+        page(host, table, 21); click(host, 20);
+        page(visitor, table, 20);
+        click(visitor, 31);
         require(table.seatOfPlayer(visitor.getUUID()).orElse(-1) == 1 && !table.isWatching(visitor.getUUID()),
                 "reclaiming a reserved playing seat did not stop watch mode");
         require(table.driver() == driver && driver.match() == match, "menu takeover rewrote the running match");
@@ -464,6 +515,7 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         require(!DiscardPreference.requiresConfirmation(host) && !DiscardPreference.requiresConfirmation(visitor),
                 "new players must start in direct discard mode");
         windPlate(table, visitor);
+        click(visitor, 22);
         click(visitor, 30);
         require(DiscardPreference.requiresConfirmation(visitor) && !DiscardPreference.requiresConfirmation(host)
                         && analysisLabel(visitor, 30).contains("二次确认"),
@@ -476,7 +528,7 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
                 "menu did not restore direct discard mode");
         visitor.load(TagValueInput.create(ProblemReporter.DISCARDING, registries, saved.buildResult()));
         require(DiscardPreference.requiresConfirmation(visitor), "confirm mode was lost on player NBT reload");
-        PortMenus.settings(visitor, table); click(visitor, 30);
+        page(visitor, table, 22); click(visitor, 30);
         checks.add("active-non-owner-wind-plate-discard-mode-personal-default-toggle-and-player-nbt-reload");
     }
 
@@ -496,7 +548,7 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
             require(hud.bars.stream().allMatch(bar -> bar.getPlayers().contains(host) && bar.getPlayers().contains(seated)
                             && bar.getPlayers().contains(watcher)), "explicit spectator did not receive the same HUD audience as players");
             require(!SpectatorHands.eligible(table, watcher), "hidden-hand option leaked private hands to a registered watcher");
-            PortMenus.settings(host, table); click(host, 20);
+            page(host, table, 21); click(host, 20);
             require(SpectatorHands.eligible(table, watcher) && !SpectatorHands.eligible(table, seated),
                     "spectator reveal permission included an opponent or excluded its watcher");
             board = PublicTable.capture(table);
@@ -523,7 +575,7 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
                     "spectator received private dora appearance in a concealed hand");
             require(faces.stream().anyMatch(stack -> stack.get(DataComponents.ITEM_MODEL).getPath().equals("bridge/tile_dragon_white")),
                     "eligible watcher did not receive the ordinary face of the fixture's concealed dora");
-            PortMenus.settings(host, table); click(host, 20);
+            page(host, table, 21); click(host, 20);
             require(!SpectatorHands.eligible(table, watcher), "disabling spectator hands left reveal permission active");
             privateHands.destroy(); privateHands = null;
             require(holder.getWatchingPlayers().isEmpty(), "discarded spectator hand holder retained client tracking");
@@ -600,7 +652,7 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
                 int displayed=table.handDisplayOrder(1).indexOf(green);
                 require(displayed>=0,"actual displayed drawn tile has no click index");
                 if (variants) {
-                    PortMenus.settings(skipped,table); click(skipped,30); skipped.closeContainer();
+                    page(skipped, table, 22); click(skipped, 30); skipped.closeContainer();
                     table.onCuteClick(skipped,new InteractKey.SeatSlot((byte)1,InteractKey.SeatSlot.AREA_HAND,(short)displayed));
                     require(!humans.get(1).hasQueued() && table.selectedDiscardIndex(1)==displayed
                                     && driver.currentRound().players().get(1).points()==25000,
@@ -628,7 +680,7 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         int first = order.indexOf(white), second = order.lastIndexOf(white);
         require(first >= 0 && second > first, "fixture requires two identical white dragons");
         var round = table.driver().currentRound();
-        PortMenus.settings(owner, table); click(owner, 30); owner.closeContainer();
+        page(owner, table, 22); click(owner, 30); owner.closeContainer();
         var hand = new PrivateHand(table, owner, 0, PrivateHand.snapshot(table, 0));
         try {
             var goldFaces = hand.holder.getElements().stream().filter(ItemDisplayElement.class::isInstance)
@@ -657,7 +709,7 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
                                 && !glowing.getFirst().getVisibilityPredicate().test(opponent),
                         "the selected physical copy did not have the sole owner-only outline");
             }
-            PortMenus.settings(owner, table); click(owner, 30);
+            page(owner, table, 22); click(owner, 30);
             require(table.selectedDiscardIndex(0) < 0 && !human.hasQueued(), "changing mode retained or submitted the preview");
             click(owner, 30); owner.closeContainer();
             var target = new InteractKey.SeatSlot((byte)0, InteractKey.SeatSlot.AREA_HAND, (short)second);
@@ -689,14 +741,20 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         table.onCuteClick(player,new InteractKey.SeatSlot((byte)seat,InteractKey.SeatSlot.AREA_BUTTON,(short)index));
     }
 
+    private static void page(MenuPlayer player, MahjongTableBlockEntity table, int entry) {
+        PortMenus.settings(player, table);
+        click(player, entry);
+    }
     private static void click(MenuPlayer player, int slot) {
-        require(player.opened instanceof PortMenus.Actions, "test has no current action menu");
+        require(player.opened != null && player.opened == player.containerMenu && player.opened != player.inventoryMenu,
+                "test has no current action menu");
         player.opened.clicked(slot, 0, ContainerInput.PICKUP, player);
     }
     private static void require(boolean condition, String message) { if (!condition) throw new AssertionError(message); }
 
     private static final class MenuPlayer extends ServerPlayer {
         AbstractContainerMenu opened;
+        String title;
         MenuPlayer(MinecraftServer server, UUID uuid, String name) {
             super(server, server.overworld(), new GameProfile(uuid, name), ClientInformation.createDefault());
             setPos(POS.getX() + .5, POS.getY() + 1, POS.getZ() + 2.5);
@@ -704,6 +762,7 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
                     CommonListenerCookie.createInitial(getGameProfile(), false));
         }
         @Override public OptionalInt openMenu(MenuProvider provider) {
+            title = provider.getDisplayName().getString();
             opened = provider.createMenu(1, getInventory(), this);
             if (opened != null) containerMenu = opened;
             return opened == null ? OptionalInt.empty() : OptionalInt.of(1);

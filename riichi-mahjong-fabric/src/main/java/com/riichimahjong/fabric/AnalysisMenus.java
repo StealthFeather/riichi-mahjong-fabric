@@ -17,8 +17,9 @@ public final class AnalysisMenus {
     public static void open(ServerPlayer player) {
         open(player,AnalysisMode.of(RuleSetPreset.MAHJONG_SOUL_4P,MatchLength.SOUTH,false,false,false));
     }
-    public static void open(ServerPlayer player,AnalysisMode mode) { open(player,mode,0); }
-    private static void open(ServerPlayer player,AnalysisMode mode,int page) {
+    public static void open(ServerPlayer player,AnalysisMode mode) { open(player,mode,0,null); }
+    static void open(ServerPlayer player,AnalysisMode mode,Runnable back) { open(player,mode,0,back); }
+    private static void open(ServerPlayer player,AnalysisMode mode,int page,Runnable back) {
         var store=PlayerAnalysisStore.get();
         if(store==null) {
             player.sendSystemMessage(Component.literal("统计数据尚未就绪，请稍后再试。"),true);
@@ -32,20 +33,20 @@ public final class AnalysisMenus {
             for(var family:RuleSetPreset.Family.values()) {
                 boolean selected=family==mode.preset().family();
                 var candidate=AnalysisMode.of(family.preset(mode.preset().playerCount()),mode.length(),mode.exchange(),mode.jokers(),mode.blood());
-                menu.button(family.ordinal(),item(selected?Items.EMERALD:Items.PAPER,family.label()+(selected?" · 已选":"")),()->open(player,candidate));
+                menu.button(family.ordinal(),item(selected?Items.EMERALD:Items.PAPER,family.label()+(selected?" · 已选":"")),()->open(player,candidate,back));
             }
-            menu.button(8,item(Items.CLOCK,"刷新统计"),()->open(player,mode,shownPage));
+            menu.button(8,item(Items.CLOCK,"刷新统计"),()->open(player,mode,shownPage,back));
             menu.button(9,item(Items.COMPASS,mode.length().label(),"点击切换东风场 / 南风场"),()->open(player,
-                    AnalysisMode.of(mode.preset(),mode.length()==MatchLength.EAST?MatchLength.SOUTH:MatchLength.EAST,mode.exchange(),mode.jokers(),mode.blood())));
+                    AnalysisMode.of(mode.preset(),mode.length()==MatchLength.EAST?MatchLength.SOUTH:MatchLength.EAST,mode.exchange(),mode.jokers(),mode.blood()),back));
             menu.button(10,item(Items.PLAYER_HEAD,mode.preset().playerCount()==3?"三麻":"四麻",
                     mode.preset().family().supportsThreePlayers()?"点击切换三麻 / 四麻":"此规则仅支持四麻"),()->open(player,
-                    AnalysisMode.of(mode.preset().family().preset(mode.preset().playerCount()==4?3:4),mode.length(),mode.exchange(),mode.jokers(),mode.blood())));
+                    AnalysisMode.of(mode.preset().family().preset(mode.preset().playerCount()==4?3:4),mode.length(),mode.exchange(),mode.jokers(),mode.blood()),back));
             menu.button(11,item(mode.exchange()?Items.EMERALD:Items.GUNPOWDER,"换三张："+(mode.exchange()?"开":"关")),()->open(player,
-                    AnalysisMode.of(mode.preset(),mode.length(),!mode.exchange(),mode.jokers(),mode.blood())));
+                    AnalysisMode.of(mode.preset(),mode.length(),!mode.exchange(),mode.jokers(),mode.blood()),back));
             menu.button(12,item(mode.jokers()?Items.EMERALD:Items.GUNPOWDER,"赖子："+(mode.jokers()?"开":"关")),()->open(player,
-                    AnalysisMode.of(mode.preset(),mode.length(),mode.exchange(),!mode.jokers(),mode.blood())));
+                    AnalysisMode.of(mode.preset(),mode.length(),mode.exchange(),!mode.jokers(),mode.blood()),back));
             menu.button(13,item(mode.blood()?Items.EMERALD:Items.GUNPOWDER,"血战到底："+(mode.blood()?"开":"关")),()->open(player,
-                    AnalysisMode.of(mode.preset(),mode.length(),mode.exchange(),mode.jokers(),!mode.blood())));
+                    AnalysisMode.of(mode.preset(),mode.length(),mode.exchange(),mode.jokers(),!mode.blood()),back));
             menu.button(16,item(Items.BOOK,"统计范围",mode.label(),"胡牌、点炮和役种按每手结算。","一致率按完整东风场 / 南风场对局统计。",
                     "近 10 / 20 / 50 局均有有效分析时才显示。","仅无娱乐规则、全程真人操作、正常结束的","雀魂、公式战、M-League 对局累计积分。"),()->{});
             menu.button(18,item(Items.PAPER,"已结算手数："+profile.hands()),()->{});
@@ -67,9 +68,10 @@ public final class AnalysisMenus {
                 icon.set(DataComponents.CUSTOM_NAME,WinResultLabels.yakuName(entry.getKey()).copy().append(Component.literal(" × "+entry.getValue())));
                 menu.button(36+index,icon,()->{});
             }
-            if(shownPage>0)menu.button(45,item(Items.ARROW,"上一页役种"),()->open(player,mode,shownPage-1));
-            menu.button(49,item(Items.BARRIER,"关闭"),player::closeContainer);
-            if(shownPage<lastPage)menu.button(53,item(Items.ARROW,"下一页役种"),()->open(player,mode,shownPage+1));
+            if(shownPage>0)menu.button(45,item(Items.ARROW,"上一页役种"),()->open(player,mode,shownPage-1,back));
+            if(back==null)menu.button(49,item(Items.BARRIER,"关闭"),player::closeContainer);
+            else menu.button(49,item(Items.ARROW,"返回历史战绩"),back);
+            if(shownPage<lastPage)menu.button(53,item(Items.ARROW,"下一页役种"),()->open(player,mode,shownPage+1,back));
         });
     }
     static String points(long tenths) {

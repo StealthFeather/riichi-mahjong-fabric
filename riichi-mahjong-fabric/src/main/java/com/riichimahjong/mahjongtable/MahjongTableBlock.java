@@ -167,7 +167,7 @@ public class MahjongTableBlock extends BaseMultipartBlock {
             }
             if (table.isInResultPhase()) {
                 if (player instanceof ServerPlayer sp && !holdsWrench(player)) {
-                    sp.sendSystemMessage(Component.literal("普通右键桌面中心风盘继续下一局。"),true);
+                    sp.sendSystemMessage(Component.literal("右键中心风盘，在「牌桌操作」中继续下一局。"),true);
                 }
                 return InteractionResult.CONSUME;
             }
@@ -217,21 +217,9 @@ public class MahjongTableBlock extends BaseMultipartBlock {
         var state = level.getBlockState(master);
         if (!(state.getBlock() instanceof MahjongTableBlock) || !isMaster(state)
                 || level.getBlockEntity(master) != table) return false;
-        var action = TableCentreInteraction.resolve(
-                TableCentreInteraction.hitsWindPlate(master,player.getEyePosition(),
-                        player.getEyePosition().add(player.getLookAngle().scale(8))),
-                player.isShiftKeyDown(),table.hasActiveMatch(),table.seatOfPlayer(player.getUUID()).isPresent());
-        if (action == TableCentreInteraction.Action.NONE) return false;
-        if (action == TableCentreInteraction.Action.MENU) {
-            com.riichimahjong.fabric.PortMenus.settings(player,table);
-        } else if (player.isSpectator()) {
-            return true;
-        } else if (action == TableCentreInteraction.Action.ADVANCE) {
-            // The table itself accepts this only after its result animation is finished.
-            table.advanceRoundAfterResult();
-        } else {
-            com.riichimahjong.fabric.TableSeating.joinNearest(player,table);
-        }
+        if (!TableCentreInteraction.hitsWindPlate(master, player.getEyePosition(),
+                player.getEyePosition().add(player.getLookAngle().scale(8)))) return false;
+        com.riichimahjong.fabric.PortMenus.settings(player, table);
         return true;
     }
 

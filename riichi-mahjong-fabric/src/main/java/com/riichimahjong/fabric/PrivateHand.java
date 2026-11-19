@@ -66,7 +66,7 @@ final class PrivateHand {
             for(var cell:TileInteractionLayout.cells(at,TableLayout.TILE_SCALE,PortViews.rotation(dir,false,false))){
                 var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer player,InteractionHand hand,Vec3 loc,boolean sneaking){
                     if(hand!=InteractionHand.MAIN_HAND||player!=owner
-                            ||PortViews.routeWindPlateUse(player,table,sneaking))return;
+                            ||MahjongTableBlock.routeWindPlateUse(player, table))return;
                     if(valid(player))PortViews.handleTileHit(player,table);
                 }});
                 cell.apply(hit);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
@@ -79,7 +79,7 @@ final class PrivateHand {
             for(var cell:TileInteractionLayout.cells(at,TableLayout.TILE_SCALE,PortViews.rotation(dir,false,false))){
                 var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer player,InteractionHand hand,Vec3 loc,boolean sneaking){
                     if(player!=owner||hand!=InteractionHand.MAIN_HAND
-                            ||PortViews.routeWindPlateUse(player,table,sneaking))return;
+                            ||MahjongTableBlock.routeWindPlateUse(player, table))return;
                     PortViews.handleTileHit(player,table);
                 }});
                 cell.apply(hit);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);
@@ -94,7 +94,7 @@ final class PrivateHand {
             for(int cell=0;cell<cells;cell++){
                 double along=button.along()-button.width()/2+button.depth()/2+(cells==1?0:cell*(button.width()-button.depth())/(cells-1));
                 var hit=new InteractionElement(new VirtualElement.InteractionHandler(){@Override public void interact(ServerPlayer p,InteractionHand h,Vec3 loc,boolean sneak){
-                    if(h!=InteractionHand.MAIN_HAND||p!=owner||PortViews.routeWindPlateUse(p,table,sneak))return;
+                    if(h!=InteractionHand.MAIN_HAND||p!=owner||MahjongTableBlock.routeWindPlateUse(p, table))return;
                     Vec3 start=p.getEyePosition();handleButtonHit(start,start.add(p.getLookAngle().scale(8)));
                 }});
                 hit.setOverridePos(TableLayout.anchor(pos,dir,along,TableButtonLayout.HEIGHT-.003,TableButtonLayout.EDGE_DISTANCE));hit.setSize((float)button.depth()*TableLayout.TILE_ENLARGEMENT,.006f*TableLayout.TILE_ENLARGEMENT);hit.setResponse(true);hit.setVisibilityPredicate(p->p==owner);holder.addElement(hit);

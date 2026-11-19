@@ -33,7 +33,7 @@ final class WinEffectRenderer {
     boolean active() { return session!=null; }
     boolean controls(int seat) { return session!=null&&session.context().includes(seat); }
     boolean hides(String slot) { return session!=null&&session.context().source().slot().equals(slot); }
-    double reveal(int seat) { return controls(seat)?session.frame().handReveal():1; }
+    double reveal(int seat) { return controls(seat)?session.frame(seat).handReveal():1; }
 
     /** Bind before the normal tiles are updated, preserving the exact source position on screen. */
     void bind(WinEffectSession next,PublicTable board,Tile previousSource) { bind(next,board,previousSource,false); }
@@ -50,19 +50,22 @@ final class WinEffectRenderer {
         if(source!=null&&pose.visible()&&!finalSelfDraw)sink.draw("effect/source",source.code(),source.position().add(pose.x(),pose.y(),pose.z()),
                 source.scale()*pose.scale(),new Quaternionf(source.rotation()).rotateX((float)(Math.PI/2*pose.flip())));
         int tick=session.elapsedTicks();
-        for(var cue:session.effect().cues())if(cue.tick()>lastCueTick&&cue.tick()<=tick) {
-            if(cue.anchor()==WinEffectCue.Anchor.SOURCE) {
-                if(source!=null)cue(cue,source.position(),tick);
-            } else for(var winner:session.context().winners()) {
-                var s=board.seats().get(winner.seat());int last=s.handCount()-1;
-                if(last>=0)cue(cue,handPosition(winner.seat(),s,last,0),tick);
-            }
+        if(source!=null)for(var cue:session.effect().cues())
+            if(cue.anchor()==WinEffectCue.Anchor.SOURCE && cue.tick()>lastCueTick && cue.tick()<=tick)
+                cue(cue,source.position(),tick);
+        for(var winner:session.context().winners()) {
+            var seat=board.seats().get(winner.seat());
+            int last=seat.handCount()-1;
+            if(last<0)continue;
+            for(var cue:session.effect(winner.seat()).cues())
+                if(cue.anchor()==WinEffectCue.Anchor.WINNER && cue.tick()>lastCueTick && cue.tick()<=tick)
+                    cue(cue,handPosition(winner.seat(),seat,last,0),tick);
         }
         lastCueTick=tick;
         temporary.removeIf(t->!t.update(tick));
     }
     void winningTile(int seat,PublicTable.Seat hand,int index,int code,TileSink sink) {
-        var pose=session.frame().winningTile();
+        var pose=session.frame(seat).winningTile();
         if(pose.visible())sink.draw("effect/winning/"+seat,code,
                 handPosition(seat,hand,index,pose.flip()).add(pose.x(),pose.y(),pose.z()),
                 TableLayout.TILE_SCALE*pose.scale(),handRotation(seat,pose.flip()));

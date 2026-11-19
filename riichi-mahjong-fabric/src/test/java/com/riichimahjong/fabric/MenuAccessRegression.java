@@ -28,19 +28,6 @@ public final class MenuAccessRegression {
         return restored;
     }
 
-    private static void publicWindPlateMenu() {
-        for (boolean active : new boolean[]{false, true}) for (boolean seated : new boolean[]{false, true}) {
-            check(TableCentreInteraction.resolve(true, true, active, seated) == TableCentreInteraction.Action.MENU,
-                    "a sneaking wind-plate click did not open the menu for an unseated or seated viewer");
-            check(TableCentreInteraction.resolve(false, true, active, seated) == TableCentreInteraction.Action.NONE,
-                    "a shared menu opened from a synthetic hit outside the wind plate");
-        }
-        check(TableCentreInteraction.resolve(true, false, true, true) == TableCentreInteraction.Action.ADVANCE,
-                "public menu access changed seated players' ordinary next-hand click");
-        check(TableCentreInteraction.resolve(true, false, true, false) == TableCentreInteraction.Action.JOIN,
-                "public menu access turned an unseated ordinary click into advancement");
-    }
-
     private static void confirmedOwnershipTransfer() {
         var ownership = new TableOwnership();
         check(!ownership.transfer(OWNER, OWNER, TARGET), "an ownerless table accepted a transfer confirmation");
@@ -69,8 +56,7 @@ public final class MenuAccessRegression {
     }
 
     public static void main(String[] args) {
-        publicWindPlateMenu();
         confirmedOwnershipTransfer();
-        System.out.println("PASS: seated and unseated players can request the wind-plate menu; explicit transfers reject visitors, obsolete owners and repeated confirmations and survive NBT");
+        System.out.println("PASS: explicit transfers reject visitors, obsolete owners and repeated confirmations and survive NBT");
     }
 }

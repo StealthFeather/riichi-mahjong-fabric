@@ -656,8 +656,9 @@ public final class RiichiIntegrationTest implements ModInitializer {
         ((MahjongTableBlock)table.getBlockState().getBlock()).dispatchUse(table.getBlockState(),owner.level(),POS,owner,InteractionHand.MAIN_HAND,new BlockHitResult(new Vec3(.5,-59.4,.5),Direction.UP,POS,false));
         require(table.seatOfPlayer(owner.getUUID()).orElse(-1)==0,"shift-right-click block left the active seat");
         PortMenus.settings(owner,table);require(owner.containerMenu instanceof PortMenus.Actions,"real settings menu did not open");
+        ((PortMenus.Actions)owner.containerMenu).clicked(21,0,ContainerInput.PICKUP,owner);
         ((PortMenus.Actions)owner.containerMenu).clicked(9,0,ContainerInput.PICKUP,owner);
-        require(table.seatOfPlayer(owner.getUUID()).orElse(-1)==0,"own seat menu action left the seat");owner.closeContainer();
+        require(table.seatOfPlayer(owner.getUUID()).orElse(-1)==0,"opening locked match rules left the seat");owner.closeContainer();
         set(table,"driver",null);refreshView();
         var seatHit=(InteractionElement)((Map<?,?>)get(view(),"seatHits")).get(0);require(seatHit!=null,"lobby seat interaction missing");
         seatHit.getInteractionHandler(owner).interact(owner,InteractionHand.MAIN_HAND,Vec3.ZERO,true);

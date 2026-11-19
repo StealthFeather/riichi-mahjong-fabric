@@ -15,7 +15,11 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
         Tile(int code,boolean sideways,boolean stacked){this(code,sideways,stacked,false);}
     }
     public record Meld(List<Tile> tiles){}
-    public record Seat(UUID owner,String name,int wind,int points,int handCount,List<Integer> handSlots,List<Integer> handGapStarts,List<Integer> revealed,List<Tile> river,List<Meld> melds,int kita,boolean riichi,boolean riichiStick,boolean drawnTile){}
+    public record Seat(UUID owner,String name,int wind,int points,int handCount,List<Integer> handSlots,List<Integer> handGapStarts,List<Integer> revealed,List<Tile> river,List<Meld> melds,int kita,boolean riichi,boolean riichiStick,boolean drawnTile,RiichiSkin riichiSkin){
+        public Seat(UUID owner,String name,int wind,int points,int handCount,List<Integer> handSlots,List<Integer> handGapStarts,List<Integer> revealed,List<Tile> river,List<Meld> melds,int kita,boolean riichi,boolean riichiStick,boolean drawnTile) {
+            this(owner,name,wind,points,handCount,handSlots,handGapStarts,revealed,river,melds,kita,riichi,riichiStick,drawnTile,RiichiSkin.CLASSIC);
+        }
+    }
     static int code(TheMahjongTile tile){return com.themahjong.variants.Jokers.isJoker(tile)?37:MahjongTileItems.codeForTile(tile);}
     /** Concealed identities become public only after the round has ended. */
     static Set<Integer> revealedSeats(MatchPhase phase,TheMahjongRound round){
@@ -103,19 +107,19 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
             List<Integer> revealed=visibleHands.contains(i)?table.handDisplayOrder(i).stream().map(PublicTable::code).toList():List.of();
             int count=visibleHands.contains(i)?revealed.size():p.currentHand().size(); // Ron adds a result-only tile.
             boolean deposited=p.riichi()&&driver.snapshot().pendingRiichiCommit().orElse(-1)!=i;
-            out.add(new Seat(owner,name,Math.floorMod(i-round.dealerSeat(),round.players().size()),p.points(),count,table.handDisplaySlots(i),table.handDisplayGapStarts(i),revealed,List.copyOf(river),List.copyOf(melds),p.kitaCount(),p.riichi(),deposited,table.hasSeparatedDrawnTile(i)));
+            out.add(new Seat(owner,name,Math.floorMod(i-round.dealerSeat(),round.players().size()),p.points(),count,table.handDisplaySlots(i),table.handDisplayGapStarts(i),revealed,List.copyOf(river),List.copyOf(melds),p.kitaCount(),p.riichi(),deposited,table.hasSeparatedDrawnTile(i),deposited?table.riichiSkin(i):RiichiSkin.CLASSIC));
         }
         String label="";
         if(table.winEffectSession()!=null)label="胡牌动画播放中";
         else if(phase instanceof MatchPhase.RoundEnded ended){
             if(ended.winResults().isEmpty())label="流局";
             if(table.resultAnimStage()==MahjongTableBlockEntity.ResultAnimStage.AWAITING_ADVANCE)
-                label+=(label.isEmpty()?"":" · ")+"右键中心风盘继续下一局";
+                label+=(label.isEmpty()?"":" · ")+"在「牌桌操作」中继续下一局";
         }
         var dora=round==null||sichuan!=null?List.<Integer>of():round.doraIndicators().stream().limit(round.revealedDoraCount()).map(PublicTable::code).toList();
         var uras=round!=null&&ura&&sichuan==null?round.uraDoraIndicators().stream().limit(round.revealedDoraCount()).map(PublicTable::code).toList():List.<Integer>of();
         var stage=phase instanceof MatchPhase.Dealing d?d.stage():null;double progress=phase instanceof MatchPhase.Dealing d?Math.min(1,d.elapsed()/d.stage().buildDuration()):1;
-        String roundLabel=round==null?"立直麻将 · 右键桌边入座 · 桌主潜行右键中心风盘打开菜单，再点开始对局":TableSeating.wind(round.roundWind().ordinal())+round.handNumber()+"局 · "+round.honba()+"本场 · 供托 "+round.riichiSticks()+" · 余牌 "+round.liveWall().size();
+        String roundLabel=round==null?"立直麻将 · 右键中心风盘 · 选择「牌桌座次」入座":TableSeating.wind(round.roundWind().ordinal())+round.handNumber()+"局 · "+round.honba()+"本场 · 供托 "+round.riichiSticks()+" · 余牌 "+round.liveWall().size();
         if(sichuan!=null) {
             roundLabel="川麻 · "+TableSeating.wind(round.roundWind().ordinal())+round.handNumber()+"局 · 余牌 "+round.liveWall().size()+" · 已胡 "+sichuan.winners().size()+"人";
             if(!(phase instanceof MatchPhase.Dealing))roundLabel+=switch(sichuan.stage()){case EXCHANGE->" · 换三张";case VOID_SUIT->" · 定缺";case PLAY->driver.match().ruleSet().bloodBattle()?" · 血战到底":" · 首次胡牌结束";};

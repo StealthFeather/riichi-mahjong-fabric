@@ -14,7 +14,7 @@ import com.themahjong.TheMahjongMatch;
 import com.themahjong.TheMahjongRound;
 import com.themahjong.driver.DecisionRequest;
 import com.themahjong.driver.MatchPhase;
-import com.themahjong.driver.bots.StupidActiveBot;
+import com.riichimahjong.ai.RandomThinkingBot;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
@@ -109,11 +109,14 @@ public final class AiIntegrationTest implements ModInitializer {
             require(table != null, "real table entity was not created");
             menuPlayer = new MenuPlayer(server);
             if (table.hasActiveMatch()) table.endGame();
+            require(table.claimSeat(0, menuPlayer.getUUID()), "AI menu fixture could not claim its table");
+            table.releaseSeat(0);
             table.selectPreset(RuleSetPreset.MAHJONG_SOUL_4P);
             table.setDefaultBotDifficulty(BotDifficulty.NORMAL);
             for (int seat = 0; seat < 4; seat++) table.setSeatBotDifficulty(seat, null);
             checkIdleConfiguration();
             checkMenuConfiguration();
+            checkSeatIcons(server);
             checkSavedConfiguration(server);
             checkResetMenus(server);
             checkSanma();
@@ -187,15 +190,15 @@ public final class AiIntegrationTest implements ModInitializer {
 
     private static void checkSanma() {
         table.selectPreset(RuleSetPreset.MAHJONG_SOUL_SANMA_3P);
-        PortMenus.settings(menuPlayer, table);
-        require(menuText(22).contains("三麻使用原版 BOT") && menuText(21).contains("仅四麻生效"),
+        SeatMenus.open(menuPlayer, table);
+        require(menuText(45).contains("三麻使用本地 BOT") && menuText(13).contains("未启用"),
                 "sanma menu does not identify its original bot and inactive difficulty settings");
-        menuClick(21);
+        menuClick(45);
         require(table.defaultBotDifficulty() == BotDifficulty.HARD, "sanma menu changed four-player difficulty");
         pass("actual-sanma-menu-explains-four-player-only-ai");
         require(table.tryStartMatch(123L) == MahjongTableBlockEntity.StartMatchResult.STARTED, "sanma did not start");
         require(table.driver().match().playerCount() == 3, "sanma started with four players");
-        for (int seat = 0; seat < 3; seat++) require(table.driver().playerAt(seat) instanceof StupidActiveBot,
+        for (int seat = 0; seat < 3; seat++) require(table.driver().playerAt(seat) instanceof RandomThinkingBot,
                 "four-player AI was incorrectly installed in sanma");
         table.endGame();
         pass("sanma-retains-original-bot");
@@ -215,11 +218,11 @@ public final class AiIntegrationTest implements ModInitializer {
         table.cycleSeatBotDifficulty(0);
         require(table.defaultBotDifficulty() == BotDifficulty.HARD && table.botDifficulty(0) == BotDifficulty.EASY,
                 "active configuration lock changed a difficulty");
-        PortMenus.settings(menuPlayer, table);
-        require(menuText(21).contains("对局中锁定") && menuText(48).contains("对局中锁定"),
+        SeatMenus.open(menuPlayer, table);
+        require(menuText(45).contains("对局中锁定") && menuText(4).contains("对局中锁定"),
                 "active menu does not show the difficulty lock");
-        menuClick(21);
-        menuClick(48);
+        menuClick(45);
+        menuClick(4);
         require(table.defaultBotDifficulty() == BotDifficulty.HARD && table.botDifficultyOverride(3).isEmpty(),
                 "actual menu actions changed locked difficulties");
         pass("actual-active-menu-actions-respect-difficulty-lock");
@@ -227,32 +230,57 @@ public final class AiIntegrationTest implements ModInitializer {
     }
 
     private static void checkMenuConfiguration() {
-        PortMenus.settings(menuPlayer, table);
-        require(menuText(21).contains("默认四麻 AI：高级"), "default AI menu text is incorrect");
-        require(menuText(45).contains("东位四麻 AI：初级") && menuText(46).contains("南位四麻 AI：中级")
-                && menuText(47).contains("西位四麻 AI：高级") && menuText(48).contains("跟随默认（高级）"),
+        SeatMenus.open(menuPlayer, table);
+        require(menuText(45).contains("默认四麻 AI：高级"), "default AI menu text is incorrect");
+        require(menuText(24).contains("东位 AI：初级") && menuText(40).contains("南位 AI：中级")
+                && menuText(20).contains("西位 AI：高级") && menuText(4).contains("跟随默认（高级）"),
                 "seat menu text does not match configured difficulties");
         Map<String, String> labels = new LinkedHashMap<>();
-        for (int slot : List.of(21, 45, 46, 47, 48)) labels.put(Integer.toString(slot), menuText(slot));
+        for (int slot : List.of(45, 24, 40, 20, 4)) labels.put(Integer.toString(slot), menuText(slot));
         observations.put("headlessMenuLabels", labels);
-        menuClick(21);
-        require(table.defaultBotDifficulty() == BotDifficulty.EASY && menuText(48).contains("跟随默认（初级）"),
+        menuClick(45);
+        require(table.defaultBotDifficulty() == BotDifficulty.EASY && menuText(4).contains("跟随默认（初级）"),
                 "default menu click did not update inherited difficulty");
-        menuClick(21);
+        menuClick(45);
         require(table.defaultBotDifficulty() == BotDifficulty.NORMAL, "default menu did not cycle to normal");
-        menuClick(21);
+        menuClick(45);
         require(table.defaultBotDifficulty() == BotDifficulty.HARD, "default menu did not cycle back to hard");
-        menuClick(48);
+        menuClick(4);
         require(table.botDifficultyOverride(3).orElseThrow() == BotDifficulty.EASY, "seat menu did not select easy");
-        menuClick(48);
+        menuClick(4);
         require(table.botDifficultyOverride(3).orElseThrow() == BotDifficulty.NORMAL, "seat menu did not select normal");
-        menuClick(48);
+        menuClick(4);
         require(table.botDifficultyOverride(3).orElseThrow() == BotDifficulty.HARD, "seat menu did not select hard");
-        menuClick(48);
-        require(table.botDifficultyOverride(3).isEmpty() && menuText(48).contains("跟随默认"),
+        menuClick(4);
+        require(table.botDifficultyOverride(3).isEmpty() && menuText(4).contains("跟随默认"),
                 "seat menu did not return to inherited difficulty");
         observations.put("headlessMenuActionsVerified", true);
         pass("actual-settings-menu-labels-default-cycle-and-seat-cycle");
+    }
+
+    private static void checkSeatIcons(MinecraftServer server) {
+        SeatMenus.open(menuPlayer, table);
+        require(menuPlayer.opened.getSlot(22).getItem().is(ModBlocks.MAHJONG_TABLE_ITEM.get()),
+                "seat page has no central mahjong table item");
+        int[] seats = {23,31,21,13};
+        for (int seat = 0; seat < seats.length; seat++) {
+            var item = com.riichimahjong.mahjongcore.MahjongTileItems.itemForCode(27 + seat);
+            require(menuPlayer.opened.getSlot(seats[seat]).getItem().is(item), "wrong compass wind at seat " + seat);
+        }
+        var outsider = new MenuPlayer(server, UUID.randomUUID());
+        SeatMenus.open(outsider, table);
+        outsider.opened.clicked(24, 0, ContainerInput.PICKUP, outsider);
+        require(table.botDifficulty(0) == BotDifficulty.EASY, "non-host changed east-seat AI");
+
+        UUID offline = UUID.randomUUID();
+        require(table.claimSeat(2,offline), "offline seat fixture failed");
+        SeatMenus.open(menuPlayer, table);
+        var head = menuPlayer.opened.getSlot(21).getItem();
+        var profile = head.get(net.minecraft.core.component.DataComponents.PROFILE);
+        require(head.is(Items.PLAYER_HEAD) && profile != null && profile.partialProfile().id().equals(offline),
+                "offline west seat lost its profile identity");
+        table.releaseSeat(2);
+        pass("compass-seat-winds-centre-table-offline-head-and-owner-only-ai-override");
     }
 
     private static String menuText(int slot) {
@@ -268,7 +296,7 @@ public final class AiIntegrationTest implements ModInitializer {
         table.setMintTilesFromNothing(false);
         table.toggleSeatEnabled(3);
         var idleSeats = table.seats();
-        PortMenus.settings(menuPlayer, table);
+        PortMenus.operations(menuPlayer, table);
         require(menuText(35).contains("重置牌桌"), "reset entry missing from actual settings menu");
         menuClick(35);
         var cancelled = menuPlayer.opened;
@@ -284,7 +312,7 @@ public final class AiIntegrationTest implements ModInitializer {
         closed.clicked(29, 0, ContainerInput.PICKUP, menuPlayer);
         require(table.seats().equals(idleSeats), "closed confirmation reset the table");
 
-        PortMenus.settings(menuPlayer, table);
+        PortMenus.operations(menuPlayer, table);
         menuClick(35);
         menuClick(29);
         require(!table.hasActiveMatch() && table.humanSeatCount() == 0 && !table.seats().get(3).enabled(),
@@ -308,13 +336,13 @@ public final class AiIntegrationTest implements ModInitializer {
         table.recordPrivateClick(menuPlayer);
 
         var outsider = new MenuPlayer(server, UUID.randomUUID());
-        PortMenus.settings(outsider, table);
+        PortMenus.operations(outsider, table);
         var outsiderSettings = outsider.opened;
         outsiderSettings.clicked(35, 0, ContainerInput.PICKUP, outsider);
         require(outsider.opened == outsiderSettings && table.driver() == active,
                 "non-host opened or executed a reset");
 
-        PortMenus.settings(menuPlayer, table);
+        PortMenus.operations(menuPlayer, table);
         menuClick(35);
         var denied = menuPlayer.opened;
         menuPlayer.setPos(POS.getX() + 100, POS.getY(), POS.getZ());
@@ -329,7 +357,7 @@ public final class AiIntegrationTest implements ModInitializer {
         require(table.claimSeat(0, host), "original host could not resume fixture");
         pass("reset-revalidates-current-host-and-distance");
 
-        PortMenus.settings(menuPlayer, table);
+        PortMenus.operations(menuPlayer, table);
         menuClick(35);
         var removed = menuPlayer.opened;
         table.setRemoved();
@@ -339,7 +367,7 @@ public final class AiIntegrationTest implements ModInitializer {
         removed.clicked(29, 0, ContainerInput.PICKUP, menuPlayer);
         require(table.driver() == active, "old confirmation survived table removal/reactivation");
 
-        PortMenus.settings(menuPlayer, table);
+        PortMenus.operations(menuPlayer, table);
         menuClick(35);
         var stale = menuPlayer.opened;
         table.endGame();
@@ -362,7 +390,7 @@ public final class AiIntegrationTest implements ModInitializer {
         for (int seat = 0; seat < 4; seat++) if (resetDriver.playerAt(seat) instanceof KobalabBot bot) resetBots.add(bot);
         table.handDisplayOrder(0);
         table.recordPrivateClick(menuPlayer);
-        PortMenus.settings(menuPlayer, table);
+        PortMenus.operations(menuPlayer, table);
         menuClick(35);
         var confirmed = menuPlayer.opened;
         menuClick(29);
@@ -399,7 +427,7 @@ public final class AiIntegrationTest implements ModInitializer {
         table.endGame();
         for (int seat = 0; seat < 4; seat++) table.releaseSeat(seat);
 
-        PortMenus.settings(menuPlayer, table);
+        PortMenus.operations(menuPlayer, table);
         menuClick(35);
         var idleStale = menuPlayer.opened;
         table.tryStartMatch(111L);
@@ -409,7 +437,7 @@ public final class AiIntegrationTest implements ModInitializer {
         require(table.matchRevision() == currentRevision, "idle confirmation revived after an intervening match");
         pass("confirmed-reset-clears-runtime-closes-ai-releases-seats-and-rejects-removed-stale-or-repeated-menus");
         load(server, saved);
-        PortMenus.settings(menuPlayer, table);
+        PortMenus.operations(menuPlayer, table);
     }
 
     private static void menuClick(int slot) {

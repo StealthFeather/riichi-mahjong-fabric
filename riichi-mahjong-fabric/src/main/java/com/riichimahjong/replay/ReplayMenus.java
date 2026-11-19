@@ -20,7 +20,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.*;
 
-/** Every archive view is entered through the record item; menus never expose other players' records. */
+/** Archive queries use the viewer's UUID from both record items and the table history menu. */
 public final class ReplayMenus {
     private static final String[] WINDS = {"东", "南", "西", "北"};
     private ReplayMenus() {}
@@ -64,28 +64,36 @@ public final class ReplayMenus {
     }
 
     public static void calendar(ServerPlayer player, YearMonth requestedMonth) {
+        calendar(player, requestedMonth, null);
+    }
+    public static void calendar(ServerPlayer player, Runnable history) {
+        calendar(player, YearMonth.now(ReplayStore.zone()), history);
+    }
+    private static void calendar(ServerPlayer player, YearMonth requestedMonth, Runnable history) {
         YearMonth today = YearMonth.now(ReplayStore.zone());
         YearMonth month = requestedMonth.isAfter(today) ? today : requestedMonth;
-        request(player, "我的牌谱 · " + month, ReplayStore.calendar(player.getUUID(), month), counts ->
+        request(player, "我的牌谱 · " + month, ReplayStore.calendar(player.getUUID(), month), history, counts ->
             open(player, "我的牌谱 · " + month, () -> true, menu -> {
                 for (int slot = 0; slot < 6; slot++) menu.button(slot, icon(Items.PAPER, month + " · 牌谱日历", "红中：当天有牌谱", "白板：当天没有牌谱"), () -> {});
-                menu.button(6, icon(Items.ARROW, "上个月"), () -> calendar(player, month.minusMonths(1)));
-                menu.button(7, icon(Items.CLOCK, "本月"), () -> calendar(player, YearMonth.now(ReplayStore.zone())));
-                if (month.isBefore(today)) menu.button(8, icon(Items.ARROW, "下个月"), () -> calendar(player, month.plusMonths(1)));
+                menu.button(6, icon(Items.ARROW, "上个月"), () -> calendar(player, month.minusMonths(1), history));
+                menu.button(7, icon(Items.CLOCK, "本月"), () -> calendar(player, YearMonth.now(ReplayStore.zone()), history));
+                if (month.isBefore(today)) menu.button(8, icon(Items.ARROW, "下个月"), () -> calendar(player, month.plusMonths(1), history));
                 for (int day = 1; day <= month.lengthOfMonth(); day++) {
                     LocalDate date = month.atDay(day);
                     int count = counts.getOrDefault(date, 0);
                     menu.button(9 + day - 1, icon(tile(count > 0 ? 33 : 31), date.toString(), count + " 场完整对局"),
-                            () -> { if (count > 0) day(player, date, 0); });
+                            () -> { if (count > 0) day(player, date, 0, history); });
                 }
-                menu.button(45, icon(Items.ARROW, "返回我的概况"), () -> overview(player));
+                menu.button(45, icon(Items.ARROW, history == null ? "返回我的概况" : "返回历史战绩"), history == null ? () -> overview(player) : history);
                 menu.button(49, icon(Items.PAPER, "日期按 " + ReplayStore.zone().getId(), "以对局结束时的自然日期归档"), () -> {});
                 menu.button(53, icon(Items.BARRIER, "关闭"), player::closeContainer);
             }));
     }
 
     private record DayOverview(ReplayStore.DayPage page, Map<UUID, Map<Integer, Integer>> scores) {}
-    public static void day(ServerPlayer player, LocalDate date, int page) {
+    public static void day(ServerPlayer player, LocalDate date, int page) { day(player, date, page, null); }
+
+    private static void day(ServerPlayer player, LocalDate date, int page, Runnable history) {
         request(player, "我的牌谱 · " + date, ReplayStore.day(player.getUUID(), date, page).thenCompose(result -> {
             Map<UUID, Map<Integer, Integer>> scores = new java.util.concurrent.ConcurrentHashMap<>();
             var caches = result.matches().stream().map(match -> ReplayStore.loadAnalysis(player.getUUID(), match.id()).thenAccept(json -> {
@@ -96,17 +104,17 @@ public final class ReplayMenus {
                 } catch (RuntimeException ignored) { /* Recompute older/invalid summaries when enabled. */ }
             }).exceptionally(ignored -> null)).toArray(CompletableFuture[]::new);
             return CompletableFuture.allOf(caches).thenApply(ignored -> new DayOverview(result, new HashMap<>(scores)));
-        }), result -> dayPage(player, date, page, result.page(), new HashMap<>(), result.scores(), new HashSet<>()));
+        }), history, result -> dayPage(player, date, page, result.page(), new HashMap<>(), result.scores(), new HashSet<>(), history));
     }
     private static void dayPage(ServerPlayer player, LocalDate date, int page, ReplayStore.DayPage result,
-                                Map<UUID, Boolean> analysis, Map<UUID, Map<Integer, Integer>> scores, Set<UUID> failures) {
+                                Map<UUID, Boolean> analysis, Map<UUID, Map<Integer, Integer>> scores, Set<UUID> failures, Runnable history) {
         open(player, date + " · 第" + (page + 1) + "页", () -> true, menu -> {
             for (int row = 0; row < result.matches().size(); row++) {
                 ReplayStore.Summary match = result.matches().get(row);
                 int base = row * 9;
                 String time = Instant.ofEpochMilli(match.endedAt()).atZone(ReplayStore.zone()).format(DateTimeFormatter.ofPattern("HH:mm:ss"));
                 menu.button(base, icon(Items.BOOK, "载入 " + time, match.preset(), "需要8格内归你所有且无其他真人的空闲牌桌"),
-                        () -> load(player, match.id(), analysis.getOrDefault(match.id(), false)));
+                        () -> load(player, match.id(), analysis.getOrDefault(match.id(), false), history));
                 participantScores(menu, match, base, scores, failures);
                 boolean enabled = analysis.getOrDefault(match.id(), false);
                 ItemStack toggle = icon(tile(32), "AI分析：" + (enabled ? "开启" : "关闭"), "点击切换，再点击本行载入", "使用高级AI评估各次弃牌", "整场一致性评分显示在各玩家物品说明中");
@@ -121,17 +129,17 @@ public final class ReplayMenus {
                             else server.executeIfPossible(() -> failures.add(match.id()));
                         });
                     }
-                    dayPage(player, date, page, result, analysis, scores, failures);
+                    dayPage(player, date, page, result, analysis, scores, failures, history);
                 });
             }
             menu.refresh = () -> {
                 for (int row = 0; row < result.matches().size(); row++) participantScores(menu, result.matches().get(row), row * 9, scores, failures);
             };
             if (result.matches().isEmpty()) menu.button(22, icon(tile(31), "当天没有你的完整牌谱"), () -> {});
-            menu.button(45, icon(Items.ARROW, "返回日历"), () -> calendar(player, YearMonth.from(date)));
-            if (page > 0) menu.button(48, icon(Items.ARROW, "上一页"), () -> day(player, date, page - 1));
+            menu.button(45, icon(Items.ARROW, "返回日历"), () -> calendar(player, YearMonth.from(date), history));
+            if (page > 0) menu.button(48, icon(Items.ARROW, "上一页"), () -> day(player, date, page - 1, history));
             menu.button(49, icon(Items.PAPER, "按结束时间从新到旧排列"), () -> {});
-            if (result.hasNext()) menu.button(50, icon(Items.ARROW, "下一页"), () -> day(player, date, page + 1));
+            if (result.hasNext()) menu.button(50, icon(Items.ARROW, "下一页"), () -> day(player, date, page + 1, history));
             menu.button(53, icon(Items.BARRIER, "关闭"), player::closeContainer);
         });
     }
@@ -154,17 +162,18 @@ public final class ReplayMenus {
         return score == null ? "整场一致性评分：—（没有可评分的出牌）" : "整场一致性评分：" + score;
     }
 
-    private static void load(ServerPlayer player, UUID id, boolean analysis) {
+    private static void load(ServerPlayer player, UUID id, boolean analysis, Runnable history) {
         MahjongTableBlockEntity candidate = nearestAvailable(player);
         if (candidate == null) {
             player.sendSystemMessage(Component.literal("请准备8格内归你所有、没有正在进行的对局且无其他真人在座的牌桌。"), true);
             return;
         }
         long revision = candidate.matchRevision();
-        request(player, "载入牌谱", ReplayStore.load(player.getUUID(), id), record -> {
+        request(player, "载入牌谱", ReplayStore.load(player.getUUID(), id), history, record -> {
             if (!available(player, candidate) || candidate.matchRevision() != revision) {
                 player.sendSystemMessage(Component.literal("牌桌状态已变化，请重新选择牌谱。"), true);
-                overview(player); return;
+                if (history == null) overview(player); else history.run();
+                return;
             }
             if (candidate.startReplay(record, player, analysis)) {
                 player.closeContainer();
@@ -208,18 +217,20 @@ public final class ReplayMenus {
         }, Component.literal(title)));
         return holder[0];
     }
-    private static <T> void request(ServerPlayer player, String title, CompletableFuture<T> request, Consumer<T> success) {
+    private static <T> void request(ServerPlayer player, String title, CompletableFuture<T> request, Runnable history, Consumer<T> success) {
         Actions waiting = open(player, title, () -> true, menu -> {
             menu.button(22, icon(Items.CLOCK, "正在读取牌谱…"), () -> {});
-            menu.button(49, icon(Items.BARRIER, "取消"), player::closeContainer);
+            menu.button(49, icon(history == null ? Items.BARRIER : Items.ARROW, history == null ? "取消" : "返回历史战绩"),
+                    history == null ? player::closeContainer : history);
         });
         var server = player.level().getServer();
         request.whenComplete((value, failure) -> server.executeIfPossible(() -> {
             if (server.getPlayerList().getPlayer(player.getUUID()) != player || player.containerMenu != waiting) return;
             if (failure == null) success.accept(value);
             else open(player, title, () -> true, menu -> {
-                menu.button(22, icon(Items.BARRIER, "牌谱服务暂不可用", "稍后重新右键牌谱重试"), () -> {});
-                menu.button(49, icon(Items.BARRIER, "关闭"), player::closeContainer);
+                menu.button(22, icon(Items.BARRIER, "牌谱服务暂不可用", "请稍后再试"), () -> {});
+                menu.button(49, icon(history == null ? Items.BARRIER : Items.ARROW, history == null ? "关闭" : "返回历史战绩"),
+                        history == null ? player::closeContainer : history);
             });
         }));
     }

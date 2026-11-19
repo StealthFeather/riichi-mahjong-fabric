@@ -13,7 +13,7 @@ public final class DeferredWinQueue {
     public void add(WinEffectContext context) {
         for (var winner : context.winners()) {
             if (contexts.stream().anyMatch(saved -> saved.includes(winner.seat()))) continue;
-            contexts.add(new WinEffectContext(context.effectId(),context.source(),List.of(winner)));
+            contexts.add(new WinEffectContext(winner.effectOr(context.effectId()),context.source(),List.of(new WinEffectContext.Winner(winner.seat(),winner.tileCode()))));
         }
     }
     public WinEffectContext next() { return next < contexts.size() ? contexts.get(next++) : null; }

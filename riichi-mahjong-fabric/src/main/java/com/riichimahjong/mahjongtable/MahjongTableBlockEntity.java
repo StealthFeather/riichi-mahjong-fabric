@@ -14,6 +14,8 @@ import com.riichimahjong.fabric.ResultHandReveals;
 import com.riichimahjong.fabric.TableOwnership;
 import com.riichimahjong.fabric.WinningHandDisplay;
 import com.riichimahjong.fabric.WinEffectTriggers;
+import com.riichimahjong.fabric.PlayerCosmetics;
+import com.riichimahjong.fabric.RiichiSkin;
 import com.riichimahjong.fabric.WinResultLabels;
 import com.riichimahjong.fabric.ExchangePresentation.Session;
 import com.riichimahjong.fabric.wineffect.WinEffectContext;
@@ -196,11 +198,27 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
     private void recordWinPresentation(WinEffectContext context) {
         if(context==null)return;
+        context=personalizeWin(context);
         if(driver.rules().bloodBattle())deferredWinQueue.add(context);
         else{
             winEffectSession=new WinEffectSession(context);
             finalWinningSeats=context.winners().stream().map(WinEffectContext.Winner::seat).collect(java.util.stream.Collectors.toUnmodifiableSet());
         }
+    }
+
+    private PlayerCosmetics.Selection seatCosmetics(int seat) {
+        if (!(level instanceof ServerLevel sl)) return PlayerCosmetics.Selection.DEFAULT;
+        var owner = seats.get(seat).occupant().or(() -> returningSeats.playerAt(seat));
+        return PlayerCosmetics.get(sl.getServer(), owner.orElse(null));
+    }
+
+    public RiichiSkin riichiSkin(int seat) {
+        if (replay != null) return replay.frame().riichiSkin(seat);
+        return seatCosmetics(seat).skin();
+    }
+
+    private WinEffectContext personalizeWin(WinEffectContext context) {
+        return context.withChoices(seat -> seatCosmetics(seat).winEffect(winEffectId));
     }
 
     public String winEffectId() { return winEffectId; }
@@ -397,9 +415,9 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         driver.setStateObserver(observed->{
             if(observed!=driver||replayRecorder==null||replay!=null)return;
             try {
-                replayRecorder.capture(observed);
+                replayRecorder.capture(observed, this::riichiSkin);
                 if(observed.currentPhase() instanceof MatchPhase.MatchEnded&&!replayRecorder.finished()) {
-                    replayArchives.offer(replayRecorder.finish(observed));
+                    replayArchives.offer(replayRecorder.finish(observed, this::riichiSkin));
                     flushReplayArchives();
                 }
                 setChanged();
@@ -696,6 +714,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     public OptionalInt returningSeat(UUID uuid) { return returningSeats.seat(uuid); }
+    public Optional<UUID> returningPlayerAtSeat(int seat) { return returningSeats.playerAt(seat); }
 
     public boolean canClaimSeat(int seat, UUID uuid) {
         if (replay != null) return false;

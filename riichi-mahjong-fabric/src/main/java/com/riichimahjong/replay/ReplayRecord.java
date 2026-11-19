@@ -39,6 +39,9 @@ public record ReplayRecord(UUID id,long startedAt,long endedAt,String preset,
             if(driver==null)throw new IllegalArgumentException("Missing replay frame");
             driver=driver.copy();
         }
+        public com.riichimahjong.fabric.RiichiSkin riichiSkin(int seat) {
+            return com.riichimahjong.fabric.RiichiSkin.parse(driver.getCompoundOrEmpty("RiichiStickSkins").getStringOr(Integer.toString(seat), ""));
+        }
         /** A fresh driver with controllers that can never produce an action. */
         public TheMahjongDriver restore(HolderLookup.Provider registries) {
             int count=driver.getCompoundOrEmpty("match").getIntOr("playerCount",0);

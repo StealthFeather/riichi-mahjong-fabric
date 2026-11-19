@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.function.BooleanSupplier;
 import java.util.function.IntConsumer;
+import com.riichimahjong.mahjongtable.MahjongTableBlock;
 import com.riichimahjong.mahjongtable.MahjongTableBlockEntity;
 import eu.pb4.polymer.virtualentity.api.ElementHolder;
 import eu.pb4.polymer.virtualentity.api.elements.*;
@@ -56,7 +57,7 @@ final class TableEdgeButtons {
                         +(cells==1?0:cell*(button.width()-button.depth())/(cells-1));
                 var hit=new InteractionElement(new VirtualElement.InteractionHandler(){
                     @Override public void interact(ServerPlayer p,InteractionHand hand,Vec3 loc,boolean sneak){
-                        if(hand!=InteractionHand.MAIN_HAND||p!=owner||PortViews.routeWindPlateUse(p,table,sneak))return;
+                        if(hand!=InteractionHand.MAIN_HAND||p!=owner||MahjongTableBlock.routeWindPlateUse(p, table))return;
                         Vec3 start=p.getEyePosition();handleHit(start,start.add(p.getLookAngle().scale(8)));
                     }
                 });

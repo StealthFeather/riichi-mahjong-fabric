@@ -3,6 +3,7 @@ package com.riichimahjong.fabric;
 import com.riichimahjong.ai.BotDiscardAnimation;
 import com.riichimahjong.ai.KobalabBot;
 import com.riichimahjong.ai.RandomThinkingBot;
+import com.riichimahjong.mahjongtable.MahjongTableBlock;
 import com.riichimahjong.mahjongtable.MahjongTableBlockEntity;
 import com.themahjong.TheMahjongRound;
 import com.themahjong.TheMahjongTile;
@@ -73,7 +74,7 @@ final class BotAvatars {
                 final int index = seat;
                 current.avatar.setInteractionHandler(new VirtualElement.InteractionHandler() {
                     @Override public void interact(ServerPlayer player, InteractionHand hand, Vec3 location, boolean sneaking) {
-                        if (hand != InteractionHand.MAIN_HAND || PortViews.routeWindPlateUse(player, table, sneaking)) return;
+                        if (hand != InteractionHand.MAIN_HAND || MahjongTableBlock.routeWindPlateUse(player, table)) return;
                         TableSeating.join(player, table, index);
                     }
                 });

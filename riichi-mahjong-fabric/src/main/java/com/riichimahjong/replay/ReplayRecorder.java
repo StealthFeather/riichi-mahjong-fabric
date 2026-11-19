@@ -1,6 +1,7 @@
 package com.riichimahjong.replay;
 
 import com.riichimahjong.fabric.WinningHandDisplay;
+import com.riichimahjong.fabric.RiichiSkin;
 import com.riichimahjong.themahjongcompat.DriverNbt;
 import com.themahjong.driver.MatchPhase;
 import com.themahjong.driver.TheMahjongDriver;
@@ -47,6 +48,9 @@ public final class ReplayRecorder {
         people.add(new ReplayRecord.Participant(seat,uuid,name,0));
     }
     public void capture(TheMahjongDriver driver) {
+        capture(driver, seat -> RiichiSkin.CLASSIC);
+    }
+    public void capture(TheMahjongDriver driver, java.util.function.IntFunction<RiichiSkin> skinAtSeat) {
         var match=driver.match();var phase=driver.currentPhase();
         if(finished||match.currentRound().isEmpty()||phase instanceof MatchPhase.NotStarted||phase instanceof MatchPhase.Dealing)return;
         var out=TagValueOutput.createWithoutContext(ProblemReporter.DISCARDING);
@@ -54,6 +58,13 @@ public final class ReplayRecorder {
         var winning=WinningHandDisplay.capture(driver.winningTile(),phase);
         if(winning!=null)winning.write(out.child("ReplayWinningHand"));
         var state=out.buildResult();
+        var skins = new CompoundTag();
+        for (int seat=0; seat<match.playerCount(); seat++) {
+            if (!driver.currentRound().players().get(seat).riichi()) continue;
+            var skin=skinAtSeat.apply(seat);
+            if (skin!=RiichiSkin.CLASSIC) skins.putString(Integer.toString(seat),skin.name());
+        }
+        if (!skins.isEmpty()) state.put("RiichiStickSkins",skins);
         int round=Math.max(0,match.completedRounds().size()-(phase instanceof MatchPhase.MatchEnded?1:0));
         var frame=new ReplayRecord.Frame(round,label(driver),state);
         // Reloading a live table may encounter the exact last frame once again.
@@ -72,8 +83,11 @@ public final class ReplayRecorder {
         };return at+" · "+state;
     }
     public ReplayRecord finish(TheMahjongDriver driver) {
+        return finish(driver, seat -> RiichiSkin.CLASSIC);
+    }
+    public ReplayRecord finish(TheMahjongDriver driver, java.util.function.IntFunction<RiichiSkin> skinAtSeat) {
         if(finished||!(driver.currentPhase() instanceof MatchPhase.MatchEnded))throw new IllegalStateException("Match has not completed naturally");
-        capture(driver);finished=true;
+        capture(driver,skinAtSeat);finished=true;
         var players=driver.currentRound().players();
         var participants=people.stream().map(p->new ReplayRecord.Participant(p.seat(),p.uuid(),p.name(),players.get(p.seat()).points())).toList();
         return new ReplayRecord(id,startedAt,System.currentTimeMillis(),preset,participants,List.copyOf(frames));

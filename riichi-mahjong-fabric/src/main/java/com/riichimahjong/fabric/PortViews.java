@@ -155,12 +155,6 @@ public final class PortViews {
         }
         return true;
     }
-    /** Entity callbacks carry the click's sneak state separately from the player's latest input. */
-    static boolean routeWindPlateUse(ServerPlayer player,MahjongTableBlockEntity table,boolean sneaking){
-        boolean previous=player.isShiftKeyDown();player.setShiftKeyDown(sneaking);
-        try{return MahjongTableBlock.routeWindPlateUse(player,table);}
-        finally{player.setShiftKeyDown(previous);}
-    }
     public static boolean handleTileHit(ServerPlayer player,MahjongTableBlockEntity table){
         // A centre gesture takes precedence over stale hand/button entities and click suppression.
         if(MahjongTableBlock.routeWindPlateUse(player,table))return true;
@@ -324,7 +318,7 @@ public final class PortViews {
                 if(!active&&!seatHits.containsKey(seat)){
                     var hit=new InteractionElement(new VirtualElement.InteractionHandler(){
                         @Override public void interact(ServerPlayer p,InteractionHand hand,Vec3 loc,boolean sneak){
-                            if(hand!=InteractionHand.MAIN_HAND||table.hasActiveMatch()||routeWindPlateUse(p,table,sneak))return;
+                            if(hand!=InteractionHand.MAIN_HAND||table.hasActiveMatch()||MahjongTableBlock.routeWindPlateUse(p,table))return;
                             var current=seatButtons.get(index);if(current==null)return;
                             Vec3 start=p.getEyePosition();
                             var aimed=current.hit(pos,dir,start,start.add(p.getLookAngle().scale(8)));
@@ -410,9 +404,9 @@ public final class PortViews {
                 }
                 for(int i=0;i<s.kita();i++)tile("kita/"+seat+"/"+i,30,dir,-.53+i*.073,.59,.57,true,false,false,null);
                 if(s.riichiStick()){
-                    String key="riichi/"+seat;used.add(key);var stick=tiles.get(key);
+                    String key="riichi/"+seat+"/"+s.riichiSkin().name();used.add(key);var stick=tiles.get(key);
                     // The centre wind plate is 4/16 wide and its top is at 9.5/16.
-                    if(stick==null){stick=display(holder,"bridge/table_riichi_stick",TableLayout.anchor(pos,dir,0,.596,.09),.22f*TableLayout.TILE_ENLARGEMENT,rotation(dir,false,false));tiles.put(key,stick);}
+                    if(stick==null){stick=display(holder,s.riichiSkin().model(),TableLayout.anchor(pos,dir,0,.596,.09),.22f*TableLayout.TILE_ENLARGEMENT,rotation(dir,false,false));tiles.put(key,stick);}
                 }
             }
             // Deposits carried from a drawn hand stay visible in the centre.

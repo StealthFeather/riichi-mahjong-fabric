@@ -28,7 +28,7 @@ public final class TableSeating {
         }
         if(table.hasActiveMatch()&&!table.canClaimSeat(seat,player.getUUID()))return message(player,"此座位为其他玩家保留，或你已有原座位。请右键桌子或 /mahjong join 接回原座位。");
         if(!table.claimSeat(seat,player.getUUID()))return message(player,"入座失败，座位状态已变化，请重新选择。");
-        message(player,table.hasActiveMatch()?"已接管："+wind(seat)+"家，保留当前手牌与分数。":"已入座："+wind(seat)+"家。桌主潜行右键中心风盘打开菜单后点击“开始对局”，/mahjong leave 离座。");return true;
+        message(player,table.hasActiveMatch()?"已接管："+wind(seat)+"家，保留当前手牌与分数。":"已入座："+wind(seat)+"家。桌主可右键中心风盘，在「牌桌操作」中开局，/mahjong leave 离座。");return true;
     }
     public static boolean joinNearest(ServerPlayer player,MahjongTableBlockEntity table){
         if(!available(player,table))return false;
