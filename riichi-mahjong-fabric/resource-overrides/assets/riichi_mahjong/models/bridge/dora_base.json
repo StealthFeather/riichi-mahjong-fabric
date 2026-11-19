@@ -1,0 +1,100 @@
+{
+  "parent": "riichi_mahjong:block/tile",
+  "textures": {
+    "gold": "minecraft:block/gold_block",
+    "particle": "#gold"
+  },
+  "elements": [
+    {
+      "from": [
+        2.5,
+        0,
+        3.5
+      ],
+      "to": [
+        13.5,
+        14,
+        12.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            16,
+            16
+          ],
+          "texture": "#gold"
+        },
+        "east": {
+          "uv": [
+            0,
+            0,
+            16,
+            16
+          ],
+          "texture": "#gold"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            16,
+            16
+          ],
+          "texture": "#gold"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            16,
+            16
+          ],
+          "texture": "#gold"
+        },
+        "up": {
+          "uv": [
+            0,
+            0,
+            16,
+            16
+          ],
+          "texture": "#gold"
+        },
+        "down": {
+          "uv": [
+            0,
+            0,
+            16,
+            16
+          ],
+          "texture": "#gold"
+        }
+      }
+    },
+    {
+      "from": [
+        2.5,
+        0,
+        3.46
+      ],
+      "to": [
+        13.5,
+        14,
+        3.46
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            2.5,
+            1,
+            13.5,
+            15
+          ],
+          "texture": "#markings"
+        }
+      }
+    }
+  ]
+}

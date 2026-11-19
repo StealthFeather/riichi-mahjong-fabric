@@ -6,7 +6,6 @@ import eu.pb4.polymer.virtualentity.api.ElementHolder;
 import eu.pb4.polymer.virtualentity.api.attachment.ManualAttachment;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -15,7 +14,7 @@ import net.minecraft.world.phys.Vec3;
 /** A private, read-only view: concealed identities are sent to exactly one opted-in spectator. */
 final class SpectatorHands {
     record Hand(int seat, List<Integer> tiles, List<Integer> slots, List<Integer> gaps) {}
-    record Snapshot(Object driver, List<Hand> hands, Set<Integer> glowingTiles, boolean sichuan) {}
+    record Snapshot(Object driver, List<Hand> hands, boolean sichuan) {}
 
     final ServerPlayer owner;
     final Snapshot snapshot;
@@ -47,7 +46,7 @@ final class SpectatorHands {
             hands.add(new Hand(seat, order.stream().limit(count).map(PublicTable::code).toList(),
                     table.handDisplaySlots(seat).stream().limit(count).toList(), table.handDisplayGapStarts(seat)));
         }
-        return new Snapshot(driver, List.copyOf(hands), board.glowingTiles(), board.sichuan());
+        return new Snapshot(driver, List.copyOf(hands), board.sichuan());
     }
 
     SpectatorHands(MahjongTableBlockEntity table, ServerPlayer owner, Snapshot snapshot) {
@@ -59,10 +58,9 @@ final class SpectatorHands {
             for (int index = 0; index < hand.tiles().size(); index++) {
                 int code = hand.tiles().get(index);
                 var position = tilePosition(table.getBlockPos(), direction, hand.slots().get(index), hand.gaps());
-                var display = PortViews.display(holder, PortViews.tileModel(code, snapshot.sichuan()), position,
-                        TableLayout.TILE_SCALE, PortViews.rotation(direction, true, false),
-                        snapshot.glowingTiles().contains(code));
-                display.setVisibilityPredicate(player -> player == owner);
+                var stack = PortViews.tileStack(code, snapshot.sichuan(), false);
+                PortViews.displayForViewer(holder, stack, position, TableLayout.TILE_SCALE,
+                        PortViews.rotation(direction, true, false), owner);
             }
         }
         holder.startWatching(owner);

@@ -8,8 +8,8 @@ import java.util.HashSet;
 import java.util.Set;
 
 /** Only publicly revealed indicators may affect tile appearance. */
-final class DoraGlint {
-    private DoraGlint() {}
+final class DoraTiles {
+    private DoraTiles() {}
 
     static boolean uraVisible(TheMahjongRound round, MatchPhase phase, com.themahjong.TheMahjongRuleSet rules) {
         return rules.uraDoraAllowed() && uraVisible(round,phase);

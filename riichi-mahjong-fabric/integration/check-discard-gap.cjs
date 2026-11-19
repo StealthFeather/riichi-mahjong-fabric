@@ -41,7 +41,8 @@ for(let index=0;index<13;index++)assert(near(compact[index].position[0],.94-inde
 assert.deepEqual(compact.map(e=>e.itemModel),server.snapshots['10'].tiles.map(code=>{
     const name=code<27?`tile_${['man','pin','sou'][Math.floor(code/9)]}_${code%9+1}`:
         code<31?`tile_wind_${['east','south','west','north'][code-27]}`:`tile_dragon_${['white','green','red'][code-31]}`;
-    return `riichi_mahjong:bridge/${name}`;
+    // This fixture exposes a red-dragon indicator, making its white dragons dora.
+    return `riichi_mahjong:bridge/${code===31?'dora/':''}${name}`;
 }), 'Tick ten client order does not match server sorted identities');
 console.log(JSON.stringify({kind:'discard-gap',passed:true,delayTicks:10,clientVisualTest:true,
     checks:['three-frozen-client-samples-per-stage','survivor-identities-and-positions-retained','empty-slot-at-zero-and-nine','old-draw-keeps-separated-right-position','exact-ten-tick-compaction','empty-slot-click-consumed','shifted-slot-ray-maps-correct-tile'],

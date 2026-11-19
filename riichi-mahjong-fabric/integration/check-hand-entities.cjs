@@ -13,7 +13,7 @@ for(const sample of samples){
     assert.equal(new Set(row.map(e=>e.position.map(v=>v.toFixed(5)).join(','))).size,count,'Two displays occupy one tile position');
     for(const tile of row){
         assert(tile.itemModel?.startsWith('riichi_mahjong:'),'Unexpected model in the hand row');
-        assert.equal(tile.itemModel.endsWith('/tile_back'),mode==='observer','Wrong hand audience: public back overlaps a private face or observer sees a face');
+        assert.equal(tile.itemModel==='riichi_mahjong:bridge/tile_back',mode==='observer','Wrong hand audience: public back overlaps a private face or observer sees a face');
     }
     const stable=row.map(e=>[e.id,e.itemModel,e.position,e.scale,e.translation,e.leftRotation,e.rightRotation]);
     if(first)assert.deepEqual(stable,first,'Hand entities were replaced or moved during the steady-state sample');

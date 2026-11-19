@@ -114,8 +114,8 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
             menuSeats(table, host, visitor);
             viewingOptions(table, host, visitor);
             transferConfirmation(server, table, host, visitor, other);
-            activeMenu(table, host, visitor, other);
-            passedRonRiichiHandlers(table, host, visitor);
+            activeMenu(table, host, visitor);
+            passedRonRiichiHandlers(table, host, visitor, other);
             result.put("passed", true);
         } catch (Throwable failure) {
             failure.printStackTrace(); result.put("passed", false); result.put("failure", failure.toString());
@@ -427,7 +427,7 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         checks.add("real-owner-transfer-confirm-cancel-target-leave-offline-old-menu-and-revoked-authority");
     }
 
-    private static void activeMenu(MahjongTableBlockEntity table, MenuPlayer host, MenuPlayer visitor, MenuPlayer other) throws Exception {
+    private static void activeMenu(MahjongTableBlockEntity table, MenuPlayer host, MenuPlayer visitor) throws Exception {
         require(table.tryStartMatch(782463L) == MahjongTableBlockEntity.StartMatchResult.STARTED, "active menu fixture failed to start");
         var driver = table.driver(); var match = driver.match();
         discardPreference(table, host, visitor);
@@ -456,7 +456,6 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         require(table.seatOfPlayer(visitor.getUUID()).orElse(-1) == 1 && !table.isWatching(visitor.getUUID()),
                 "reclaiming a reserved playing seat did not stop watch mode");
         require(table.driver() == driver && driver.match() == match, "menu takeover rewrote the running match");
-        spectatorRendering(table, host, visitor, other);
         table.endGame();
         checks.add("active-seat-menu-leave-watch-rejoin-preserves-rules-hand-and-scores");
     }
@@ -486,7 +485,6 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         var hud = new TableHud();
         SpectatorHands privateHands = null;
         try {
-            table.driver().advance(30);
             var board = PublicTable.capture(table);
             require(board.seats().stream().allMatch(s -> s.revealed().isEmpty()), "live fixture prematurely revealed public hands");
             hud.update(table, board);
@@ -517,6 +515,14 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
                             && display.getVisibilityPredicate().test(watcher)
                             && !display.getVisibilityPredicate().test(host) && !display.getVisibilityPredicate().test(seated)),
                     "private spectator view had a control entity or failed its owner-only visibility predicate");
+            var faces = holder.getElements().stream().map(ItemDisplayElement.class::cast)
+                    .map(ItemDisplayElement::getItem).toList();
+            require(faces.size() == snapshot.hands().stream().mapToInt(hand -> hand.tiles().size()).sum()
+                            && faces.stream().noneMatch(stack -> stack.hasFoil()
+                                    || stack.get(DataComponents.ITEM_MODEL).getPath().startsWith("bridge/dora/")),
+                    "spectator received private dora appearance in a concealed hand");
+            require(faces.stream().anyMatch(stack -> stack.get(DataComponents.ITEM_MODEL).getPath().equals("bridge/tile_dragon_white")),
+                    "eligible watcher did not receive the ordinary face of the fixture's concealed dora");
             PortMenus.settings(host, table); click(host, 20);
             require(!SpectatorHands.eligible(table, watcher), "disabling spectator hands left reveal permission active");
             privateHands.destroy(); privateHands = null;
@@ -533,7 +539,7 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
     }
 
     /** Real server-side player handlers; this deliberately does not manufacture client mouse packets. */
-    private static void passedRonRiichiHandlers(MahjongTableBlockEntity table,MenuPlayer source,MenuPlayer skipped) throws Exception {
+    private static void passedRonRiichiHandlers(MahjongTableBlockEntity table,MenuPlayer source,MenuPlayer skipped,MenuPlayer watcher) throws Exception {
         var white=riichiTile(4,1);var green=riichiTile(4,2);
         for(boolean variants:new boolean[]{false,true}) {
             table.selectPreset(RuleSetPreset.MAHJONG_SOUL_4P);
@@ -565,7 +571,10 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
             PrivateHand privateHand=null;
             try {
                 if (variants) submit(driver,0,new PlayerAction.Discard(white));
-                else confirmDuplicateDiscard(table, source, skipped, humans.get(0), white);
+                else {
+                    spectatorRendering(table, source, skipped, watcher);
+                    confirmDuplicateDiscard(table, source, skipped, humans.get(0), white);
+                }
                 require(driver.legalActions(1).stream().anyMatch(action->action instanceof PlayerAction.DeclareRon),
                         "live handler fixture has no legal ron");
                 var pass=new TableButton.SubmitAction(PlayerAction.Pass.INSTANCE);
@@ -622,6 +631,16 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         PortMenus.settings(owner, table); click(owner, 30); owner.closeContainer();
         var hand = new PrivateHand(table, owner, 0, PrivateHand.snapshot(table, 0));
         try {
+            var goldFaces = hand.holder.getElements().stream().filter(ItemDisplayElement.class::isInstance)
+                    .map(ItemDisplayElement.class::cast)
+                    .filter(display -> display.getItem().get(DataComponents.ITEM_MODEL).getPath().equals("bridge/dora/tile_dragon_white"))
+                    .toList();
+            require(goldFaces.size() == 2 && hand.holder.getWatchingPlayers().size() == 1
+                            && hand.holder.getWatchingPlayers().contains(owner.connection)
+                            && goldFaces.stream().allMatch(display -> !display.getItem().hasFoil()
+                                    && display.getVisibilityPredicate().test(owner) && !display.getVisibilityPredicate().test(opponent)),
+                    "concealed white-dragon dora did not use two owner-only gold models");
+            checks.add("concealed-dora-gold-for-its-owner-and-ordinary-faces-for-authorized-spectator");
             for (int index : List.of(first, second)) {
                 table.onCuteClick(owner, new InteractKey.SeatSlot((byte)0, InteractKey.SeatSlot.AREA_HAND, (short)index));
                 hand.snapshot = PrivateHand.snapshot(table, 0);

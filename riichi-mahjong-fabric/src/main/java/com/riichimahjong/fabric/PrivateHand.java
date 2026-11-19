@@ -23,7 +23,7 @@ final class PrivateHand {
     record Snapshot(Object driver, Object round, Object phase, List<Integer> hand,
                     List<Integer> handSlots, List<Integer> handGapStarts,
                     List<MahjongTableHumanPlayer.TableButton> buttons, List<Integer> riichiDiscards,
-                    List<Integer> exchangeSelection, Set<Integer> glowingTiles, boolean queued,
+                    List<Integer> exchangeSelection, Set<Integer> doraTiles, boolean queued,
                     boolean drawnTile, boolean revealed, int selectedDiscardIndex) {}
     final ServerPlayer owner;Snapshot snapshot;final ElementHolder holder=new ElementHolder();
     final MahjongTableBlockEntity table;final int seat;long nextPrompt;String lastPrompt="";
@@ -40,8 +40,8 @@ final class PrivateHand {
                 table.handDisplaySlots(seat).stream().limit(count).toList(), table.handDisplayGapStarts(seat),
                 queued ? List.of() : List.copyOf(table.tableButtonsForSeat(seat)), discards,
                 d.exchangeSelection(seat).stream().map(PublicTable::code).toList(),
-                d.sichuanState() == null ? DoraGlint.tiles(r, d.currentPhase(), d.rules())
-                        : d.match().ruleSet().jokersEnabled() ? Set.of(33) : Set.of(),
+                d.sichuanState() == null ? DoraTiles.tiles(r, table.displayPhase(), d.rules())
+                        : Set.of(),
                 queued, table.hasSeparatedDrawnTile(seat), PublicTable.revealedSeats(table).contains(seat),
                 table.selectedDiscardIndex(seat));
     }
@@ -55,7 +55,9 @@ final class PrivateHand {
         var exchangeMarks=new ArrayList<>(snapshot.exchangeSelection);
         if(!snapshot.revealed)for(int i=0;i<snapshot.hand.size();i++){
             Vec3 at=TableLayout.handAnchor(pos,dir,TableLayout.handAlong(snapshot.handSlots.get(i),snapshot.handGapStarts),false);
-            var tile=PortViews.display(holder,PortViews.tileModel(snapshot.hand.get(i),table.driver().sichuanState()!=null),at,TableLayout.TILE_SCALE,PortViews.rotation(dir,false,false),snapshot.glowingTiles.contains(snapshot.hand.get(i)));tile.setVisibilityPredicate(p->p==owner);
+            int code = snapshot.hand.get(i);
+            var stack = PortViews.tileStack(code, table.driver().sichuanState() != null, snapshot.doraTiles.contains(code));
+            var tile = PortViews.displayForViewer(holder, stack, at, TableLayout.TILE_SCALE, PortViews.rotation(dir,false,false), owner);
             handTiles.add(tile);
             boolean exchangeSelected=exchangeMarks.remove(Integer.valueOf(snapshot.hand.get(i)));
             if(exchangeSelected || snapshot.buttons.stream().anyMatch(b->b instanceof MahjongTableHumanPlayer.TableButton.RiichiToggle r&&r.active())&&snapshot.riichiDiscards.contains(snapshot.hand.get(i))){
@@ -119,7 +121,7 @@ final class PrivateHand {
         if(table.seatOfPlayer(owner.getUUID()).orElse(-1)!=seat||table.driver()!=snapshot.driver)return false;
         return table.driver().match().currentRound().isPresent()&&snapshot.equals(snapshot(table,seat));
     }
-    boolean sameVisuals(Snapshot other){return snapshot.driver==other.driver&&snapshot.hand.equals(other.hand)&&snapshot.handSlots.equals(other.handSlots)&&snapshot.handGapStarts.equals(other.handGapStarts)&&snapshot.buttons.equals(other.buttons)&&snapshot.riichiDiscards.equals(other.riichiDiscards)&&snapshot.exchangeSelection.equals(other.exchangeSelection)&&snapshot.glowingTiles.equals(other.glowingTiles)&&snapshot.revealed==other.revealed&&snapshot.drawnTile==other.drawnTile;}
+    boolean sameVisuals(Snapshot other){return snapshot.driver==other.driver&&snapshot.hand.equals(other.hand)&&snapshot.handSlots.equals(other.handSlots)&&snapshot.handGapStarts.equals(other.handGapStarts)&&snapshot.buttons.equals(other.buttons)&&snapshot.riichiDiscards.equals(other.riichiDiscards)&&snapshot.exchangeSelection.equals(other.exchangeSelection)&&snapshot.doraTiles.equals(other.doraTiles)&&snapshot.revealed==other.revealed&&snapshot.drawnTile==other.drawnTile;}
     boolean handleButtonHit(Vec3 start,Vec3 end){
         if(!PortViews.near(owner,owner.level(),table.getBlockPos())||table.isRemoved()||table.getLevel()!=owner.level())return false;
         var dir=PortViews.outward(seat,table.getBlockState());

@@ -9,7 +9,7 @@ import com.themahjong.compat.DrawSettlement;
 
 /** The sole allowlist passed to the public tile renderer. No round, wall tiles, seed or legal actions. */
 public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<Integer> dora,List<Integer> ura,
-                          Set<Integer> glowingTiles,String label,String roundLabel,int turnSeat,int riichiSticks,MatchPhase.Stage stage,double progress,int totalTiles,boolean sichuan,int openingWallDraws) {
+                          Set<Integer> doraTiles,String label,String roundLabel,int turnSeat,int riichiSticks,MatchPhase.Stage stage,double progress,int totalTiles,boolean sichuan,int openingWallDraws) {
     public record Tile(int code,boolean sideways,boolean stacked,boolean faceDown){
         Tile(int code,boolean sideways){this(code,sideways,false,false);}
         Tile(int code,boolean sideways,boolean stacked){this(code,sideways,stacked,false);}
@@ -79,7 +79,7 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
         MatchPhase phase=driver==null?null:table.displayPhase();
         var sichuan=driver==null?null:driver.sichuanState();
         Set<Integer> visibleHands=revealedSeats(table);
-        boolean ura=driver!=null&&DoraGlint.uraVisible(round,phase,driver.rules());
+        boolean ura=driver!=null&&DoraTiles.uraVisible(round,phase,driver.rules());
         for(int i=0;i<infos.size();i++){
             var info=infos.get(i);UUID owner=info.occupant().orElse(null);var player=owner==null?null:table.getLevel().getPlayerByUUID(owner);
             String name=player==null?(owner==null?(round==null?"空位":"BOT"):"离线玩家"):player.getName().getString();
@@ -134,6 +134,6 @@ public record PublicTable(List<Seat> seats,int liveWall,int rinshanDrawn,List<In
         int turn=phase instanceof MatchPhase.AwaitingDiscard d?d.seat():phase instanceof MatchPhase.AwaitingDraw d?d.seat():-1;
         if(driver!=null&&driver.exchangeInProgress())turn=-1;
         if(sichuan!=null&&sichuan.stage()!=com.themahjong.sichuan.SichuanState.Stage.PLAY)turn=-1;
-        return new PublicTable(List.copyOf(out),round==null?0:round.liveWall().size(),round==null||sichuan!=null?0:Math.max(0,4-round.rinshanTiles().size()),dora,uras,sichuan==null?DoraGlint.tiles(round,phase,driver==null?com.themahjong.TheMahjongRuleSet.wrc():driver.rules()):driver.match().ruleSet().jokersEnabled()?Set.of(33):Set.of(),label,roundLabel,turn,round==null?0:round.riichiSticks(),stage,progress,driver==null?136:driver.match().tileSet().copiesPerTile().entrySet().stream().filter(e->!com.themahjong.variants.Jokers.isJoker(e.getKey())).mapToInt(e->e.getValue()).sum(),sichuan!=null,driver==null?52:driver.match().playerCount()*(driver.match().ruleSet().jokersEnabled()?12:13));
+        return new PublicTable(List.copyOf(out),round==null?0:round.liveWall().size(),round==null||sichuan!=null?0:Math.max(0,4-round.rinshanTiles().size()),dora,uras,sichuan==null?DoraTiles.tiles(round,phase,driver==null?com.themahjong.TheMahjongRuleSet.wrc():driver.rules()):Set.of(),label,roundLabel,turn,round==null?0:round.riichiSticks(),stage,progress,driver==null?136:driver.match().tileSet().copiesPerTile().entrySet().stream().filter(e->!com.themahjong.variants.Jokers.isJoker(e.getKey())).mapToInt(e->e.getValue()).sum(),sichuan!=null,driver==null?52:driver.match().playerCount()*(driver.match().ruleSet().jokersEnabled()?12:13));
     }
 }

@@ -36,7 +36,7 @@ function validateHands(items,label){
         assert.equal(new Set(row.map(entity=>positionKey(entity.position))).size,row.length,`${label}: overlapping hand displays`);
         for(const tile of row){
             const faceExpected=mode==='owner'&&seat===0;
-            assert.equal(tile.itemModel.endsWith('/tile_back'),!faceExpected,
+            assert.equal(tile.itemModel==='riichi_mahjong:bridge/tile_back',!faceExpected,
                 `${label}: wrong hand audience at seat ${seat}; owner must see faces and opponents must retain backs`);
         }
     }

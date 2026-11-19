@@ -2,7 +2,6 @@ package com.riichimahjong.fabric;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import com.riichimahjong.mahjongtable.MahjongTableBlockEntity;
 import com.themahjong.driver.MatchPhase;
 import eu.pb4.polymer.virtualentity.api.ElementHolder;
@@ -13,7 +12,7 @@ import net.minecraft.world.phys.Vec3;
 /** One authorized viewer, face-up copies only, and no interaction entities or gameplay callbacks. */
 final class SpectatorHandView {
     record Hand(int seat,List<Integer> codes,List<Integer> slots,List<Integer> gaps){}
-    record Snapshot(Object driver,List<Hand> hands,Set<Integer> glint){}
+    record Snapshot(Object driver,List<Hand> hands,boolean sichuan){}
     final ServerPlayer owner;
     private final MahjongTableBlockEntity table;
     private final Snapshot snapshot;
@@ -30,7 +29,7 @@ final class SpectatorHandView {
             hands.add(new Hand(seat,order.stream().limit(count).map(PublicTable::code).toList(),
                     List.copyOf(table.handDisplaySlots(seat).subList(0,count)),List.copyOf(table.handDisplayGapStarts(seat))));
         }
-        return new Snapshot(driver,List.copyOf(hands),Set.copyOf(board.glowingTiles()));
+        return new Snapshot(driver,List.copyOf(hands),board.sichuan());
     }
     SpectatorHandView(MahjongTableBlockEntity table,ServerPlayer viewer,Snapshot snapshot){
         this.table=table;this.owner=viewer;this.snapshot=snapshot;
@@ -43,8 +42,8 @@ final class SpectatorHandView {
                 int code=hand.codes().get(i);
                 var at=TableLayout.handAnchor(pos,dir,TableLayout.handAlong(hand.slots().get(i),hand.gaps()),true);
                 // The audience predicate is installed before addElement, and this holder has no chunk audience.
-                PortViews.displayForViewer(holder,PortViews.tileModel(code),at,TableLayout.TILE_SCALE,
-                        PortViews.rotation(dir,true,false),viewer,snapshot.glint().contains(code));
+                PortViews.displayForViewer(holder,PortViews.tileStack(code,snapshot.sichuan(),false),at,TableLayout.TILE_SCALE,
+                        PortViews.rotation(dir,true,false),viewer);
             }
         }
         if(valid())holder.startWatching(viewer);else destroy();

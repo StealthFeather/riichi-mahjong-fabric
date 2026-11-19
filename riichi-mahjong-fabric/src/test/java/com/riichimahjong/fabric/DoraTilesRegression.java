@@ -22,7 +22,7 @@ import net.minecraft.server.Bootstrap;
 import static com.riichimahjong.fabric.RulesRegression.*;
 
 /** Exercise public dora visibility through actual rule transitions and vanilla item components. */
-public final class DoraGlintRegression {
+public final class DoraTilesRegression {
     private static final Set<Integer> RED = Set.of(34,35,36);
     private static final List<TheMahjongTile> DORA = List.of(
             tile(4,3),tile(2,4),tile(0,4),tile(3,4),tile(1,8));
@@ -58,8 +58,8 @@ public final class DoraGlintRegression {
                 player.discards(),player.temporaryFuritenTiles());
     }
 
-    private static Set<Integer> glowing(TheMahjongDriver driver) {
-        return DoraGlint.tiles(driver.currentRound(),driver.currentPhase());
+    private static Set<Integer> doraCodes(TheMahjongDriver driver) {
+        return DoraTiles.tiles(driver.currentRound(),driver.currentPhase());
     }
 
     private static void indicator(TheMahjongTile indicator, TheMahjongTile expected, int count) {
@@ -68,7 +68,7 @@ public final class DoraGlintRegression {
         var round = round(players(count),indicators,URA,1);
         var wanted = new HashSet<>(RED);
         wanted.add(MahjongTileItems.codeForTile(expected));
-        check(DoraGlint.tiles(round,new MatchPhase.AwaitingDiscard(0)).equals(wanted),
+        check(DoraTiles.tiles(round,new MatchPhase.AwaitingDiscard(0)).equals(wanted),
                 count+"p indicator "+indicator+" must highlight "+expected+" only, besides red fives");
     }
 
@@ -85,15 +85,15 @@ public final class DoraGlintRegression {
             indicator(new TheMahjongTile(TheMahjongTile.Suit.PINZU,5,true),tile(1,6),count);
 
             var round = round(players(count),DORA,URA,1);
-            var live = DoraGlint.tiles(round,new MatchPhase.AwaitingDiscard(0));
-            check(live.equals(Set.of(31,34,35,36)),"unrevealed normal/ura indicators leaked into live glint");
+            var live = DoraTiles.tiles(round,new MatchPhase.AwaitingDiscard(0));
+            check(live.equals(Set.of(31,34,35,36)),"unrevealed normal/ura indicators leaked into live highlights");
             check(!live.contains(-1),"concealed tile backs can never inherit a dora identity");
-            check(DoraGlint.tiles(round,new MatchPhase.Dealing(MatchPhase.Stage.WALL_BUILDING,.5)).equals(RED),
-                    "wall-building glint exposed the first unrevealed indicator");
-            check(!DoraGlint.uraVisible(round,new MatchPhase.AwaitingDiscard(0)),"live play exposed ura indicators");
+            check(DoraTiles.tiles(round,new MatchPhase.Dealing(MatchPhase.Stage.WALL_BUILDING,.5)).equals(RED),
+                    "wall-building highlights exposed the first unrevealed indicator");
+            check(!DoraTiles.uraVisible(round,new MatchPhase.AwaitingDiscard(0)),"live play exposed ura indicators");
         }
-        check(DoraGlint.tiles(null,new MatchPhase.NotStarted()).isEmpty(),"empty table has glowing tile identities");
-        check(!DoraGlint.uraVisible(null,new MatchPhase.RoundEnded(List.of())),"empty table exposes ura indicators");
+        check(DoraTiles.tiles(null,new MatchPhase.NotStarted()).isEmpty(),"empty table has dora identities");
+        check(!DoraTiles.uraVisible(null,new MatchPhase.RoundEnded(List.of())),"empty table exposes ura indicators");
     }
 
     private static void acceptedKanReveals() {
@@ -101,14 +101,14 @@ public final class DoraGlintRegression {
         hands.set(0,player(List.of(tile(0,1),tile(0,1),tile(0,1),tile(0,1),tile(0,2),tile(0,3),tile(0,4),
                 tile(1,2),tile(1,3),tile(1,4),tile(2,5),tile(2,6),tile(3,1),tile(4,2))));
         var driver = restored(round(hands,DORA,URA,1));
-        var before = glowing(driver);
+        var before = doraCodes(driver);
         check(!before.contains(22),"kan fixture already exposes the second indicator's sou-five");
         var kan = driver.legalActions(0).stream().filter(a -> a instanceof PlayerAction.Ankan).findFirst().orElseThrow();
         act(driver,0,kan);
         check(driver.currentRound().revealedDoraCount()==2,"accepted concealed kan did not reveal its indicator");
-        check(glowing(driver).containsAll(Set.of(22,31,34,35,36)),"concealed kan failed to retain old dora and add sou-five");
-        check(!glowing(driver).contains(4),"concealed kan revealed the third indicator early");
-        check(!before.contains(22),"a later indicator reveal mutated an earlier glint snapshot");
+        check(doraCodes(driver).containsAll(Set.of(22,31,34,35,36)),"concealed kan failed to retain old dora and add sou-five");
+        check(!doraCodes(driver).contains(4),"concealed kan revealed the third indicator early");
+        check(!before.contains(22),"a later indicator reveal mutated an earlier dora snapshot");
 
         // Mahjong Soul reveals an open/added kan's indicator only after its next discard.
         hands = players(4);
@@ -122,14 +122,14 @@ public final class DoraGlintRegression {
         var kakan = driver.legalActions(0).stream().filter(a -> a instanceof PlayerAction.Kakan).findFirst().orElseThrow();
         act(driver,0,kakan);
         passClaims(driver);
-        check(driver.currentRound().pendingKanDoraReveals()==1 && !glowing(driver).contains(22),
+        check(driver.currentRound().pendingKanDoraReveals()==1 && !doraCodes(driver).contains(22),
                 "added-kan declaration leaked the delayed indicator before its discard");
         act(driver,0,PlayerAction.Draw.INSTANCE);
-        check(!glowing(driver).contains(22),"rinshan draw prematurely exposed a delayed kan indicator");
+        check(!doraCodes(driver).contains(22),"rinshan draw prematurely exposed a delayed kan indicator");
         act(driver,0,new PlayerAction.Discard(tile(4,2)));
-        check(driver.currentRound().revealedDoraCount()==2 && glowing(driver).contains(22),
-                "the post-kan discard did not refresh existing matching tiles' glint");
-        check(!glowing(driver).contains(15),"kan reveal leaked the corresponding ura indicator during live play");
+        check(driver.currentRound().revealedDoraCount()==2 && doraCodes(driver).contains(22),
+                "the post-kan discard did not refresh the matching tiles' appearance");
+        check(!doraCodes(driver).contains(15),"kan reveal leaked the corresponding ura indicator during live play");
     }
 
     private static void winAndDrawVisibility() {
@@ -144,21 +144,21 @@ public final class DoraGlintRegression {
                 var driver = restored(round(hands,DORA,URA,1));
                 var drawn = driver.currentRound().exhaustiveDraw(count==3
                         ? TheMahjongRuleSet.mahjongSoulSanma() : TheMahjongRuleSet.mahjongSoul());
-                check(!DoraGlint.uraVisible(drawn,new MatchPhase.RoundEnded(List.of())),"draw exposed ura for a riichi player");
-                check(!DoraGlint.tiles(drawn,new MatchPhase.RoundEnded(List.of())).contains(15),
-                        "draw glint disclosed the hidden ura identity");
-                check(!glowing(driver).contains(15),"riichi hand glowed from an unrevealed ura indicator");
+                check(!DoraTiles.uraVisible(drawn,new MatchPhase.RoundEnded(List.of())),"draw exposed ura for a riichi player");
+                check(!DoraTiles.tiles(drawn,new MatchPhase.RoundEnded(List.of())).contains(15),
+                        "draw highlighting disclosed the hidden ura identity");
+                check(!doraCodes(driver).contains(15),"riichi hand was highlighted from an unrevealed ura indicator");
                 var tsumo = driver.legalActions(0).stream().filter(a -> a instanceof PlayerAction.DeclareTsumo)
                         .findFirst().orElseThrow();
                 act(driver,0,tsumo);
                 check(driver.currentPhase() instanceof MatchPhase.RoundEnded,"tsumo fixture did not resolve");
                 boolean expected = state!=TheMahjongPlayer.RiichiState.NONE;
-                check(DoraGlint.uraVisible(driver.currentRound(),driver.currentPhase())==expected,
+                check(DoraTiles.uraVisible(driver.currentRound(),driver.currentPhase())==expected,
                         "ura reveal must depend on the winner's riichi, including double riichi");
-                check(glowing(driver).contains(15)==expected,"settlement ura glint disagrees with the winning player's riichi");
-                check(!glowing(driver).contains(26),"settlement revealed an ura indicator beyond the public indicator count");
-                check(!DoraGlint.tiles(driver.currentRound(),new MatchPhase.BetweenRounds()).contains(15),
-                        "ura glint survived outside its result phase");
+                check(doraCodes(driver).contains(15)==expected,"settlement ura highlighting disagrees with the winning player's riichi");
+                check(!doraCodes(driver).contains(26),"settlement revealed an ura indicator beyond the public indicator count");
+                check(!DoraTiles.tiles(driver.currentRound(),new MatchPhase.BetweenRounds()).contains(15),
+                        "ura highlighting survived outside its result phase");
             }
         }
 
@@ -176,8 +176,8 @@ public final class DoraGlintRegression {
         passClaims(driver);
         check(driver.currentPhase() instanceof MatchPhase.RoundEnded ended && ended.winResults().size()==2,
                 "double-ron fixture did not retain both winners");
-        check(DoraGlint.uraVisible(driver.currentRound(),driver.currentPhase()) && glowing(driver).contains(15),
-                "a second riichi winner in double ron did not reveal ura glint");
+        check(DoraTiles.uraVisible(driver.currentRound(),driver.currentPhase()) && doraCodes(driver).contains(15),
+                "a second riichi winner in double ron did not reveal ura highlighting");
     }
 
     private static void terminalResultVisibility() {
@@ -190,59 +190,59 @@ public final class DoraGlintRegression {
             var win=driver.legalActions(0).stream().filter(a->a instanceof PlayerAction.DeclareTsumo).findFirst().orElseThrow();
             act(driver,0,win);
             var display=new RoundResultDisplay();display.observe(driver.currentPhase());
-            var before=DoraGlint.tiles(driver.currentRound(),driver.currentPhase());
+            var before=DoraTiles.tiles(driver.currentRound(),driver.currentPhase());
             var terminal=new MatchPhase.MatchEnded();display.observe(terminal);
             check(display.phase(terminal) instanceof MatchPhase.RoundEnded,"terminal display lost the final hand result");
-            check(DoraGlint.uraVisible(driver.currentRound(),display.phase(terminal))==declared,
+            check(DoraTiles.uraVisible(driver.currentRound(),display.phase(terminal))==declared,
                     "terminal result changed the publicly revealed ura boundary");
-            check(DoraGlint.tiles(driver.currentRound(),display.phase(terminal)).equals(before),
-                    "terminal result removed a final-hand dora glint");
+            check(DoraTiles.tiles(driver.currentRound(),display.phase(terminal)).equals(before),
+                    "terminal result removed a final-hand dora highlight");
             var out=TagValueOutput.createWithoutContext(ProblemReporter.DISCARDING);display.write(out);
             var reloaded=new RoundResultDisplay();
             reloaded.read(TagValueInput.create(ProblemReporter.DISCARDING,HolderLookup.Provider.create(Stream.empty()),out.buildResult()));
-            check(DoraGlint.tiles(driver.currentRound(),reloaded.phase(terminal)).equals(before),
-                    "world reload removed final-hand dora glint");
+            check(DoraTiles.tiles(driver.currentRound(),reloaded.phase(terminal)).equals(before),
+                    "world reload removed final-hand dora highlight");
             reloaded.observe(new MatchPhase.AwaitingDraw(0,false));
             check(reloaded.phase(terminal) instanceof MatchPhase.MatchEnded,
                     "a previous hand's result leaked into a new match");
         }
     }
 
-    private static void vanillaGlintComponents() {
+    private static byte[] displayPacket(int code, boolean sichuan, boolean dora, String expectedPath, boolean foil) {
+        var stack = PortViews.tileStack(code, sichuan, dora);
+        var buffer = new RegistryFriendlyByteBuf(Unpooled.buffer(),
+                RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY));
+        try {
+            EntityDataSerializers.ITEM_STACK.codec().encode(buffer, stack);
+            byte[] bytes = new byte[buffer.readableBytes()];
+            buffer.getBytes(buffer.readerIndex(), bytes);
+            var decoded = EntityDataSerializers.ITEM_STACK.codec().decode(buffer);
+            check(Identifier.fromNamespaceAndPath("riichi_mahjong", expectedPath).equals(decoded.get(DataComponents.ITEM_MODEL)),
+                    "wrong item-display model for " + expectedPath);
+            check(decoded.hasFoil() == foil, "wrong enchantment appearance for " + expectedPath);
+            if (!foil) check(!decoded.has(DataComponents.ENCHANTMENT_GLINT_OVERRIDE),
+                    "unexpected glint override in the packet for " + expectedPath);
+            return bytes;
+        } finally {
+            buffer.release();
+        }
+    }
+
+    private static void tileDisplayPackets() {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
-        // 26.3 binds default item components during resource loading, after registry bootstrap.
         BuiltInRegistries.DATA_COMPONENT_INITIALIZERS.build(VanillaRegistries.createWorldLookup())
                 .forEach(components -> components.apply());
-        var path = "bridge/tile_sou_5";
-        var plain = PortViews.model(path);
-        var glowing = PortViews.model(path,true);
-        check(!plain.hasFoil() && glowing.hasFoil(),"dora model did not use vanilla enchantment glint");
-        var identifier = Identifier.fromNamespaceAndPath("riichi_mahjong",path);
-        check(identifier.equals(plain.get(DataComponents.ITEM_MODEL))
-                        && identifier.equals(glowing.get(DataComponents.ITEM_MODEL)),
-                "enchantment glint replaced the tile's original model");
-        check(!PortViews.model(path,false).hasFoil() && !plain.hasFoil(),
-                "disabling glint reused or mutated a previously glowing stack");
-        var back = PortViews.model(PortViews.tileModel(-1),false);
-        check(!back.hasFoil() && Identifier.fromNamespaceAndPath("riichi_mahjong","bridge/tile_back")
-                        .equals(back.get(DataComponents.ITEM_MODEL)),
-                "opponents' concealed model must stay an unenchanted tile back");
-        // Item-display metadata uses this exact serializer. Test the decoded client stack,
-        // not merely hasFoil() on the stack before a packet is written.
-        for(var source:List.of(plain,glowing,back)) {
-            var buffer=new RegistryFriendlyByteBuf(Unpooled.buffer(),
-                    RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY));
-            try {
-                EntityDataSerializers.ITEM_STACK.codec().encode(buffer,source);
-                var decoded=EntityDataSerializers.ITEM_STACK.codec().decode(buffer);
-                check(decoded.hasFoil()==source.hasFoil(),"item-display packet lost enchantment glint override");
-                check(Objects.equals(decoded.get(DataComponents.ITEM_MODEL),source.get(DataComponents.ITEM_MODEL)),
-                        "item-display packet changed the tile model");
-                check(decoded.get(DataComponents.ENCHANTMENTS)==null||decoded.get(DataComponents.ENCHANTMENTS).isEmpty(),
-                        "enchantment glint unexpectedly requires a gameplay enchantment");
-            } finally {buffer.release();}
+
+        displayPacket(33, false, true, "bridge/dora/tile_dragon_red", false);
+        displayPacket(33, false, false, "bridge/tile_dragon_red", false);
+        byte[] back = displayPacket(-1, false, false, "bridge/tile_back", false);
+        for (boolean sichuan : List.of(false, true)) {
+            check(Arrays.equals(back, displayPacket(-1, sichuan, true, "bridge/tile_back", false)),
+                    "a concealed tile leaked bonus or rule information in its packet");
         }
+        displayPacket(33, true, false, "bridge/tile_joker", true);
+        displayPacket(37, false, true, "bridge/tile_joker", false);
     }
 
     public static void main(String[] args) {
@@ -250,9 +250,9 @@ public final class DoraGlintRegression {
         acceptedKanReveals();
         winAndDrawVisibility();
         terminalResultVisibility();
-        vanillaGlintComponents();
+        tileDisplayPackets();
         System.out.println("PASS: 3p/4p dora cycles, red fives, concealed/delayed kan reveals and hidden indicator boundaries");
         System.out.println("PASS: riichi/double-riichi and double-ron ura reveal, non-riichi wins and draws preserve hidden ura");
-        System.out.println("PASS: terminal result and reload retain public ura/glint; item-display network codec retains vanilla glint and plain backs");
+        System.out.println("PASS: terminal result and reload retain public ura; encoded dora use gold models and all concealed backs are byte-identical");
     }
 }

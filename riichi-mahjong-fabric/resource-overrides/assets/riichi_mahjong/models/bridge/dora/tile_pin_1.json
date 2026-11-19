@@ -1,0 +1,6 @@
+{
+  "parent": "riichi_mahjong:bridge/dora_base",
+  "textures": {
+    "markings": "riichi_mahjong:block/dora/tile_pin_1"
+  }
+}

@@ -21,6 +21,7 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.commands.Commands;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -367,7 +368,10 @@ public final class RiichiIntegrationTest implements ModInitializer {
     private static List<Vec3> publicHandPositions() throws Exception{
         var elements=tiles(view());var positions=new ArrayList<Vec3>();
         for(int index=0;index<table.handDisplayOrder(0).size();index++){
-            var tile=elements.get("hand/0/"+index);require(tile!=null,"public hand tile missing at logical index "+index);positions.add(tile.getOverridePos());
+            var tile=elements.get("hand/0/"+index);require(tile!=null,"public hand tile missing at logical index "+index);
+            require("riichi_mahjong:bridge/tile_back".equals(String.valueOf(tile.getItem().get(DataComponents.ITEM_MODEL)))
+                            && !tile.getItem().hasFoil(), "public concealed tile disclosed its face or dora status at "+index);
+            positions.add(tile.getOverridePos());
         }
         return positions;
     }
@@ -556,7 +560,7 @@ public final class RiichiIntegrationTest implements ModInitializer {
                 var dir=PortViews.outward(seat,table.getBlockState());float yaw=switch(dir){case EAST->-90;case WEST->90;case SOUTH->180;default->0;};
                 var expectedRotation=new org.joml.Quaternionf().rotationX((float)Math.PI/2).rotateLocalY((float)Math.toRadians(yaw));if(down)expectedRotation.rotateLocalX((float)Math.PI);
                 require(Math.abs(Math.abs(element.getLeftRotation().dot(expectedRotation))-1)<1e-5,"concealed-kan tile orientation is not face "+(down?"down":"up"));
-                var entry=new LinkedHashMap<String,Object>();entry.put("key","meld/"+seat+"/0/"+index);entry.put("seat",seat);entry.put("index",index);entry.put("faceDown",down);entry.put("expectedModel","riichi_mahjong:"+PortViews.tileModel(data.code()));
+                var entry=new LinkedHashMap<String,Object>();entry.put("key","meld/"+seat+"/0/"+index);entry.put("seat",seat);entry.put("index",index);entry.put("faceDown",down);entry.put("expectedModel","riichi_mahjong:"+PortViews.tileModel(data.code(),publicBoard.sichuan(),publicBoard.doraTiles().contains(data.code())));
                 var at=element.getOverridePos();entry.put("position",List.of(at.x,at.y,at.z));var q=expectedRotation;entry.put("expectedLeftRotation",List.of(q.x,q.y,q.z,q.w));entry.put("scale",List.of(.1,.1,.1));expected.add(entry);
             }
         }

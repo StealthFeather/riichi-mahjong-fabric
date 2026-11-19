@@ -70,8 +70,8 @@ public final class CompetitiveSettingsRegression {
             var round=new TheMahjongRound(r.roundWind(),r.handNumber(),r.honba(),r.riichiSticks(),r.dealerSeat(),r.state(),r.currentTurnSeat(),-1,r.activeTile(),r.liveWall(),r.rinshanTiles(),Collections.nCopies(5,tile(0,1)),Collections.nCopies(5,tile(1,6)),1,players,List.of());
             var win=new WinResult(List.of(),List.of(),1,30,0,List.of(1000,-1000,0,0));
             var phase=new MatchPhase.RoundEnded(List.of(win));
-            check(DoraGlint.uraVisible(round,phase,rules)==!jpml,"public ura visibility ignores tournament rules");
-            check(DoraGlint.tiles(round,phase,rules).contains(PublicTable.code(tile(1,7)))==!jpml,"hidden/disabled ura affected hand glint");
+            check(DoraTiles.uraVisible(round,phase,rules)==!jpml,"public ura visibility ignores tournament rules");
+            check(DoraTiles.tiles(round,phase,rules).contains(PublicTable.code(tile(1,7)))==!jpml,"hidden/disabled ura affected hand highlighting");
         }
     }
     private static void responsibilityNbt() {
