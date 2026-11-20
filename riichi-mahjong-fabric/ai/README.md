@@ -1,6 +1,6 @@
 # Four-player AI workers
 
-Eligible live tables use the local Mortal worker described in [the installation guide](../docs/0.5.4-mortal.md). The following sections describe the Kobalab worker used for other tables, fallback decisions and analysis.
+Standard four-player Mahjong Soul, Tenhou and M-League tables use the local Mortal worker for live decisions and replay scoring in both East-only and East–South matches. Other four-player tables and live fallback decisions use Kobalab. [Mortal installation and replay scoring](../docs/0.5.4-mortal.md)
 
 <!-- timory-resource-repository:start -->
 ## 材质包统一维护
@@ -73,13 +73,16 @@ defense, yakuhai calls, red tiles, source-seat rotations, kan notation, called-t
 counts, deterministic reloads and JSON-line error recovery. Java and real-server
 integration tests cover the snapshot boundary and controller lifecycle separately.
 
-## Replay kind probabilities and consistency scores (cache version 3)
+## Replay weights and consistency scores (cache version 4)
+
+For Mortal replays, the worker normalizes legal Q-values using softmax at temperature 1. Each discard kind takes its best legal variant before normalization. Separate action weights retain red-tile, riichi and kan choices. Both distributions reach Java at full precision. The cache records the scoring policy and the engine used for each evaluated frame. [Mortal worker details](mortal/README.md)
+
+### Other rules
 
 Replay analysis exposes **modeled policy probabilities**. The bundled AI is a
 deterministic strategy and does not provide native action probabilities. These
 percentages are neither win probabilities nor calibrated predictions of human
-choices. The model is named `modeled-kind-softmax-v3`; older analysis caches are rejected
-and recomputed.
+choices. The Kobalab policy is named `modeled-kind-softmax-v3`.
 
 For four-player discard candidates, reuse the hard strategy's expected value,
 shanten and public-information danger estimate:
@@ -110,9 +113,8 @@ Two distributions are normalized independently:
   refer to the authoritative Java engine's legal list. Calls and kans use the
   same AI's post-action hand evaluation; legal wins receive an additional 2
   logit units, riichi 0.15, and abortive draw -1. The deterministic full-action
-  recommendation receives the same 0.5 margin before softmax. This action
-  distribution is internal; the UI displays one score per tile kind and keeps
-  historical operation buttons free of scores.
+  recommendation receives the same 0.5 margin before softmax. The replay
+  displays a weight per discard kind and annotates the highest-ranked action buttons.
 
 Integer percentages use the largest-remainder method: floor all percentages,
 then assign the remaining percentage points to the largest fractional parts.
@@ -128,6 +130,8 @@ ukeire evaluator with the actual sanma tile set, the same softmax temperature,
 and the same largest-remainder rule. The original three-player BOT provides the
 full-action recommendation. This is a separate modeled policy with lower
 strategic detail than the four-player engine.
+
+### Scoring across rules
 
 A replay result retains the actual recorded discard kind, its conditional
 probability, its full-distribution rank, and the corresponding exact normal/riichi

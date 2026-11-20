@@ -101,7 +101,7 @@ final class ReplayView {
         }
         String status="";
         if(session.analysisEnabled()){
-            if(current!=null&&!current.available())status="分析暂不可用";
+            if(current!=null&&!current.available())status=current.excluded() ? current.error() : "分析暂不可用";
         }
         if(!status.equals(lastStatus)){owner.sendSystemMessage(Component.literal(status).withStyle(ChatFormatting.YELLOW),true);lastStatus=status;}
     }

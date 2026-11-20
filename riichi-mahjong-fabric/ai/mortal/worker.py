@@ -1,7 +1,9 @@
 """Mortal v4 four-player decision worker. One independent JSON request per line."""
 import json
+import math
 import os
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 # Two server-side workers can run concurrently. Each needs at most one Rayon job.
@@ -39,35 +41,47 @@ def plain(tile):
     return tile[0] + "5" if tile[1] == "0" else tile
 
 
+def action_code(move, claimed_tile):
+    """Index in the 46-action Mortal v4 main head."""
+    kind = move["type"]
+    if kind == "Discard":
+        return TILE_ID[move["tile"]]
+    if kind == "DiscardWithRiichi":
+        return 37
+    if kind == "Chi":
+        called_rank = int(plain(claimed_tile)[1])
+        first_rank = min(int(plain(t)[1]) for t in [claimed_tile, *move["handTiles"]])
+        return 38 + called_rank - first_rank
+    if kind == "Pon":
+        return 41
+    if kind in KAN_TYPES:
+        return 42
+    if kind in WIN_TYPES:
+        return 43
+    return {"KyuushuAbort": 44, "Pass": 45}.get(kind)
+
+
+def branch_tile(move):
+    if move["type"] == "DiscardWithRiichi":
+        return TILE_ID[move["tile"]]
+    if move["type"] in {"Ankan", "Kakan"}:
+        tile = move["tile"] if move["type"] == "Kakan" else move["handTiles"][0]
+        return TILE_ID[plain(tile)]
+    return None
+
+
 def action_mask(legal, claimed_tile):
     """Return main-action mask, riichi discard mask and kan selection mask."""
     main, reach, kan = (np.zeros(46, dtype=bool) for _ in range(3))
     for move in legal:
-        kind = move["type"]
-        if kind == "Discard":
-            main[TILE_ID[move["tile"]]] = True
-        elif kind == "DiscardWithRiichi":
-            main[37] = True
-            reach[TILE_ID[move["tile"]]] = True
-        elif kind == "Chi":
-            called_rank = int(plain(claimed_tile)[1])
-            first_rank = min(int(plain(t)[1]) for t in [claimed_tile, *move["handTiles"]])
-            main[38 + called_rank - first_rank] = True
-        elif kind == "Pon":
-            main[41] = True
-        elif kind in KAN_TYPES:
-            main[42] = True
-            if kind in {"Ankan", "Kakan"}:
-                tile = move["tile"] if kind == "Kakan" else move["handTiles"][0]
-                kan[TILE_ID[plain(tile)]] = True
-        elif kind in WIN_TYPES:
-            main[43] = True
-        elif kind == "KyuushuAbort":
-            main[44] = True
-        elif kind == "Pass":
-            main[45] = True
+        code = action_code(move, claimed_tile)
+        if code is None:
+            continue
+        main[code] = True
+        tile = branch_tile(move)
+        if tile is not None:
+            (reach if code == 37 else kan)[tile] = True
     return main, reach, kan
-
 
 class Engine:
     """Network is shared by sequential requests. Each request creates a seat-local Bot."""
@@ -77,6 +91,7 @@ class Engine:
     is_oracle = False
     # Force model inference even when the Rust engine sees only one discard.
     enable_quick_eval = False
+    capture = False
     # Rust's optional placement heuristic assumes a Tenhou hanchan. Java owns table rules.
     enable_rule_based_agari_guard = False
 
@@ -110,6 +125,9 @@ class Engine:
         if not np.isfinite(scores[allowed]).all():
             raise ValueError("nonfinite Mortal score")
         scores = np.where(allowed, scores, -np.inf)
+        if self.capture:
+            self.captured = [{int(i): float(row[i]) for i in np.flatnonzero(mask)}
+                             for row, mask in zip(scores, allowed)]
         return scores.argmax(axis=1).tolist(), scores.tolist(), allowed.tolist(), [True] * len(scores)
 
 
@@ -138,7 +156,7 @@ def select_index(action, legal, riichi, red_fives):
     return matches[0]["index"]
 
 
-def decide(engine, request):
+def start_decision(engine, request):
     events, legal = request["events"], request["legal"]
     if len(events) < 3 or events[0]["type"] != "start_game" or events[1]["type"] != "start_kyoku":
         raise ValueError("missing hand history")
@@ -156,17 +174,91 @@ def decide(engine, request):
     response = bot.react(json.dumps(last))
     if not response:
         raise ValueError("Mortal has no decision on the final event")
+    return bot, json.loads(response), riichi_mask, claimed_tile
+
+
+def riichi_discard(engine, bot, seat, riichi_mask):
+    engine.main_mask = riichi_mask
+    response = bot.react(json.dumps({"type": "reach", "actor": seat}))
+    if not response:
+        raise ValueError("Mortal did not select a riichi discard")
     action = json.loads(response)
+    if action["type"] != "dahai":
+        raise ValueError("invalid second riichi action")
+    return action
+
+
+def decide(engine, request):
+    bot, action, riichi_mask, _ = start_decision(engine, request)
     riichi = action["type"] == "reach"
     if riichi:
-        engine.main_mask = riichi_mask
-        discard = bot.react(json.dumps({"type": "reach", "actor": request["seat"]}))
-        if not discard:
-            raise ValueError("Mortal did not select a riichi discard")
-        action = json.loads(discard)
-        if action["type"] != "dahai":
-            raise ValueError("invalid second riichi action")
-    return select_index(action, legal, riichi, request.get("rules", {}).get("redFives", True))
+        action = riichi_discard(engine, bot, request["seat"], riichi_mask)
+    return select_index(action, request["legal"], riichi, request.get("rules", {}).get("redFives", True))
+
+
+def softmax(values):
+    """Unit-temperature softmax evaluated in double precision."""
+    if not values:
+        return {}
+    peak = max(values.values())
+    weights = {key: math.exp(q - peak) for key, q in values.items()}
+    total = math.fsum(weights.values())
+    return {key: weight / total for key, weight in weights.items()}
+
+
+def analyze(engine, request):
+    legal = request["legal"]
+    if len(legal) == 1 and legal[0]["type"] in {"Draw", "Pass"}:
+        return {"weights": {}, "actions": [{"index": legal[0]["index"], "probability": 1.0}]}
+    # The exact f32 network results are captured before Rust serializes compact
+    # metadata as JSON. Convert to f64 only for normalization and path arithmetic.
+    engine.capture = True
+    try:
+        bot, action, riichi_mask, claimed = start_decision(engine, request)
+        main_q = engine.captured[-1]
+        branches = {}
+        if len(engine.captured) == 2 and 42 in main_q:
+            branches[42] = engine.captured[0]
+        if 37 in main_q:
+            riichi_discard(engine, bot, request["seat"], riichi_mask)
+            branches[37] = engine.captured[-1]
+    finally:
+        engine.capture = False
+        engine.captured = ()
+
+    main_policy = softmax(main_q)
+    conditional = {code: softmax(scores) for code, scores in branches.items()}
+    # Several physical Java calls can name the same Mortal action. libriichi
+    # calls using a red five whenever possible; credit that exact variant.
+    moves_by_path = defaultdict(list)
+    for move in legal:
+        moves_by_path[action_code(move, claimed), branch_tile(move)].append(move)
+    probabilities = {move["index"]: 0.0 for move in legal}
+    kind_q = {}
+    for (code, child), moves in moves_by_path.items():
+        if code not in main_q:
+            continue
+        q = main_q[code]
+        probability = main_policy[code]
+        if child is not None:
+            if child not in branches.get(code, {}):
+                continue
+            q += branches[code][child] - max(branches[code].values())
+            probability *= conditional[code][child]
+        move = max(moves, key=lambda m: sum(t[1] == "0" for t in m.get("handTiles", [])))
+        probabilities[move["index"]] = probability
+        if move["type"] in {"Discard", "DiscardWithRiichi"}:
+            tile = plain(move["tile"])
+            kind_q[tile] = max(q, kind_q.get(tile, -math.inf))
+
+    if not math.isclose(math.fsum(probabilities.values()), 1.0, abs_tol=1e-10):
+        raise ValueError("could not map every Mortal action to a Java move")
+    weights = softmax(kind_q)
+    for move in legal:
+        if move["type"] in {"Discard", "DiscardWithRiichi"}:
+            weights.setdefault(plain(move["tile"]), 0.0)
+    actions = [{"index": index, "probability": probability} for index, probability in probabilities.items()]
+    return {"weights": weights, "actions": actions}
 
 
 def main():
@@ -176,8 +268,11 @@ def main():
         try:
             request = json.loads(line)
             req_id = request["id"]
-            index = decide(engine, request)
-            result = {"id": req_id, "index": index, "engine": "Mortal"}
+            if request.get("mode") == "analysis":
+                result = analyze(engine, request)
+            else:
+                result = {"index": decide(engine, request)}
+            result.update(id=req_id, engine="Mortal")
         except Exception as exc:
             # The server owns fallback and its accounting. Never report an invented index.
             result = {"id": req_id, "error": str(exc).splitlines()[0][:200]}

@@ -23,7 +23,13 @@ final class AiWorker {
     private long activeId = -1;
 
     int request(JsonObject snapshot, BooleanSupplier done) throws Exception {
-        if (done.getAsBoolean()) throw new IOException("Decision cancelled");
+        JsonObject reply = exchange(snapshot, done);
+        if (!reply.has("index") || reply.get("index").isJsonNull()) throw new IOException("AI response missing index");
+        return reply.get("index").getAsBigDecimal().intValueExact();
+    }
+
+    JsonObject exchange(JsonObject snapshot, BooleanSupplier done) throws Exception {
+        if (done.getAsBoolean()) throw new IOException("AI request cancelled");
         long id = snapshot.get("id").getAsLong();
         synchronized (this) { activeId = id; }
         try {
@@ -45,10 +51,9 @@ final class AiWorker {
             JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
             if (!reply.has("id") || reply.get("id").getAsBigDecimal().longValueExact() != snapshot.get("id").getAsLong()) throw new IOException("AI response id mismatch");
             if (reply.has("error")) throw new DecisionError(reply.get("error").getAsString());
-            if (!reply.has("index") || reply.get("index").isJsonNull()) throw new IOException("AI response missing index");
             if (expectedEngine != null && !(reply.has("engine") && expectedEngine.equals(reply.get("engine").getAsString())))
                 throw new IOException("AI response engine mismatch");
-            return reply.get("index").getAsBigDecimal().intValueExact();
+            return reply;
         } finally {
             synchronized (this) { if (activeId == id) activeId = -1; }
         }

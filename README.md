@@ -8,7 +8,7 @@ Timory Mahjong 0.5.4 Mortal 基于 0.5.4-beta.1，是 Minecraft 26.3 Fabric 服�
 
 使用牌谱物品可查看已完成的对局记录、回放牌局及分析。对局统计和回放按玩家权限显示；公式战积分暂不设升段。
 
-雀魂、天凤和 M-League 的标准四人东风场和半庄使用本地 Mortal 模型打牌。服务器需安装模型和推理程序。详见 [Mortal 安装与适用范围](riichi-mahjong-fabric/docs/0.5.4-mortal.md)。
+雀魂、天凤和 M-League 的标准四人东风场和半庄使用本地 Mortal 模型打牌，牌谱回放也按该模型的合法弃牌权重评分。服务器需安装模型和推理程序。详见 [Mortal 安装与适用范围](riichi-mahjong-fabric/docs/0.5.4-mortal.md)。
 
 服务端需要 Minecraft 26.3、Fabric API、Java 25 及 Node.js 22+；玩家无需安装客户端 Mod。
 

@@ -54,7 +54,8 @@ public final class ReplayMenus {
             control(menu, player, table, 28, Items.CLOCK, "播放速度：" + session.speed() + "倍", ReplaySession.Control.SPEED);
             control(menu, player, table, 30, tile(27 + wind), "切换视角：" + WINDS[wind], ReplaySession.Control.PERSPECTIVE);
             control(menu, player, table, 32, Items.ENDER_EYE, "全手牌：" + (session.showAll() ? "显示" : "隐藏"), ReplaySession.Control.REVEAL);
-            control(menu, player, table, 34, tile(32), "AI分析：" + (session.analysisEnabled() ? "开启" : "关闭"), ReplaySession.Control.ANALYSIS);
+            String analysisName = ReplayAnalysis.usesMortal(session.record()) ? "Mortal 分析：" : "AI分析：";
+            control(menu, player, table, 34, tile(32), analysisName + (session.analysisEnabled() ? "开启" : "关闭"), ReplaySession.Control.ANALYSIS);
             menu.button(45, icon(Items.BARRIER, "退出回放并恢复牌桌"), () -> { table.controlReplay(player, ReplaySession.Control.EXIT); player.closeContainer(); });
             menu.button(53, icon(Items.BARRIER, "关闭控制面板"), player::closeContainer);
         });
@@ -117,7 +118,7 @@ public final class ReplayMenus {
                         () -> load(player, match.id(), analysis.getOrDefault(match.id(), false), history));
                 participantScores(menu, match, base, scores, failures);
                 boolean enabled = analysis.getOrDefault(match.id(), false);
-                ItemStack toggle = icon(tile(32), "AI分析：" + (enabled ? "开启" : "关闭"), "点击切换，再点击本行载入", "使用高级AI评估各次弃牌", "整场一致性评分显示在各玩家物品说明中");
+                ItemStack toggle = icon(tile(32), "AI分析：" + (enabled ? "开启" : "关闭"), "点击切换，再点击本行载入", "按牌谱规则评估每次弃牌", "整场一致性评分显示在各玩家物品说明中");
                 toggle.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, enabled);
                 menu.button(base + 5, toggle, () -> {
                     analysis.put(match.id(), !enabled);
@@ -125,7 +126,9 @@ public final class ReplayMenus {
                     if (!enabled && !scores.containsKey(match.id()) && !ReplayAnalysis.analysisComplete(match.id())) {
                         var server = player.level().getServer();
                         ReplayStore.load(player.getUUID(), match.id()).whenComplete((record, error) -> {
-                            if (error == null) ReplayAnalysis.analyzeAll(record, ignored -> {});
+                            if (error == null) ReplayAnalysis.analyzeAll(record, frame -> {
+                                if (!frame.available() && !frame.excluded()) server.executeIfPossible(() -> failures.add(match.id()));
+                            });
                             else server.executeIfPossible(() -> failures.add(match.id()));
                         });
                     }
@@ -153,7 +156,7 @@ public final class ReplayMenus {
             ReplayRecord.Participant participant = match.participantAt(seat);
             if (participant == null) menu.button(base + 1 + seat, icon(tile(27 + seat), "—", WINDS[seat] + "位未启用"), () -> {});
             else menu.button(base + 1 + seat, icon(tile(27 + seat), Integer.toString(participant.points()), participant.name(), WINDS[seat] + "位",
-                    failures.contains(match.id()) ? "整场一致性评分：分析暂不可用，请重新启用" : matchScoreLabel(scores, seat, complete)), () -> {});
+                    !complete && failures.contains(match.id()) ? "整场一致性评分：分析暂不可用，请重新启用" : matchScoreLabel(scores, seat, complete)), () -> {});
         }
     }
     private static String matchScoreLabel(Map<Integer, Integer> scores, int seat, boolean complete) {

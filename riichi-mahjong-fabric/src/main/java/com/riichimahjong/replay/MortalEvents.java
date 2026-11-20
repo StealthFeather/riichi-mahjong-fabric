@@ -11,6 +11,15 @@ final class MortalEvents {
     private MortalEvents() {}
 
     static JsonArray forSeat(List<ReplayRecord.Frame> frames, int seat) {
+        return forSeat(frames, seat, false);
+    }
+
+    /** Older archives displayed an equal-kind discarded copy as the drawn tile. */
+    static JsonArray forReplayFrame(List<ReplayRecord.Frame> frames, int index, int seat) {
+        return forSeat(frames.subList(0, index + 1), seat, true);
+    }
+
+    private static JsonArray forSeat(List<ReplayRecord.Frame> frames, int seat, boolean historical) {
         if (frames.isEmpty() || seat < 0 || seat > 3) return new JsonArray();
         int start = frames.size() - 1;
         int roundIndex = frames.get(start).roundIndex();
@@ -33,7 +42,7 @@ final class MortalEvents {
                 var previous = frames.get(i - 1).driver();
                 var current = frames.get(i).driver();
                 var after = round(current);
-                transition(events, previous, current, before, after, seat, frames.get(i).tsumogiri());
+                transition(events, previous, current, before, after, seat, frames.get(i).tsumogiri() == null && historical ? Boolean.TRUE : frames.get(i).tsumogiri());
                 before = after;
             }
             return events;

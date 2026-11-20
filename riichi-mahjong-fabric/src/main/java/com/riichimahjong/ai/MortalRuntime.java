@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
@@ -24,6 +25,9 @@ public final class MortalRuntime {
     private static final ScheduledThreadPoolExecutor TIMER = new ScheduledThreadPoolExecutor(1,
             r -> Thread.ofPlatform().daemon().name("riichi-mortal-timeouts").unstarted(r));
     private static final AiWorker WORKER = new AiWorker(MortalRuntime::start, "Mortal");
+    private static final AiWorker REPLAY_WORKER = new AiWorker(MortalRuntime::start, "Mortal");
+    private static final AtomicLong REPLAY_IDS = new AtomicLong();
+    private static volatile boolean replayClosed;
     private static volatile long retryAfterNanos;
     private static volatile String status = "Mortal 待命";
 
@@ -55,15 +59,7 @@ public final class MortalRuntime {
             return AiRuntime.choose(snapshot);
         }
 
-        var request = new JsonObject();
-        request.addProperty("id", id);
-        request.add("seat", snapshot.get("seat"));
-        var rules = new JsonObject();
-        rules.add("redFives", snapshot.getAsJsonObject("rules").get("redFives"));
-        request.add("rules", rules);
-        request.addProperty("length", length.name());
-        request.add("legal", snapshot.getAsJsonArray("legal"));
-        request.add("events", events);
+        var request = request(id, snapshot, events, length);
         var model = new CompletableFuture<Integer>();
         var result = new CompletableFuture<Integer>();
         // Cancellation follows the current engine through handover, unload, and strategy fallback.
@@ -131,6 +127,55 @@ public final class MortalRuntime {
         return result;
     }
 
+    private static JsonObject request(long id, JsonObject snapshot, JsonArray events, MatchLength length) {
+        var request = new JsonObject();
+        request.addProperty("id", id);
+        request.add("seat", snapshot.get("seat"));
+        var rules = new JsonObject();
+        rules.add("redFives", snapshot.getAsJsonObject("rules").get("redFives"));
+        request.add("rules", rules);
+        request.addProperty("length", length.name());
+        request.add("legal", snapshot.getAsJsonArray("legal"));
+        request.add("events", events);
+        return request;
+    }
+
+    /** Called by ReplayAnalysis's single background executor, outside the live BOT queue and process. */
+    public static JsonObject analyzeReplay(JsonObject snapshot, JsonArray events, MatchLength length) throws Exception {
+        if (events.isEmpty()) throw new IOException("Mortal 牌谱缺少本手的完整公开行动");
+        if (replayClosed) throw new IOException("Mortal 牌谱分析已关闭");
+
+        long id = REPLAY_IDS.incrementAndGet();
+        var request = request(id, snapshot, events, length);
+        request.addProperty("mode", "analysis");
+        var expired = new AtomicBoolean();
+        long deadline = Math.clamp(Long.getLong("riichi.replay.analysisTimeoutMillis", 10_000L), 100L, 30_000L);
+        var timeout = TIMER.schedule(() -> {
+            expired.set(true);
+            REPLAY_WORKER.cancel(id);
+        }, deadline, TimeUnit.MILLISECONDS);
+        try {
+            var reply = REPLAY_WORKER.exchange(request, () -> replayClosed || expired.get());
+            if (replayClosed || expired.get()) throw new IOException("Mortal 牌谱分析已取消或超时");
+            if (!reply.has("weights") || !reply.get("weights").isJsonObject()
+                    || !reply.has("actions") || !reply.get("actions").isJsonArray())
+                throw new IOException("Mortal 牌谱分析返回了无效的评分");
+            return reply;
+        } catch (AiWorker.DecisionError unsupported) {
+            throw unsupported;
+        } catch (Exception unavailable) {
+            REPLAY_WORKER.kill();
+            throw unavailable;
+        } finally {
+            timeout.cancel(false);
+        }
+    }
+
+    public static void closeReplay() {
+        replayClosed = true;
+        REPLAY_WORKER.kill();
+    }
+
     private static void warn(Throwable error) {
         long now = System.nanoTime(), previous = LAST_WARNING.get();
         if ((previous == 0 || now - previous >= TimeUnit.SECONDS.toNanos(30)) && LAST_WARNING.compareAndSet(previous, now))
@@ -139,6 +184,7 @@ public final class MortalRuntime {
     }
 
     static void shutdown() {
+        closeReplay();
         PENDING.forEach(result -> result.cancel(false));
         EXECUTOR.shutdownNow();
         TIMER.shutdownNow();

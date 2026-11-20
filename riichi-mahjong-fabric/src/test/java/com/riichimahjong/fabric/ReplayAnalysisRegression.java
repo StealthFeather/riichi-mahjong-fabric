@@ -35,7 +35,7 @@ public final class ReplayAnalysisRegression {
     private static ReplayRecord record(TheMahjongDriver driver){return record(driver,tile(4,2));}
     private static ReplayRecord record(TheMahjongDriver driver,TheMahjongTile actual){
         var before=frame(driver);act(driver,0,new PlayerAction.Discard(actual));var after=frame(driver);
-        return new ReplayRecord(UUID.randomUUID(),1,2,"MAHJONG_SOUL_4P",List.of(new ReplayRecord.Participant(0,UUID.randomUUID(),"Test",25000)),List.of(before,after));
+        return new ReplayRecord(UUID.randomUUID(),1,2,driver.match().playerCount()==3?"MAHJONG_SOUL_SANMA_3P":"WRC_4P",List.of(new ReplayRecord.Participant(0,UUID.randomUUID(),"Test",25000)),List.of(before,after));
     }
     private static Path worker(String script)throws Exception{var path=Files.createTempDirectory("riichi-replay-worker-").resolve("worker.cjs");Files.writeString(path,script);return path;}
     private static void scenario(String mode)throws Exception{
@@ -61,6 +61,9 @@ public final class ReplayAnalysisRegression {
         check(ReplayAnalysis.request(record,0,driver,null).get(2,TimeUnit.SECONDS).equals(result),"same frame analysis is not stable");
         var json=ReplayAnalysis.exportResults(record.id());ReplayAnalysis.importResults(record.id(),json);
         check(ReplayAnalysis.roundScores(record.id()).get(0).get(0)==100,"cache import changed consistency scores");
+        var oldPolicy = json.deepCopy();oldPolicy.addProperty("version",3);oldPolicy.addProperty("policy","modeled-kind-softmax-v3");
+        try {ReplayAnalysis.importResults(record.id(),oldPolicy);throw new AssertionError("old heuristic-only replay cache reused");}
+        catch(IllegalArgumentException expected){}
         var old=json.deepCopy();old.addProperty("version",1);
         try{ReplayAnalysis.importResults(record.id(),old);throw new AssertionError("legacy 99-point cache was reused as probabilities");}catch(IllegalArgumentException expected){}
         var v2=json.deepCopy();v2.addProperty("version",2);
@@ -116,6 +119,6 @@ public final class ReplayAnalysisRegression {
             var process=new ProcessBuilder(java,"-cp",System.getProperty("java.class.path"),ReplayAnalysisRegression.class.getName(),mode).inheritIO().start();
             if(!process.waitFor(35,TimeUnit.SECONDS)){process.destroyForcibly();throw new AssertionError("Replay analysis scenario timed out: "+mode);}check(process.exitValue()==0,"Replay analysis scenario failed: "+mode);
         }
-        System.out.println("PASS: modeled probabilities, complete action/discard policies, actual choice rank, cache v3, sanma, timeout and identity validation");
+        System.out.println("PASS: modeled probabilities, complete action/discard policies, actual choice rank, cache v4, sanma, timeout and identity validation");
     }
 }
