@@ -1,4 +1,6 @@
-# Four-player AI worker
+# Four-player AI workers
+
+Eligible live tables use the local Mortal worker described in [the installation guide](../docs/0.5.4-mortal.md). The following sections describe the Kobalab worker used for other tables, fallback decisions and analysis.
 
 <!-- timory-resource-repository:start -->
 ## 材质包统一维护
@@ -53,7 +55,7 @@ Claimed river entries set `called:true` and are counted in their meld exactly on
 
 Every decision rebuilds the upstream player from this snapshot, so process
 restart, saved-game reload and human/BOT handover do not require an event replay.
-The Mod currently does not record a globally ordered discard history or historical
+The Kobalab snapshot omits the global discard order and historical
 tsumogiri. The reconstruction therefore uses only each opponent's own discards as
 certain safe tiles and does not infer additional tiles discarded after riichi.
 This is conservative and may differ from upstream's decisions with a complete

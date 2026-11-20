@@ -2,6 +2,7 @@ package com.riichimahjong.fabric;
 
 import com.google.gson.GsonBuilder;
 import com.mojang.authlib.GameProfile;
+import com.riichimahjong.ai.AiRuntime;
 import com.riichimahjong.analysis.AnalysisMode;
 import com.riichimahjong.analysis.PlayerAnalysisStore;
 import com.riichimahjong.common.BaseMultipartBlock;
@@ -106,6 +107,10 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
             PortMenus.settings(host, table);
             require(table.owner().filter(host.getUUID()::equals).isPresent(), "first menu opener did not claim ownerless table");
             require(host.opened instanceof PortMenus.Actions, "owner menu did not open");
+            if (Boolean.getBoolean("riichi.test.mortal")) {
+                result.put("mortalDecisions", verifyMortalMatches(table, server));
+                checks.add("six-mortal-rule-and-length-combinations-with-real-inference-and-mid-hand-reload");
+            }
             categoryMenus(table, host, visitor);
             analysisMenus(server, table, host, visitor);
             windPlate(table, visitor);
@@ -159,6 +164,51 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         }
         System.out.println("RIICHI_MENU_INTEGRATION " + new GsonBuilder().create().toJson(result));
         return Boolean.TRUE.equals(result.get("passed")) ? 1 : 0;
+    }
+
+    /** Opt-in check for an isolated server with the real local model installed. */
+    private static Map<String, Long> verifyMortalMatches(MahjongTableBlockEntity table, MinecraftServer server)
+            throws InterruptedException {
+        var results = new LinkedHashMap<String, Long>();
+        var originalPreset = table.preset();
+        var originalLength = table.matchLength();
+        for (var preset : List.of(RuleSetPreset.MAHJONG_SOUL_4P, RuleSetPreset.TENHOU_4P, RuleSetPreset.M_LEAGUE_4P)) {
+            for (var length : MatchLength.values()) {
+                table.selectPreset(preset);
+                table.selectMatchLength(length);
+                require(table.usesMortalBots(), "Mortal route missing at " + preset + " " + length);
+                var before = AiRuntime.mortalMetrics();
+                require(table.tryStartMatch(73L) == MahjongTableBlockEntity.StartMatchResult.STARTED, "Mortal table did not start");
+                boolean restored = false;
+                long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(120);
+                while (!(table.driver().currentPhase() instanceof MatchPhase.MatchEnded)) {
+                    if (table.driver().currentPhase() instanceof MatchPhase.RoundEnded) {
+                        var progression = RoundProgression.next(table.driver());
+                        table.driver().advanceRound(progression.renchan(), progression.nextHonba());
+                        continue;
+                    }
+                    require(System.nanoTime() < deadline, "Mortal table stalled at " + preset + " " + length);
+                    table.driver().advance(2);
+                    var round = table.driver().currentRound();
+                    if (!restored && round.players().stream().mapToInt(p -> p.discards().size()).sum() >= 4) {
+                        var saved = table.saveCustomOnly(server.registryAccess());
+                        table.loadCustomOnly(TagValueInput.create(ProblemReporter.DISCARDING, server.registryAccess(), saved));
+                        require(table.driver().currentRound().equals(round), "restored a different Mortal hand");
+                        restored = true;
+                    }
+                    Thread.sleep(1);
+                }
+                var after = AiRuntime.mortalMetrics();
+                long decisions = after.get("engineSuccess") - before.get("engineSuccess");
+                require(restored && decisions > 0 && after.get("fallback").equals(before.get("fallback")),
+                        "expected real Mortal actions at " + preset + " " + length + " before=" + before + " after=" + after);
+                results.put(preset.name() + "/" + length.name(), decisions);
+                table.endGame();
+            }
+        }
+        table.selectPreset(originalPreset);
+        table.selectMatchLength(originalLength);
+        return results;
     }
 
     private static MenuPlayer register(MinecraftServer server, String name, List<MenuPlayer> registered) {

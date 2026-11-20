@@ -1,13 +1,8 @@
 package com.riichimahjong.ai;
 
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -28,7 +23,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
-import java.util.function.BooleanSupplier;
 
 /** Two bounded background workers; Node is never launched or waited for on a server tick. */
 public final class AiRuntime {
@@ -37,9 +31,9 @@ public final class AiRuntime {
     private static final AtomicLong THREAD_IDS = new AtomicLong();
     private static final LongAdder SUBMITTED = new LongAdder(), SUCCESS = new LongAdder(), FALLBACK = new LongAdder(), TIMEOUT = new LongAdder();
     private static final Map<String, LongAdder> LEVEL_SUCCESS = Map.of("EASY", new LongAdder(), "NORMAL", new LongAdder(), "HARD", new LongAdder());
-    private static final Set<Worker> WORKERS = ConcurrentHashMap.newKeySet();
+    private static final Set<AiWorker> WORKERS = ConcurrentHashMap.newKeySet();
     private static final Set<CompletableFuture<Integer>> PENDING = ConcurrentHashMap.newKeySet();
-    private static final ThreadLocal<Worker> LOCAL = ThreadLocal.withInitial(() -> { var w = new Worker(); WORKERS.add(w); return w; });
+    private static final ThreadLocal<AiWorker> LOCAL = ThreadLocal.withInitial(() -> { var w = new AiWorker(AiRuntime::startNodeWorker, null); WORKERS.add(w); return w; });
     private static final ThreadPoolExecutor EXECUTOR = new ThreadPoolExecutor(2, 2, 30, TimeUnit.SECONDS,
             new ArrayBlockingQueue<>(32), r -> { var t = new Thread(r, "riichi-ai-" + THREAD_IDS.incrementAndGet()); t.setDaemon(true); return t; });
     private static final ScheduledThreadPoolExecutor WATCHDOG = new ScheduledThreadPoolExecutor(1,
@@ -74,7 +68,7 @@ public final class AiRuntime {
         input.addProperty("id", id);
         int emergency = analysis ? -1 : FallbackPolicy.cheapIndex(input);
         var result = new DecisionFuture();
-        var running = new AtomicReference<Worker>();
+        var running = new AtomicReference<AiWorker>();
         long timeoutMillis = Math.max(100, Math.min(10_000, Long.getLong("riichi.ai.timeoutMillis", 1500L)));
         SUBMITTED.increment();
         if (EXECUTOR.isShutdown()) return degraded(result, emergency, "AI 已关闭，使用基础牌效");
@@ -91,7 +85,7 @@ public final class AiRuntime {
                 }
             }
             if (timedOut) {
-                Worker worker = running.get();
+                AiWorker worker = running.get();
                 if (worker != null) worker.cancel(id);
                 warn("AI decision exceeded " + timeoutMillis + " ms; using a legal fallback");
             }
@@ -100,7 +94,7 @@ public final class AiRuntime {
         result.whenComplete((value, error) -> {
             PENDING.remove(result);
             timeout.cancel(false);
-            if (result.isCancelled()) { Worker worker = running.get(); if (worker != null) worker.cancel(id); }
+            if (result.isCancelled()) { AiWorker worker = running.get(); if (worker != null) worker.cancel(id); }
         });
         try {
             EXECUTOR.execute(() -> {
@@ -110,7 +104,7 @@ public final class AiRuntime {
                     degraded(result, fallback, "AI 暂不可用，使用基础牌效");
                     return;
                 }
-                Worker worker = LOCAL.get();
+                AiWorker worker = LOCAL.get();
                 running.set(worker);
                 if (result.isDone()) return;
                 try {
@@ -160,11 +154,15 @@ public final class AiRuntime {
         if ((previous == 0 || now - previous > TimeUnit.SECONDS.toNanos(30)) && LAST_LOG.compareAndSet(previous, now)) LOG.log(System.Logger.Level.WARNING, message);
     }
 
+    public static String mortalStatus() { return MortalRuntime.status(); }
+    public static Map<String, Long> mortalMetrics() { return MortalRuntime.metrics(); }
+
     public static void shutdown() {
+        MortalRuntime.shutdown();
         PENDING.forEach(future -> future.cancel(false));
         EXECUTOR.shutdownNow();
         WATCHDOG.shutdownNow();
-        WORKERS.forEach(Worker::kill);
+        WORKERS.forEach(AiWorker::kill);
         WORKERS.clear();
         status = "AI 已关闭";
     }
@@ -212,55 +210,10 @@ public final class AiRuntime {
         return worker;
     }
 
-    private static final class Worker {
-        private volatile Process process;
-        private BufferedReader output;
-        private BufferedWriter input;
-        private long activeId = -1;
-
-        int request(JsonObject snapshot, BooleanSupplier done) throws Exception {
-            if (done.getAsBoolean()) throw new IOException("Decision cancelled");
-            long id = snapshot.get("id").getAsLong();
-            synchronized (this) { activeId = id; }
-            try {
-                Process current = process;
-                if (current == null || !current.isAlive()) {
-                    Path worker = workerPath();
-                    String node = System.getProperty("riichi.ai.node", System.getenv().getOrDefault("RIICHI_AI_NODE", "node"));
-                    Process started = new ProcessBuilder(node, worker.toString()).directory(worker.getParent().toFile())
-                            .redirectError(ProcessBuilder.Redirect.DISCARD).start();
-                    synchronized (this) {
-                        // A cancelled launch must never publish its process into a later request.
-                        if (activeId != id || done.getAsBoolean()) { started.destroyForcibly(); throw new IOException("Decision cancelled"); }
-                        process = started;
-                        output = new BufferedReader(new InputStreamReader(started.getInputStream(), StandardCharsets.UTF_8));
-                        input = new BufferedWriter(new OutputStreamWriter(started.getOutputStream(), StandardCharsets.UTF_8));
-                    }
-                }
-                if (done.getAsBoolean()) { cancel(id); throw new IOException("Decision cancelled"); }
-                input.write(snapshot.toString()); input.newLine(); input.flush();
-                String line = readLine(output);
-                if (line == null) throw new IOException("AI worker exited without a response");
-                JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
-                if (!reply.has("id") || reply.get("id").getAsBigDecimal().longValueExact() != snapshot.get("id").getAsLong()) throw new IOException("AI response id mismatch");
-                if (reply.has("error") || !reply.has("index") || reply.get("index").isJsonNull()) throw new IOException("AI worker could not choose an action");
-                return reply.get("index").getAsBigDecimal().intValueExact();
-            } finally {
-                synchronized (this) { if (activeId == id) activeId = -1; }
-            }
-        }
-
-        synchronized void cancel(long id) { if (activeId == id) { activeId = -1; kill(); } }
-        synchronized void kill() { Process current = process; process = null; if (current != null) current.destroyForcibly(); }
-
-        private static String readLine(BufferedReader reader) throws IOException {
-            var line = new StringBuilder();
-            for (int next; (next = reader.read()) >= 0;) {
-                if (next == '\n') return line.toString();
-                if (next != '\r') line.append((char) next);
-                if (line.length() > 65_536) throw new IOException("AI worker response exceeded limit");
-            }
-            return line.isEmpty() ? null : line.toString();
-        }
+    private static Process startNodeWorker() throws Exception {
+        Path worker = workerPath();
+        String node = System.getProperty("riichi.ai.node", System.getenv().getOrDefault("RIICHI_AI_NODE", "node"));
+        return new ProcessBuilder(node, worker.toString()).directory(worker.getParent().toFile())
+                .redirectError(ProcessBuilder.Redirect.DISCARD).start();
     }
 }

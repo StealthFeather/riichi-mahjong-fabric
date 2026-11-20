@@ -32,7 +32,8 @@ public record ReplayRecord(UUID id,long startedAt,long endedAt,String preset,
         }
     }
 
-    public record Frame(int roundIndex,String label,CompoundTag driver) {
+    public record Frame(int roundIndex,String label,CompoundTag driver,Boolean tsumogiri) {
+        public Frame(int roundIndex,String label,CompoundTag driver) { this(roundIndex,label,driver,null); }
         public Frame {
             if(roundIndex<0)throw new IllegalArgumentException("Invalid replay round");
             if(label==null)label="";
@@ -81,7 +82,9 @@ public record ReplayRecord(UUID id,long startedAt,long endedAt,String preset,
         tag.put("Participants",people);
         var steps=new ListTag();
         for(var f:frames){var entry=new CompoundTag();entry.putInt("Round",f.roundIndex());
-            entry.putString("Label",f.label());entry.put("Driver",f.driver().copy());steps.add(entry);}
+            entry.putString("Label",f.label());entry.put("Driver",f.driver().copy());
+            if(f.tsumogiri()!=null)entry.putBoolean("Tsumogiri",f.tsumogiri());
+            steps.add(entry);}
         tag.put("Frames",steps);return tag;
     }
     public static ReplayRecord fromNbt(CompoundTag tag) {
@@ -91,7 +94,7 @@ public record ReplayRecord(UUID id,long startedAt,long endedAt,String preset,
             String uuid=p.getStringOr("Uuid","");people.add(new Participant(p.getIntOr("Seat",-1),
                     uuid.isEmpty()?null:UUID.fromString(uuid),p.getStringOr("Name","BOT"),p.getIntOr("Points",0)));}
         for(var value:tag.getListOrEmpty("Frames")){if(!(value instanceof CompoundTag f))continue;
-            steps.add(new Frame(f.getIntOr("Round",0),f.getStringOr("Label",""),f.getCompoundOrEmpty("Driver")));}
+            steps.add(new Frame(f.getIntOr("Round",0),f.getStringOr("Label",""),f.getCompoundOrEmpty("Driver"),f.getBoolean("Tsumogiri").orElse(null)));}
         return new ReplayRecord(UUID.fromString(tag.getStringOr("Id","")),tag.getLongOr("StartedAt",0),
                 tag.getLongOr("EndedAt",0),tag.getStringOr("Preset",""),people,steps);
     }

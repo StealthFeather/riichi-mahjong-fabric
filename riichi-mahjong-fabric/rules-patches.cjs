@@ -4,6 +4,14 @@ module.exports=function patchDriver(source){
   if(source.split(from).length!==2)throw Error('Upstream driver patch no longer matches: '+from);
   source=source.replace(from,to);
  };
+ // Standard four-player replacement draws shorten the live wall at its back.
+ replace('        round = round.draw();',
+         '        if (fromRinshan && com.themahjong.compat.KanWall.applies(match)) round = com.themahjong.compat.KanWall.reserve(round, 1);\n        round = round.draw();');
+ replace('        Map<TileKey, List<TheMahjongTile>> byKind = groupBySuitRank(player.currentHand());',
+         '        if (round.liveWall().isEmpty() && com.themahjong.compat.KanWall.applies(match)) return List.copyOf(out);\n        Map<TileKey, List<TheMahjongTile>> byKind = groupBySuitRank(player.currentHand());');
+ // A final discard can still be claimed for ron. Chi, pon and kan cannot follow it.
+ replace('        if (player.riichi()) return List.copyOf(out);',
+         '        if (player.riichi() || (round.liveWall().isEmpty() && com.themahjong.compat.KanWall.applies(match))) return List.copyOf(out);');
  replace('if (!c.pendingSeats().contains(seat)) return List.of();',
          'if (!c.pendingSeats().contains(seat) || claimDecisions.containsKey(seat)) return List.of();');
  replace('        commitPendingRiichi();\n\n        for (int offset',
@@ -13,6 +21,19 @@ module.exports=function patchDriver(source){
  // Preserve display metadata at the exact accepted action, including multiple actions in one advance().
  replace('    private boolean animationsEnabled;',
          `    private boolean animationsEnabled;
+    /** Migrate only the live hand. Historical replay frames retain their recorded wall. */
+    public void restoreLegacyKanWall() {
+        if (!com.themahjong.compat.KanWall.applies(match) || match.currentRound().isEmpty()) return;
+        var round = currentRound();
+        if (round.state() == TheMahjongRound.State.ENDED) return;
+        int used = TheMahjongRound.rinshanTileCountFor(match.playerCount()) - round.rinshanTiles().size();
+        int reserved = Math.min(used, round.liveWall().size());
+        if (reserved <= 0) return;
+        round = com.themahjong.compat.KanWall.reserve(round, reserved);
+        match = matchWithRound(round);
+        if (phase instanceof MatchPhase.AwaitingDraw draw && !draw.rinshan() && round.liveWall().isEmpty())
+            checkExhaustiveDraw(round);
+    }
     private java.util.function.Consumer<TheMahjongDriver> stateObserver = driver -> {};
     public void setStateObserver(java.util.function.Consumer<TheMahjongDriver> observer) {
         stateObserver = java.util.Objects.requireNonNull(observer);

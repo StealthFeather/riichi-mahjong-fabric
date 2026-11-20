@@ -111,7 +111,7 @@ public final class AiIntegrationTest implements ModInitializer {
             if (table.hasActiveMatch()) table.endGame();
             require(table.claimSeat(0, menuPlayer.getUUID()), "AI menu fixture could not claim its table");
             table.releaseSeat(0);
-            table.selectPreset(RuleSetPreset.MAHJONG_SOUL_4P);
+            table.selectPreset(RuleSetPreset.WRC_4P);
             table.setDefaultBotDifficulty(BotDifficulty.NORMAL);
             for (int seat = 0; seat < 4; seat++) table.setSeatBotDifficulty(seat, null);
             checkIdleConfiguration();
@@ -120,7 +120,7 @@ public final class AiIntegrationTest implements ModInitializer {
             checkSavedConfiguration(server);
             checkResetMenus(server);
             checkSanma();
-            table.selectPreset(RuleSetPreset.MAHJONG_SOUL_4P);
+            table.selectPreset(RuleSetPreset.WRC_4P);
             require(table.tryStartMatch(123456L) == MahjongTableBlockEntity.StartMatchResult.STARTED,
                     "four-player table did not start");
             assertControllers();
@@ -415,7 +415,7 @@ public final class AiIntegrationTest implements ModInitializer {
         require(!persisted.contains("Driver") && !persisted.contains("HumanPlayers")
                 && persisted.getListOrEmpty("ReturningSeats").isEmpty(), "reset saved obsolete match data");
         require(table.getItem(135).is(Items.DIAMOND) && table.getItem(135).getCount() == 7
-                && !table.mintTilesFromNothing() && table.preset() == RuleSetPreset.MAHJONG_SOUL_4P
+                && !table.mintTilesFromNothing() && table.preset() == RuleSetPreset.WRC_4P
                 && table.defaultBotDifficulty() == BotDifficulty.HARD && table.botDifficulty(0) == BotDifficulty.EASY,
                 "active reset changed preserved inventory or settings");
         long revision = table.matchRevision();

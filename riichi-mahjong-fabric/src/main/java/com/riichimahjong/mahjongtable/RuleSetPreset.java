@@ -50,5 +50,10 @@ public enum RuleSetPreset {
         return family==Family.SICHUAN ? SichuanRules.newMatch(length.roundCount(), exchangeThree, jokersEnabled, bloodBattle)
                 : com.themahjong.variants.VariantRules.withOptions(factory.get().withRoundCount(length.roundCount()), exchangeThree, jokersEnabled, bloodBattle);
     }
+    public boolean supportsMortal(int activePlayers, MatchLength length, boolean exchangeThree, boolean jokers, boolean bloodBattle) {
+        return (this == MAHJONG_SOUL_4P || this == TENHOU_4P || this == M_LEAGUE_4P)
+                && activePlayers == 4 && (length == MatchLength.EAST || length == MatchLength.SOUTH)
+                && !exchangeThree && !jokers && !bloodBattle;
+    }
     public String langKey() { return "riichi_mahjong.preset." + key; }
 }

@@ -33,5 +33,6 @@ result.replayAnalysis={cacheVersion:3,policy:'modeled-kind-softmax-v3',uniqueTil
 result.checks.push('right-side-two-row-progress-controls','left-side-reveal-control-and-session-refresh','two-digit-probability-score-display');
 result.checks.push('host-controlled-spectator-hand-visibility','nonparticipant-private-spectator-holders','spectator-revocation-on-toggle-seat-and-reconnect');
 result.checks.push('blood-battle-dealer-first-win-simultaneous-ron-and-draw-tenpai-progression');
+result.ai.mortal={model:'Mortal v4',presets:['MAHJONG_SOUL_4P','TENHOU_4P','M_LEAGUE_4P'],lengths:['EAST','SOUTH'],variants:false};
 result.jarSha256=crypto.createHash('sha256').update(fs.readFileSync(jarPath)).digest('hex');
 fs.writeFileSync(p.join(project,'build/verification.json'),JSON.stringify(result,null,2)+'\n');

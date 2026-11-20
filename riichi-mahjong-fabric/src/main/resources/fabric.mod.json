@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "id": "riichi_mahjong",
-  "version": "0.5.4-beta.1",
-  "name": "Timory Mahjong",
+  "version": "0.5.4-mortal",
+  "name": "Timory Mahjong · Mortal",
   "description": "Server-only port of caxapexac/MinecraftRiichiMahjong. Upstream logic, models and textures with private vanilla-client displays.",
   "authors": [
     "caxapexac (upstream)",

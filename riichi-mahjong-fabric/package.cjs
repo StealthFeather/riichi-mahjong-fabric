@@ -48,13 +48,19 @@ if(process.env.RIICHI_RESOURCE_PACK_BASELINE_IS_FINAL==='1'){
 }else exec(javaTool('jar'),['--create','--no-manifest','--file',p.join(release,'TimoryResource-26.3.zip'),'-C',pack,'.'],{windowsHide:true});
 if(p.relative(project,sources)!==p.join('build','release-sources'))throw Error('Unexpected source staging directory');
 fs.rmSync(sources,{recursive:true,force:true});fs.mkdirSync(sources,{recursive:true});
-for(const name of ['src','upstream','resource-overrides','ai','build-config.cjs','prepare-local-deps.cjs','build.cjs','rules-patches.cjs','analysis-patches.cjs','sichuan-patches.cjs','joker-patches.cjs','exchange-patches.cjs','riichi-blood-patches.cjs','competition-patches.cjs','test.cjs','test-replay-database.cjs','resources.cjs','package.cjs','install-local.cjs','BUILDING.md','README.md','PORTING.md','prepare.cjs','adapt.cjs','docs','integration'])copyTree(p.join(project,name),p.join(sources,'riichi-mahjong-fabric',name));
+for(const name of ['src','upstream','resource-overrides','build-config.cjs','prepare-local-deps.cjs','build.cjs','rules-patches.cjs','analysis-patches.cjs','sichuan-patches.cjs','joker-patches.cjs','exchange-patches.cjs','riichi-blood-patches.cjs','competition-patches.cjs','test.cjs','test-replay-database.cjs','resources.cjs','package.cjs','install-local.cjs','BUILDING.md','README.md','PORTING.md','prepare.cjs','adapt.cjs','docs','integration'])copyTree(p.join(project,name),p.join(sources,'riichi-mahjong-fabric',name));
+const stagedAi=p.join(sources,'riichi-mahjong-fabric','ai');
+for(const name of fs.readdirSync(p.join(project,'ai')).filter(name=>name!=='mortal'))
+ copyTree(p.join(project,'ai',name),p.join(stagedAi,name));
+for(const name of ['README.md','install.py','requirements.txt','smoke_test.py','worker','worker.py'])
+ copyTree(p.join(project,'ai/mortal',name),p.join(stagedAi,'mortal',name));
+exec(javaTool('jar'),['--create','--no-manifest','--file',p.join(release,'mortal-worker-'+version+'.zip'),'-C',stagedAi,'mortal'],{windowsHide:true});
 fs.copyFileSync(p.join(project,'BUILDING.md'),p.join(sources,'BUILDING.md'));
 fs.writeFileSync(p.join(sources,'README.md'),'# 立直麻将源码归档\n\n源码位于 riichi-mahjong-fabric/。请阅读 BUILDING.md 与 PORTING.md；JDK、Minecraft/Polymer 依赖和合并资源包基准需另行准备。\n');
 exec(javaTool('jar'),['--create','--no-manifest','--file',p.join(release,'riichi-mahjong-fabric-sources.zip'),'-C',sources,'.'],{windowsHide:true});
-const manifest={name:'Timory Mahjong',version,channel:version.includes('-beta')?'beta':'stable',upstream:'https://github.com/caxapexac/MinecraftRiichiMahjong',commit:'fe469836ed461d44998819dd3004c8dea01f5be0',minecraft:'26.3',loader:'Fabric',clientModRequired:false,resourcePack:'TimoryResource-26.3.zip',resourcePackSha1:hash(p.join(release,'TimoryResource-26.3.zip'),'sha1'),acceptance:'pending',checks:{compiled:true,packaged:true,gameplayTests:false,protocolTests:false,visualTests:false,rulesTests:true,humanControlTests:true,geometryTests:true},limitations:['原版客户端无法执行客户端 FOV 修改与渲染编辑器；交互采用显示实体、私有 interaction、ActionBar 与原版容器','原版流体使用水投影，客户端占位碰撞无法完全等同原 Mod','能源兼容需服务端具有 Team Reborn Energy API']};
-manifest.baseRelease=verification.baseRelease;
-manifest.ai={...verification.ai,requires:'Node.js >=22',runtimeBundled:false,algorithmsBundled:true,networkServiceRequired:false};
+const manifest={name:'Timory Mahjong',version,channel:'mortal',upstream:'https://github.com/caxapexac/MinecraftRiichiMahjong',commit:'fe469836ed461d44998819dd3004c8dea01f5be0',minecraft:'26.3',loader:'Fabric',clientModRequired:false,resourcePack:'TimoryResource-26.3.zip',resourcePackSha1:hash(p.join(release,'TimoryResource-26.3.zip'),'sha1'),acceptance:'pending',checks:{compiled:true,packaged:true,gameplayTests:false,protocolTests:false,visualTests:false,rulesTests:true,humanControlTests:true,geometryTests:true},limitations:['原版客户端无法执行客户端 FOV 修改与渲染编辑器；交互采用显示实体、私有 interaction、ActionBar 与原版容器','原版流体使用水投影，客户端占位碰撞无法完全等同原 Mod','能源兼容需服务端具有 Team Reborn Energy API']};
+manifest.baseRelease='0.5.4-beta.1';
+manifest.ai={...verification.ai,requires:'Node.js >=22 (Kobalab), Python 3.12 and local Mortal worker',runtimeBundled:false,networkServiceRequired:false};
 manifest.checks.serverIntegrationTests=!!verification.serverIntegrationTest;
 manifest.checks.clientMenuVisualTests=!!verification.clientVisualTest;
 manifest.limitations.push('四麻电将 AI 需要服务端 Node.js 22+；三麻使用原 BOT；档位尚未大规模对战标定');

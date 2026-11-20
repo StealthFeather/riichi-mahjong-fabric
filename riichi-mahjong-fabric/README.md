@@ -15,7 +15,7 @@ git -C projects/timory-resource-pack pull --ff-only origin main
 首次使用先克隆该仓库；本地有未提交改动或分支分叉时先保留并合并，解决冲突后再修改。同步后比较并合并独立检出与 `TimoryResource/` 的差异；资源生成脚本同样遵循此顺序。保留其他项目资源、图集条目与许可证，禁止用旧快照或单项目包覆盖共享内容。验证后的材质包改动需提交并推送回独立仓库，具体流程见其 [README](https://github.com/StealthFeather/Timory-ResourcePack#readme)。
 <!-- timory-resource-repository:end -->
 
-日本立直麻将与川麻血战到底、3D 牌桌、私有手牌与原版客户端适配。当前版本为 **Timory Mahjong 0.5.4-beta.1**，仅安装到 Fabric 服务端。
+日本立直麻将与川麻血战到底、3D 牌桌、私有手牌与原版客户端适配。当前版本为 **Timory Mahjong 0.5.4 Mortal**，仅安装到 Fabric 服务端。
 
 已同步 [GitHub 独立仓库](https://github.com/StealthFeather/riichi-mahjong-fabric) main 提交 `decaf7b762d68dfad8ef52bfc47c982c0c3b94e0`（26.3.15），保留四麻三级 AI、TP 返回显示恢复、跳过和牌确认及手牌空槽延迟整理。
 
@@ -29,9 +29,9 @@ git -C projects/timory-resource-pack pull --ff-only origin main
 
 每位玩家可在「个人设置」直接选择唤魔尖牙、末影人搬牌、监守者尖啸或直接摊牌。接口和时间线见 [胡牌特效开发说明](docs/win-effects.md)。
 
-需要 Minecraft 26.3、Fabric Loader 0.19.5、Fabric API 0.163.0+26.3、Java 25；四麻 AI 需要服务端可执行 Node.js 22+。Polymer 和固定版本 AI 源码已内嵌。玩家使用原版客户端并接受包含麻将资产的 TimoryResource。
+需要 Minecraft 26.3、Fabric Loader 0.19.5、Fabric API 0.163.0+26.3、Java 25；原有四麻机器人和牌谱分析使用 Node.js 22+，Mortal 使用独立的本地推理程序。Polymer 和固定版本 AI 源码已内嵌。玩家使用原版客户端并接受包含麻将资产的 TimoryResource。
 
-停服后将构建的 `timory-mahjong-0.5.4-beta.1.jar` 替换服务端旧版 JAR，再正常开服。同时更新本版 TimoryResource 下载地址和 SHA-1，以显示更新后的宝牌材质。
+使用 `timory-mahjong-0.5.4-mortal.jar` 和 0.5.4-beta.1 的资源包。服务端安装与模型配置见 [Mortal 安装说明](docs/0.5.4-mortal.md)。
 
 `/mahjong` 查看操作，管理员 `/mahjong give` 领物品。右键桌边入座，右键中心风盘打开「牌桌操作」，由桌主点击“开始对局”开局；结算动画完成后，已入座的玩家可潜行右键中心风盘或在「牌桌操作」中继续下一局。默认右键自己的手牌即可出牌。吃碰杠、立直与胡牌使用本人桌沿按钮。跳过可和牌机会需要确认。主动离座使用 `/mahjong leave`；离座后 BOT 暂代，右键桌子或 `/mahjong join` 可接回原座位。
 
@@ -51,7 +51,7 @@ git -C projects/timory-resource-pack pull --ff-only origin main
 
 雀魂、天凤支持四麻和三麻；WRC、川麻、公式战、M-League 仅支持四麻，从三麻切换到它们时自动恢复四麻。全部规则均支持换三张和癞子；日麻可任选三张普通牌，只有川麻要求同花色数牌。设置随牌桌保存，开局后锁定，先结束当前对局再修改；玩家仍可右键桌边或使用 `/mahjong join` 入座。
 
-东风场预定只打东场，南风场预定打东、南两场。开启血战到底时，亲家首胡，或整手无人胡牌且流局时亲家听牌，才会连庄。本手首次胡牌为一炮多响时，同时胡牌的玩家都算首胡。日麻非血战的连庄及返分延长按所选规则执行；川麻不使用日麻返分延长。日麻四麻可选择初级、中级或高级 AI，三麻及川麻使用原版 BOT。完整暗牌保存在服务端，牌面发送给所属玩家；桌主开启观战手牌时也发送给明确选择观战的玩家。
+东风场预定只打东场，南风场预定打东、南两场。开启血战到底时，亲家首胡，或整手无人胡牌且流局时亲家听牌，才会连庄。本手首次胡牌为一炮多响时，同时胡牌的玩家都算首胡。日麻非血战的连庄及返分延长按所选规则执行；川麻不使用日麻返分延长。雀魂、天凤、M-League 的标准四人东风场和半庄使用 Mortal。开启换三张、赖子或血战时使用原有策略。三麻及川麻使用原版 BOT。完整暗牌保存在服务端，牌面发送给所属玩家；桌主开启观战手牌时也发送给明确选择观战的玩家。
 
 川麻默认首次胡牌后结束本手，可开启**血战到底**：使用万、筒、索共 108 张牌，开启赖子时再加入 4 张万能赖子；每位玩家起手固定为最左 1 张赖子加 12 张普通牌，之后牌墙为 60 张普通牌，下一手沿用相同发牌规则。赖子牌面使用白板底色，中心嵌入用户提供的黑色 Logo，宽为牌面约 3/4；原日麻红中、白板牌面保持原样。不可吃牌，无立直与宝牌。开启换三张时，先从自己的手牌选出三张同花色普通牌并确认（赖子不能换出），所有玩家确认后统一随机方向交换；之后每位玩家选择缺万、缺筒或缺索。必须先打完定缺花色，缺牌未清不能胡牌。血战开启时，胡牌玩家退出本手，其他玩家继续，直到三家胡牌或牌墙摸完。具体操作见 [川麻玩法说明](docs/sichuan.md)。
 
@@ -59,7 +59,7 @@ git -C projects/timory-resource-pack pull --ff-only origin main
 
 点空不会默认弃牌或跳过；桌主可在 `/mahjong menu` 选择“重置牌桌”并二次确认，结束当前牌局并释放座位。
 
-桌主可在 `/mahjong menu` 中点击离线座位的“用 AI 取代”，保留当前手牌、分数和供托，解除该玩家原座位保留。菜单“结束对局”与“重置牌桌”共用确认页。所有玩家打开配置菜单均不会自动接管现有桌主。桌主点击「牌桌座次」中其他玩家的头像可二次确认移交权限，也可在开局前点击各席旁的中继器单独调整该席的四麻 AI 难度。
+桌主可在 `/mahjong menu` 中点击离线座位的“用 AI 取代”，保留当前手牌、分数和供托，解除该玩家原座位保留。菜单“结束对局”与“重置牌桌”共用确认页。所有玩家打开配置菜单均不会自动接管现有桌主。桌主点击「牌桌座次」中其他玩家的头像可二次确认移交权限，也可在开局前点击各席旁的中继器单独调整该席的电将 AI 难度。在 Mortal 牌桌上，此设置用于模型暂不可用时接手的电将。
 
 
 配置菜单倒数第二行可点击空位入座、点击自己的头像离座；最右侧为观战按钮。第三行第三格控制观战手牌，末影之眼表示显示、末影珍珠表示隐藏。观战者获得与参战玩家一致的战局 BossBar；观战仅对当前在线、同世界且靠近牌桌的玩家有效。
@@ -87,12 +87,12 @@ node test.cjs
 
 也可双击 `build.cmd`。构建器兼容当前 Timory 工作区与独立源码归档，公共 JDK、Minecraft 和 Polymer 依赖默认位于工作区根目录。配置方式见 [BUILDING.md](BUILDING.md)。**不要重新运行 `prepare.cjs`、`adapt.cjs` 或 `resources.cjs`**，以免覆盖已移植内容及版本元数据。
 
-JAR 位于 `build/libs/`，回归结果和 JAR SHA-256 位于 `build/verification.json`。构建和回归验证状态以当前 `build/verification.json` 为准，该记录绑定对应 JAR 的 SHA-256。本版变更见 [0.5.4-beta.1 说明](docs/0.5.4-beta.1.md)。
+JAR 位于 `build/libs/`，回归结果和 JAR SHA-256 位于 `build/verification.json`。构建和回归验证状态以当前 `build/verification.json` 为准，该记录绑定对应 JAR 的 SHA-256。本版变更见 [0.5.4 Mortal 说明](docs/0.5.4-mortal.md)。
 
 可选打包入口为 `node project.cjs package`，默认输出至工作区 `deploy/`；用 `RIICHI_RELEASE_DIR` 可指定其他目录。`install-local.cjs` 仅供正常停服后的主测试服安装，构建与打包不会自动部署。
 
 ## 来源与许可
 
-原项目为 [caxapexac/MinecraftRiichiMahjong](https://github.com/caxapexac/MinecraftRiichiMahjong)，固定提交 `fe469836ed461d44998819dd3004c8dea01f5be0`。完整快照和许可证保存在 `upstream/`，移植说明见 [PORTING.md](PORTING.md)。四麻 AI 使用 MIT 许可的 majiang-ai 1.3.0 和 majiang-core 1.3.4，源码及许可位于 `ai/`。
+原项目为 [caxapexac/MinecraftRiichiMahjong](https://github.com/caxapexac/MinecraftRiichiMahjong)，固定提交 `fe469836ed461d44998819dd3004c8dea01f5be0`。完整快照和许可证保存在 `upstream/`，移植说明见 [PORTING.md](PORTING.md)。电将 AI 使用 MIT 许可的 majiang-ai 1.3.0 和 majiang-core 1.3.4，源码及许可位于 `ai/`。
 
 血战到底开关支持全部现有规则及三麻、四麻。开启后赢家不再行动或参与后续支付，其他玩家继续；三麻两家胡牌、四麻三家胡牌或牌墙耗尽后结束本手。关闭时沿用各规则正常结束方式。旧活动川麻存档保留血战，新的川麻牌桌默认关闭。

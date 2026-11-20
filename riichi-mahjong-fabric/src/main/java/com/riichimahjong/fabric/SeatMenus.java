@@ -66,7 +66,8 @@ final class SeatMenus {
                 });
                 String difficulty = table.botDifficultyOverride(seat).map(BotDifficulty::label)
                         .orElse("跟随默认（" + table.defaultBotDifficulty().label() + "）");
-                menu.button(DIFFICULTIES[seat], PortMenus.icon(Items.REPEATER, wind + " AI：" + difficulty + lock), () -> {
+                String strategy = table.usesMortalBots() ? "Mortal · 备用电将：" + difficulty : difficulty;
+                menu.button(DIFFICULTIES[seat], PortMenus.icon(Items.REPEATER, wind + " AI：" + strategy + lock), () -> {
                     if (info.enabled() && difficultyLock(player, table).isEmpty()) table.cycleSeatBotDifficulty(seat);
                     open(player, table);
                 });

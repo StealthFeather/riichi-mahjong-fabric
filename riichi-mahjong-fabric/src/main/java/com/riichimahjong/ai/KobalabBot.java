@@ -3,6 +3,9 @@ package com.riichimahjong.ai;
 import com.themahjong.driver.DecisionRequest;
 import com.themahjong.driver.MahjongPlayerInterface;
 import com.themahjong.driver.PlayerAction;
+import com.google.gson.JsonObject;
+import java.util.function.Function;
+import java.util.function.BooleanSupplier;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -11,6 +14,8 @@ import java.util.concurrent.CompletableFuture;
 public final class KobalabBot implements MahjongPlayerInterface, AutoCloseable {
     private final BotDifficulty difficulty;
     private final Boolean redFives;
+    private final BooleanSupplier useMortal;
+    private final Function<JsonObject, CompletableFuture<Integer>> mortalStrategy;
     private boolean closed;
     private DecisionRequest current;
     private CompletableFuture<Integer> pending;
@@ -18,9 +23,15 @@ public final class KobalabBot implements MahjongPlayerInterface, AutoCloseable {
     private final BotDiscardAnimation discardAnimation=new BotDiscardAnimation();
     private PlayerAction automatic;
 
-    public KobalabBot(BotDifficulty difficulty) { this(difficulty, null); }
-    public KobalabBot(BotDifficulty difficulty, boolean redFives) { this(difficulty, Boolean.valueOf(redFives)); }
-    private KobalabBot(BotDifficulty difficulty, Boolean redFives) { this.difficulty = Objects.requireNonNull(difficulty); this.redFives = redFives; }
+    public KobalabBot(BotDifficulty difficulty) { this(difficulty, null, () -> false, AiRuntime::choose); }
+    public KobalabBot(BotDifficulty difficulty, boolean redFives) { this(difficulty, redFives, () -> false, AiRuntime::choose); }
+    public KobalabBot(BotDifficulty difficulty, Boolean redFives, BooleanSupplier useMortal,
+                      Function<JsonObject, CompletableFuture<Integer>> mortalStrategy) {
+        this.difficulty = Objects.requireNonNull(difficulty);
+        this.redFives = redFives;
+        this.useMortal = Objects.requireNonNull(useMortal);
+        this.mortalStrategy = Objects.requireNonNull(mortalStrategy);
+    }
     public BotDifficulty difficulty() { return difficulty; }
     public boolean isClosed() { return closed; }
     public BotDiscardAnimation discardAnimation() { return discardAnimation; }
@@ -29,11 +40,15 @@ public final class KobalabBot implements MahjongPlayerInterface, AutoCloseable {
         if (closed || request.legalActions().isEmpty()) return Optional.empty();
         if (!Objects.equals(current, request)) {
             if (pending != null) pending.cancel(false);
-            current = request; automatic = forced(request);
-            if (automatic == null && (request.rules().jokersEnabled() || request.rules().bloodBattle())) automatic = com.riichimahjong.ai.VariantBotPolicy.choose(request); pending = null;
+            current = request;
+            boolean mortal = useMortal.getAsBoolean();
+            automatic = forced(request, mortal);
+            if (automatic == null && (request.rules().jokersEnabled() || request.rules().bloodBattle()))
+                automatic = VariantBotPolicy.choose(request);
+            pending = null;
             if (automatic == null) {
                 var snapshot = redFives == null ? AiSnapshot.create(request, difficulty) : AiSnapshot.create(request, difficulty, redFives);
-                pending = AiRuntime.choose(snapshot);
+                pending = mortal ? mortalStrategy.apply(snapshot) : AiRuntime.choose(snapshot);
             }
         }
         boolean ready=thinking.ready(request,deltaSeconds);
@@ -45,8 +60,12 @@ public final class KobalabBot implements MahjongPlayerInterface, AutoCloseable {
         return discardAnimation.select(request, chosen, deltaSeconds, ready);
     }
 
-    private static PlayerAction forced(DecisionRequest request) {
-        for (var action : request.legalActions()) if (action instanceof PlayerAction.DeclareRon || action instanceof PlayerAction.DeclareTsumo || action instanceof PlayerAction.DeclareChankan) return action;
+    private static PlayerAction forced(DecisionRequest request, boolean mortal) {
+        if (!mortal) {
+            for (var action : request.legalActions())
+                if (action instanceof PlayerAction.DeclareRon || action instanceof PlayerAction.DeclareTsumo
+                        || action instanceof PlayerAction.DeclareChankan) return action;
+        }
         if (request.legalActions().size() == 1) return request.legalActions().get(0);
         for (var action : request.legalActions()) if (action instanceof PlayerAction.Draw) return action;
         return null;

@@ -24,6 +24,7 @@ import com.riichimahjong.fabric.wineffect.WinEffectSession;
 import com.riichimahjong.fabric.wineffect.WinEffects;
 import com.riichimahjong.ai.BotDifficulty;
 import com.riichimahjong.ai.KobalabBot;
+import com.riichimahjong.ai.MortalRuntime;
 import com.riichimahjong.ai.RandomThinkingBot;
 import com.themahjong.TheMahjongTile;
 import com.themahjong.TheMahjongMatch;
@@ -405,9 +406,19 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         return people;
     }
 
+    public com.google.gson.JsonArray mortalEvents(int seat) {
+        return replay == null && replayRecorder != null ? replayRecorder.mortalEvents(seat) : new com.google.gson.JsonArray();
+    }
+
     private void beginRecording(RuleSetPreset rules) {
         replayRecorder=new ReplayRecorder(rules.name(),recordingParticipants(driver.match().playerCount()));
         attachRecordingObserver();
+    }
+
+    private void observePartialRecording() {
+        if (!usesMortalBots()) return;
+        replayRecorder = ReplayRecorder.forCurrentHand(preset.name());
+        replayRecorder.capture(driver, this::riichiSkin);
     }
 
     private void attachRecordingObserver() {
@@ -416,7 +427,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             if(observed!=driver||replayRecorder==null||replay!=null)return;
             try {
                 replayRecorder.capture(observed, this::riichiSkin);
-                if(observed.currentPhase() instanceof MatchPhase.MatchEnded&&!replayRecorder.finished()) {
+                if(observed.currentPhase() instanceof MatchPhase.MatchEnded && !replayRecorder.currentHandOnly() && !replayRecorder.finished()) {
                     replayArchives.offer(replayRecorder.finish(observed, this::riichiSkin));
                     flushReplayArchives();
                 }
@@ -897,6 +908,8 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         this.driver = new TheMahjongDriver(
                 fixedMatch, buildPlayersFromSeats(activeSeats, fixedMatch.tileSet().tiles().stream().anyMatch(TheMahjongTile::redDora)), new Random(seed), snap);
         this.driver.setAnimationsEnabled(true);
+        observePartialRecording();
+        attachRecordingObserver();
         matchRevision++;
         markChangedAndSynced();
         return StartMatchResult.STARTED;
@@ -1085,6 +1098,8 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         if (displayedDiscard >= 0 && !queuedBefore && human.hasQueued()
                 && driver.currentPhase() instanceof MatchPhase.AwaitingDiscard discard && discard.seat() == seat) {
             handDisplay.recordDiscardSlot(seat, displayedDiscard);
+            if (replayRecorder != null) replayRecorder.markHumanDiscard(seat,
+                    handDisplay.slots(seat).get(displayedDiscard) == handDisplay.separatedSlot(seat));
         }
 
         markChangedAndSynced();
@@ -1154,9 +1169,20 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         return buildBot(seat, playerCount, redFives);
     }
 
+    public boolean usesMortalBots() {
+        RuleSetPreset effective = effectivePreset();
+        if (driver == null) return effective.supportsMortal(effective.playerCount(), matchLength, exchangeThreeTiles, jokersEnabled, bloodBattle);
+        var rules = driver.rules();
+        int winds = driver.match().roundCount();
+        return (winds == 1 || winds == 2) && effective.supportsMortal(driver.match().playerCount(),
+                MatchLength.fromMatch(driver.match()), rules.exchangeThree(), rules.jokersEnabled(), rules.bloodBattle());
+    }
+
     private MahjongPlayerInterface buildBot(int seat, int playerCount, boolean redFives) {
-        return playerCount == 4 && preset.family() != RuleSetPreset.Family.SICHUAN
-                ? new KobalabBot(botDifficulty(seat), redFives) : new RandomThinkingBot();
+        if (playerCount != 4 || preset.family() == RuleSetPreset.Family.SICHUAN) return new RandomThinkingBot();
+        // Restored matches acquire their authoritative rules and recorder after controllers are constructed.
+        return new KobalabBot(botDifficulty(seat), redFives, this::usesMortalBots,
+                snapshot -> MortalRuntime.choose(snapshot, mortalEvents(seat), MatchLength.fromMatch(driver.match())));
     }
 
     private boolean activeRedFives() {
@@ -1165,6 +1191,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
 
     private void replaceController(int seat, MahjongPlayerInterface replacement) {
         MahjongPlayerInterface previous = driver.playerAt(seat);
+        if (replayRecorder != null) replayRecorder.clearDiscardSelection(seat);
         driver.replacePlayer(seat, replacement);
         if (previous instanceof KobalabBot bot) bot.close();
     }
@@ -1647,7 +1674,10 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         ownership.write(out);
         replayArchives.write(out.child("ReplayArchives"));
         roundResultDisplay.write(out.child("RoundResultDisplay"));
-        if (driver != null) spectatorParticipants.write(out);
+        if (driver != null) {
+            spectatorParticipants.write(out);
+            out.putBoolean("KanWallReserved", true);
+        }
         if (driver != null && replay == null && replayRecorder != null) out.store("ReplayRecording", CompoundTag.CODEC, replayRecorder.toNbt());
         if (playerAnalysis != null && driver != null) playerAnalysis.write(out.child("PlayerAnalysis"));
         out.putBoolean(NBT_LAST_POWERED, lastPowered);
@@ -1838,6 +1868,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
                     driverIn.get(),
                     buildPlayersFromSeats(activeSeats, redFives),
                     new java.security.SecureRandom());
+            if (!in.getBooleanOr("KanWallReserved", false)) this.driver.restoreLegacyKanWall();
             this.driver.setAnimationsEnabled(true);
             resultHandReveals.read(in.childOrEmpty("ShownHands"), driver);
             if (ResultHandReveals.canReveal(driver)) {
@@ -1890,6 +1921,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             bindPlayerAnalysis();
             try {
                 replayRecorder=in.read("ReplayRecording", CompoundTag.CODEC).map(ReplayRecorder::fromNbt).orElse(null);
+                if (replayRecorder == null) observePartialRecording();
                 if (replayRecorder != null) replayRecorder.participantUuids().forEach(spectatorParticipants::remember);
                 attachRecordingObserver();
             } catch (RuntimeException error) {
