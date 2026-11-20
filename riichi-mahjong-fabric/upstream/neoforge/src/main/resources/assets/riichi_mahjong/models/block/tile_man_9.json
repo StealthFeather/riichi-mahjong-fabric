@@ -1,6 +1,0 @@
-{
-	"parent": "riichi_mahjong:block/tile",
-	"textures": {
-		"1": "riichi_mahjong:block/tile/tile_man_9"
-	}
-}
