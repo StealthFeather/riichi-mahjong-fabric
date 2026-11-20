@@ -1,6 +1,6 @@
 # Four-player AI workers
 
-Standard four-player Mahjong Soul, Tenhou and M-League tables use the local Mortal worker for live decisions and replay scoring in both East-only and East–South matches. Other four-player tables and live fallback decisions use Kobalab. [Mortal installation and replay scoring](../docs/0.5.4-mortal.md)
+Standard four-player Mahjong Soul, Tenhou and M-League tables use the local Mortal worker for live decisions and replay scoring in both East-only and East–South matches. Other four-player tables and live fallback decisions use Kobalab. [Mortal installation and replay scoring](../docs/0.5.4.md)
 
 <!-- timory-resource-repository:start -->
 ## 材质包统一维护
