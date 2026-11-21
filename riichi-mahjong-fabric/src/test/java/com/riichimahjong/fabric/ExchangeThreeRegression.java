@@ -219,6 +219,36 @@ public final class ExchangeThreeRegression {
         expected.addAll(List.of(ordinary,ordinary,red));
         check(bag(exchanged.players().get(1).currentHand()).equals(bag(expected)),"exchange lost duplicate count or red identity");
     }
+    private static void toggleIdenticalSlotsAndReload() {
+        for (var preset : List.of(RuleSetPreset.MAHJONG_SOUL_4P, RuleSetPreset.MAHJONG_SOUL_SANMA_3P, RuleSetPreset.SICHUAN_4P)) {
+            var driver = started(preset, true, 3);
+            var hand = driver.currentRound().handDisplayOrder(0);
+            var duplicate = hand.stream().filter(tile -> tile.suit().isNumber() && Collections.frequency(hand, tile) >= 2)
+                    .findFirst().orElseThrow();
+            int first = hand.indexOf(duplicate), last = hand.lastIndexOf(duplicate);
+            check(driver.toggleExchangeSlot(0, last), "last duplicate could not be selected");
+            check(driver.toggleExchangeSlot(0, last) && driver.exchangePicks(0).isEmpty(),
+                    "clicking the same duplicate twice did not deselect it");
+            check(driver.toggleExchangeSlot(0, first) && driver.toggleExchangeSlot(0, last)
+                            && driver.toggleExchangeSlot(0, first), "could not toggle two distinct copies independently");
+            var restored = reload(driver);
+            check(restored.exchangePicks(0).size() == 1 && restored.exchangePicks(0).getFirst().indexIn(hand) == last
+                            && restored.toggleExchangeSlot(0, last) && restored.exchangePicks(0).isEmpty(),
+                    "reload lost the exact selected copy");
+
+            var out = TagValueOutput.createWithoutContext(ProblemReporter.DISCARDING);
+            DriverNbt.writeDriver(out, driver);
+            var tag = out.buildResult();
+            String key = driver.sichuanState() == null ? "exchange" : "sichuan";
+            tag.getCompoundOrEmpty(key).getListOrEmpty("selections").getCompoundOrEmpty(0)
+                    .getListOrEmpty("tiles").getCompoundOrEmpty(0).remove("copy");
+            var oldInput = TagValueInput.create(ProblemReporter.DISCARDING, HolderLookup.Provider.create(Stream.empty()), tag);
+            var legacy = DriverNbt.readDriver(oldInput, humans(preset.playerCount()), new Random(12));
+            check(legacy.exchangePicks(0).getFirst().indexIn(hand) == first && legacy.toggleExchangeSlot(0, first)
+                            && legacy.exchangePicks(0).isEmpty(), "legacy tile-only selection could not be cancelled");
+        }
+    }
+
     private static void everyDirection() {
         for(var preset:List.of(RuleSetPreset.MAHJONG_SOUL_4P,RuleSetPreset.MAHJONG_SOUL_SANMA_3P)) {
             var original=started(preset,false,7).currentRound();int count=preset.playerCount();
@@ -242,7 +272,7 @@ public final class ExchangeThreeRegression {
         presetFlagsAndInitialPause();
         for(var preset:RuleSetPreset.values())if(preset.family()!=RuleSetPreset.Family.SICHUAN)
             for(boolean jokers:new boolean[]{false,true})driverExchangeAndSave(preset,jokers);
-        automaticBots();duplicateAndRedIdentities();everyDirection();
+        automaticBots();duplicateAndRedIdentities();toggleIdenticalSlotsAndReload();everyDirection();
         System.out.println("PASS: riichi accepts mixed-suit exchanges in 3p/4p; humans and BOTs exchange simultaneously, preserve exact tiles/dead walls/scores and survive mixed partial/completed NBT and next hands");
     }
 }

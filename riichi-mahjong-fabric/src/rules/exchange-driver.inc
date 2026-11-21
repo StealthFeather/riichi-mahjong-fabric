@@ -16,6 +16,28 @@
     public List<TheMahjongTile> exchangeSelection(int seat) {
         return exchangeState != null ? (exchangeInProgress() ? exchangeState.selection(seat) : List.of()) : sichuanState != null && sichuanState.stage() == com.themahjong.sichuan.SichuanState.Stage.EXCHANGE ? sichuanState.exchangeSelection(seat) : List.of();
     }
+    public List<com.themahjong.variants.ExchangeTile> exchangePicks(int seat) {
+        if (exchangeInProgress()) return exchangeState.picks(seat);
+        if (sichuanState != null && sichuanState.stage() == com.themahjong.sichuan.SichuanState.Stage.EXCHANGE)
+            return sichuanState.exchangePicks(seat);
+        return List.of();
+    }
+    public boolean toggleExchangeSlot(int seat, int index) {
+        if (!pendingExchange(seat)) return false;
+        var round = currentRound();
+        var hand = round.handDisplayOrder(seat);
+        if (index < 0 || index >= hand.size()) return false;
+        var pick = com.themahjong.variants.ExchangeTile.at(hand, index);
+        if (exchangeState != null) {
+            if (!canConfigureExchange() || !exchangeState.toggleCopy(round, seat, pick)) return false;
+            touchExchangeRound();
+        } else {
+            if (!canConfigureSichuan() || !sichuanState.toggleExchangeCopy(round, seat, pick)) return false;
+            touchSichuanRound();
+        }
+        stateObserver.accept(this);
+        return true;
+    }
     private boolean canConfigureExchange() {
         return exchangeInProgress() && !(phase instanceof MatchPhase.NotStarted) && !(phase instanceof MatchPhase.Dealing)
                 && !(phase instanceof MatchPhase.RoundEnded) && !(phase instanceof MatchPhase.MatchEnded);

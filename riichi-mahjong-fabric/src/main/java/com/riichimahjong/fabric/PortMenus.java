@@ -154,6 +154,7 @@ public final class PortMenus {
                     table.setBloodBattle(!table.bloodBattle());
                 rules(p,table);
             });
+            bloodDrawButton(menu,p,table);
             menu.button(19,icon(Items.CHEST,"无限供牌："+table.mintTilesFromNothing()),()->{if(host(p,table)&&!table.hasActiveMatch())table.setMintTilesFromNothing(!table.mintTilesFromNothing());rules(p,table);});
             menu.button(20,icon(table.spectatorHandsVisible()?Items.ENDER_EYE:Items.ENDER_PEARL,
                     "观战手牌："+(table.spectatorHandsVisible()?"显示":"隐藏")+(host(p,table)?"":" · 仅桌主可调")),()->{
@@ -162,6 +163,35 @@ public final class PortMenus {
             });
             backToTable(menu, p, table);
         });
+    }
+
+    private static void bloodDrawButton(Actions menu,ServerPlayer player,MahjongTableBlockEntity table){
+        boolean locked=table.hasActiveMatch();
+        boolean fourPlayer=table.effectivePreset().playerCount()==4;
+        int seat=table.seatOfPlayer(player.getUUID()).orElse(-1);
+        boolean agreed=seat>=0&&table.seats().get(seat).bloodDrawConsent();
+        String action;
+        if(table.replay()!=null)action="牌谱回放";
+        else if(locked)action=table.isDriverTerminal()?"本场已结束":table.bloodDrawActive()?"本场已开启":"本场关闭";
+        else if(!fourPlayer)action="仅限四人牌局";
+        else if(seat<0)action="入座后可投票";
+        else action=agreed?"已同意，点击撤回":"点击同意本场开启";
+        Runnable refresh=()->{
+            String votes=locked||!fourPlayer?"":" · "+table.bloodDrawVoteCount()+"/4";
+            var item=icon(agreed||table.bloodDrawActive()?Items.REDSTONE_BLOCK:Items.GLASS_BOTTLE,"抽血模式"+votes+" · "+action);
+            item.set(DataComponents.LORE,new ItemLore(List.of(
+                    Component.literal("开局将四人的生命值设为 20，距桌 32 格内无法回血。"),
+                    Component.literal("每支付 1,000 点扣 1 生命值，零头也按比例扣除。"),
+                    Component.literal("立直供托免扣血。"),
+                    Component.literal("终局低于 25,000 点，再扣（25,000 − 当前点数）÷ 1,000 生命值。"),
+                    Component.literal("四位入座玩家须分别同意。投票仅对下一场有效。"))));
+            menu.button(14,item,()->{
+                if(locked||!fourPlayer||seat<0)return;
+                if(table.setBloodDrawConsent(player,!agreed))rules(player,table);
+            });
+        };
+        refresh.run();
+        if(!locked&&fourPlayer)menu.refreshOnChange(table::bloodDrawVoteCount,refresh);
     }
 
     static void operations(ServerPlayer p, MahjongTableBlockEntity table) {
@@ -281,8 +311,26 @@ public final class PortMenus {
     static void inventory(ServerPlayer p,MahjongTableBlockEntity table,int page){if(inventoryValid(p,table))p.openMenu(new SimpleMenuProvider((id,inv,player)->inventoryMenu(id,inv,table,page),Component.literal("牌桌库存 · "+(page+1)+" / 4")));}
     static final class Actions extends ChestMenu {
         final Map<Integer,Runnable> actions=new HashMap<>();final BooleanSupplier valid;
+        private IntSupplier observedValue;
+        private int lastValue;
+        private Runnable refresh;
         Actions(int id,Inventory inv,BooleanSupplier valid){super(MenuType.GENERIC_9x6,id,inv,new SimpleContainer(54),6);this.valid=valid;}
         void button(int slot,ItemStack item,Runnable action){getContainer().setItem(slot,item);actions.put(slot,action);}
+        void refreshOnChange(IntSupplier value,Runnable changed){
+            observedValue=value;
+            lastValue=value.getAsInt();
+            refresh=changed;
+        }
+        @Override public void broadcastChanges(){
+            if(observedValue!=null){
+                int current=observedValue.getAsInt();
+                if(current!=lastValue){
+                    lastValue=current;
+                    refresh.run();
+                }
+            }
+            super.broadcastChanges();
+        }
         @Override public void clicked(int slot,int button,ContainerInput type,Player p){if(p.containerMenu==this&&valid.getAsBoolean()&&type==ContainerInput.PICKUP&&actions.containsKey(slot))actions.get(slot).run();}
         @Override public ItemStack quickMoveStack(Player p,int slot){return ItemStack.EMPTY;}
         @Override public boolean stillValid(Player p){return valid.getAsBoolean();}

@@ -36,7 +36,7 @@ public final class ReplayVariantRegression {
     }
     private static void exchange(boolean sichuan) {
         var preset=sichuan?RuleSetPreset.SICHUAN_4P:RuleSetPreset.MAHJONG_SOUL_4P;
-        var driver=new TheMahjongDriver(preset.newMatch(MatchLength.SOUTH,true,true),humans(),new Random(34));
+        var driver=new TheMahjongDriver(preset.newMatch(MatchLength.SOUTH,true,true),humans(),new Random(3));
         driver.startMatch();
         var replay=recorder(driver);
         var initial=frames(replay).size();
@@ -52,6 +52,19 @@ public final class ReplayVariantRegression {
         check(driver.clearExchangeSelection(0),"exchange selection could not clear");
         check(frames(replay).size()==initial+2 && last(replay).restore(REGISTRIES).exchangeSelection(0).isEmpty(),
                 "selection clear was not recorded and restored");
+
+        var displayed = driver.currentRound().handDisplayOrder(0);
+        var equal = displayed.stream().filter(t -> t.suit().isNumber() && Collections.frequency(displayed, t) > 1)
+                .findFirst().orElseThrow();
+        int chosen = displayed.lastIndexOf(equal);
+        var beforePick = frames(replay).size();
+        check(driver.toggleExchangeSlot(0, chosen) && frames(replay).size() == beforePick + 1,
+                "clicking a particular copy did not produce a replay frame");
+        var recovered = last(replay).restore(REGISTRIES);
+        check(recovered.exchangePicks(0).size() == 1 && recovered.exchangePicks(0).getFirst().indexIn(displayed) == chosen,
+                "replay marked a different copy from the clicked tile");
+        check(driver.toggleExchangeSlot(0, chosen) && last(replay).restore(REGISTRIES).exchangePicks(0).isEmpty(),
+                "replay retained a deselected copy");
 
         if(sichuan) {
             // Sichuan state can change without replacing the match or phase.

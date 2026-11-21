@@ -5,25 +5,30 @@ import com.mojang.authlib.GameProfile;
 import com.riichimahjong.common.BaseMultipartBlock;
 import com.riichimahjong.cuterenderer.InteractKey;
 import com.riichimahjong.mahjongtable.MahjongTableBlockEntity;
+import com.riichimahjong.mahjongtable.MahjongTableHumanPlayer;
 import com.riichimahjong.mahjongtable.MatchLength;
 import com.riichimahjong.mahjongtable.RuleSetPreset;
 import com.riichimahjong.registry.ModBlocks;
 import com.riichimahjong.themahjongcompat.DriverNbt;
+import com.themahjong.TheMahjongTile;
 import com.themahjong.driver.MahjongPlayerInterface;
 import com.themahjong.driver.TheMahjongDriver;
 import com.themahjong.driver.bots.StupidActiveBot;
 import eu.pb4.polymer.virtualentity.api.ElementHolder;
 import eu.pb4.polymer.virtualentity.api.attachment.ManualAttachment;
 import eu.pb4.polymer.virtualentity.api.elements.ItemDisplayElement;
+import eu.pb4.polymer.virtualentity.api.elements.TextDisplayElement;
 import io.netty.channel.ChannelFutureListener;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.IntStream;
 import net.fabricmc.api.ModInitializer;
@@ -79,6 +84,10 @@ public final class ExchangeAnimationIntegrationProbe implements ModInitializer {
             var watcher=register(server,"ExchangeWatcher",players);var outsider=register(server,"ExchangeOutsider",players);
             var late=register(server,"ExchangeLate",players);
             require(table.claimSeat(0,sender.getUUID())&&table.claimSeat(1,recipient.getUUID()),"could not assign probe seat owners");
+            for (var preset : List.of(RuleSetPreset.MAHJONG_SOUL_4P, RuleSetPreset.MAHJONG_SOUL_SANMA_3P, RuleSetPreset.SICHUAN_4P)) {
+                duplicateExchange(table, sender, outsider, preset);
+                checks.add("duplicate-exchange-clicks-private-marks-and-animation-" + preset.name());
+            }
             var driver=new TheMahjongDriver(RuleSetPreset.MAHJONG_SOUL_4P.newMatch(MatchLength.SOUTH,true,true,false),bots(),new Random(5));
             driver.startMatch();
             for(int attempt=0;attempt<12&&ExchangePresentation.pending(driver);attempt++)driver.advance(30);
@@ -141,6 +150,78 @@ public final class ExchangeAnimationIntegrationProbe implements ModInitializer {
         System.out.println("RIICHI_EXCHANGE_INTEGRATION "+new GsonBuilder().create().toJson(result));
         return Boolean.TRUE.equals(result.get("passed"))?1:0;
     }
+    private static void duplicateExchange(MahjongTableBlockEntity table, ProbePlayer owner, ProbePlayer outsider,
+            RuleSetPreset preset) throws Exception {
+        var controllers = new ArrayList<>(bots().subList(0, preset.playerCount()));
+        var human = new MahjongTableHumanPlayer();
+        human.setOccupant(owner.getUUID());
+        controllers.set(0, human);
+        var driver = new TheMahjongDriver(preset.newMatch(MatchLength.SOUTH, true, true), controllers, new Random(0));
+        driver.startMatch();
+        driver.advance(30); // Let the other seats confirm before the human.
+        set(table, "driver", driver);
+        var order = table.handDisplayOrder(0);
+        var duplicate = order.stream().filter(tile -> tile.suit() != TheMahjongTile.Suit.DRAGON
+                && tile.suit() != TheMahjongTile.Suit.WIND && Collections.frequency(order, tile) > 1
+                && order.stream().filter(other -> other.suit() == tile.suit() && !other.equals(tile)).count() >= 2)
+                .findFirst().orElseThrow();
+        int first = order.indexOf(duplicate);
+        int second = order.lastIndexOf(duplicate);
+        var other = IntStream.range(0, order.size())
+                .filter(i -> order.get(i).suit() == duplicate.suit() && !order.get(i).equals(duplicate)).limit(2).boxed().toList();
+
+        pick(table, owner, outsider, second, Set.of(second));
+        pick(table, owner, outsider, second, Set.of());
+        pick(table, owner, outsider, second, Set.of(second));
+        pick(table, owner, outsider, first, Set.of(first, second));
+        pick(table, owner, outsider, first, Set.of(second));
+        pick(table, owner, outsider, other.getFirst(), Set.of(second, other.getFirst()));
+        var selected = Set.of(second, other.getFirst(), other.getLast());
+        pick(table, owner, outsider, other.getLast(), selected);
+        // A fourth click on the unselected copy at capacity must leave all three selections intact.
+        pick(table, owner, outsider, first, selected);
+
+        var buttons = table.tableButtonsForSeat(0);
+        int confirm = IntStream.range(0, buttons.size())
+                .filter(i -> buttons.get(i) instanceof MahjongTableHumanPlayer.TableButton.ConfirmExchange).findFirst().orElseThrow();
+        table.onCuteClick(owner, new InteractKey.SeatSlot((byte) 0, InteractKey.SeatSlot.AREA_BUTTON, (short) confirm));
+        var session = table.exchangePresentation();
+        require(session != null, "confirmed exchange did not start its animation");
+        var sources = session.flights().stream().filter(f -> f.exchanged() && f.sourceSeat() == 0)
+                .map(ExchangePresentation.Flight::sourceIndex).toList();
+        require(sources.size() == 3 && selected.equals(Set.copyOf(sources)), "wrong outgoing exchange slots " + sources);
+        table.endGame();
+    }
+
+    private static void pick(MahjongTableBlockEntity table, ProbePlayer owner, ProbePlayer outsider,
+            int slot, Set<Integer> expected) {
+        var hand = new PrivateHand(table, owner, 0, PrivateHand.snapshot(table, 0));
+        try {
+            require(hand.valid(owner), "private hand is stale before click");
+            hand.click(InteractKey.SeatSlot.AREA_HAND, slot, false);
+        } finally {
+            hand.destroy();
+        }
+        var updated = new PrivateHand(table, owner, 0, PrivateHand.snapshot(table, 0));
+        try {
+            require(table.driver().exchangeSelection(0).size() == expected.size(), "wrong selected count after clicking slot " + slot);
+            var marks = updated.holder.getElements().stream().filter(TextDisplayElement.class::isInstance)
+                    .map(TextDisplayElement.class::cast).filter(text -> text.getText().getString().equals("▼")).toList();
+            require(marks.size() == expected.size(), "wrong number of exchange markers after clicking slot " + slot);
+            for (int index : expected) {
+                var direction = PortViews.outward(0, table.getBlockState());
+                var at = TableLayout.handAnchor(POS, direction,
+                        TableLayout.handAlong(updated.snapshot.handSlots().get(index), updated.snapshot.handGapStarts()), false);
+                var marked = at.add(0, .15 * TableLayout.TILE_ENLARGEMENT, 0);
+                require(marks.stream().anyMatch(mark -> mark.getOverridePos().distanceTo(marked) < 1e-7
+                                && mark.getVisibilityPredicate().test(owner) && !mark.getVisibilityPredicate().test(outsider)),
+                        "private exchange marker missing from clicked tile " + index);
+            }
+        } finally {
+            updated.destroy();
+        }
+    }
+
     private static List<MahjongPlayerInterface> bots(){return IntStream.range(0,4).mapToObj(i->(MahjongPlayerInterface)new StupidActiveBot()).toList();}
     private static ProbePlayer register(MinecraftServer server,String name,List<ProbePlayer> players){
         var player=new ProbePlayer(server,name);server.getPlayerList().getPlayers().add(player);server.getPlayerList().getPlayersByUUID().put(player.getUUID(),player);players.add(player);return player;

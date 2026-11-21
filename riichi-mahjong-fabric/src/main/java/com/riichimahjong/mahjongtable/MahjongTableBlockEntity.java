@@ -30,6 +30,7 @@ import com.themahjong.TheMahjongTile;
 import com.themahjong.TheMahjongMatch;
 import com.themahjong.TheMahjongRound;
 import com.themahjong.TheMahjongMeld;
+import com.themahjong.compat.PointPayments;
 import com.themahjong.driver.MahjongPlayerInterface;
 import com.themahjong.driver.MatchPhase;
 import com.themahjong.driver.TheMahjongDriver;
@@ -45,6 +46,7 @@ import java.util.OptionalInt;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
 import org.jspecify.annotations.Nullable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.NonNullList;
@@ -82,7 +84,12 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         GAME
     }
 
-    public record SeatInfo(boolean enabled, Optional<UUID> occupant) {
+    public record SeatInfo(boolean enabled, Optional<UUID> occupant, boolean bloodDrawConsent) {
+        // Only the current occupant can opt in. Seat changes and world loads create a fresh seat.
+        public SeatInfo(boolean enabled, Optional<UUID> occupant) {
+            this(enabled, occupant, false);
+        }
+
         public static SeatInfo open() {
             return new SeatInfo(true, Optional.empty());
         }
@@ -285,6 +292,25 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     private boolean exchangeThreeTiles;
     private boolean jokersEnabled;
     private boolean bloodBattle;
+    private static final String NBT_BLOOD_DRAW_PLAYERS = "BloodDrawPlayers";
+    // Original consenting players in seat order, including seats temporarily played by a bot.
+    private List<UUID> bloodDrawPlayers = List.of();
+
+    public boolean bloodDrawActive() { return !bloodDrawPlayers.isEmpty(); }
+
+    private void settleBloodDraw() {
+        if (!bloodDrawActive() || !(level instanceof ServerLevel sl)) return;
+        var players = bloodDrawPlayers;
+        var scores = driver.currentRound().players();
+        bloodDrawPlayers = List.of();
+        BloodDrawHealth.detach(this);
+        for (int seat = 0; seat < players.size(); seat++) {
+            long shortfall = 25000L - scores.get(seat).points();
+            if (shortfall > 0) BloodDrawHealth.pay(sl, players.get(seat), shortfall);
+        }
+        setChanged();
+    }
+
     private BotDifficulty defaultBotDifficulty = BotDifficulty.NORMAL;
     private final Map<Integer, BotDifficulty> seatBotDifficulties = new HashMap<>();
     private boolean botsSuspended;
@@ -350,6 +376,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             var session=new ReplaySession(record,requester.getUUID(),analysis);
             // Validate the first frame before changing table state.
             var restored=session.frame().restore(level.registryAccess());
+            clearBloodDrawVotes(seats);
             replay=session;driver=restored;replayRecorder=null;appliedReplayRevision=-1;
             applyReplayFrame();matchRevision++;markChangedAndSynced();return true;
         } catch(RuntimeException error) {
@@ -727,12 +754,52 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     public OptionalInt returningSeat(UUID uuid) { return returningSeats.seat(uuid); }
     public Optional<UUID> returningPlayerAtSeat(int seat) { return returningSeats.playerAt(seat); }
 
+    public boolean setBloodDrawConsent(ServerPlayer player, boolean consent) {
+        if (driver != null || effectivePreset().playerCount() != 4 || !validMenuActor(player) || !player.isAlive()) return false;
+        int seat = seatOfPlayer(player.getUUID()).orElse(-1);
+        if (seat < 0 || !seats.get(seat).enabled()) return false;
+        var current = seats.get(seat);
+        seats.set(seat, new SeatInfo(true, current.occupant(), consent));
+        return true;
+    }
+
+    private boolean eligibleBloodDrawPlayer(UUID id) {
+        if (!(level instanceof ServerLevel serverLevel)) return false;
+        var player = serverLevel.getServer().getPlayerList().getPlayer(id);
+        return player != null && player.isAlive() && !player.isSpectator();
+    }
+
+    private static List<UUID> bloodDrawVoters(List<SeatInfo> seats, Predicate<UUID> eligible) {
+        return seats.stream().filter(seat -> seat.enabled() && seat.bloodDrawConsent())
+                .flatMap(seat -> seat.occupant().stream()).distinct().filter(eligible).toList();
+    }
+
+    public int bloodDrawVoteCount() {
+        return bloodDrawVoters(seats, this::eligibleBloodDrawPlayer).size();
+    }
+
+    /** Called exactly once on a successful ordinary start, including a redstone start. */
+    private List<UUID> consumeBloodDrawConsent() {
+        return consumeBloodDrawConsent(seats, this::eligibleBloodDrawPlayer);
+    }
+
+    private static void clearBloodDrawVotes(List<SeatInfo> seats) {
+        seats.replaceAll(seat -> seat.bloodDrawConsent() ? new SeatInfo(seat.enabled(), seat.occupant()) : seat);
+    }
+
+    public static List<UUID> consumeBloodDrawConsent(List<SeatInfo> seats, Predicate<UUID> eligible) {
+        var players = bloodDrawVoters(seats, eligible);
+        clearBloodDrawVotes(seats);
+        return players.size() == DEFAULT_SEAT_COUNT ? players : List.of();
+    }
+
     public boolean canClaimSeat(int seat, UUID uuid) {
         if (replay != null) return false;
         if (seat < 0 || seat >= seats.size()) return false;
         if (!seats.get(seat).enabled()) return false;
         if (seats.get(seat).occupant().filter(id->!id.equals(uuid)).isPresent()) return false;
         if (driver != null) {
+            if (bloodDrawActive() && (seat >= bloodDrawPlayers.size() || !bloodDrawPlayers.get(seat).equals(uuid))) return false;
             int current=seatOfPlayer(uuid).orElse(-1);
             if (seat>=driver.match().playerCount() || current>=0 && current!=seat
                     || !returningSeats.allows(uuid,seat)) return false;
@@ -847,6 +914,8 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         this.driver.setAnimationsEnabled(true);
         beginRecording(effectivePreset());
         this.driver.startMatch();
+        bloodDrawPlayers = consumeBloodDrawConsent();
+        if (bloodDrawActive()) BloodDrawHealth.start(this, bloodDrawPlayers);
         startPlayerAnalysis();
         matchRevision++;
         markChangedAndSynced();
@@ -916,7 +985,9 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     public CompoundTag exportRecordSnapshot(net.minecraft.core.HolderLookup.Provider registries) {
-        return saveCustomOnly(registries);
+        var snapshot = saveCustomOnly(registries);
+        snapshot.remove(NBT_BLOOD_DRAW_PLAYERS);
+        return snapshot;
     }
 
     public StartMatchResult tryApplyRecordSnapshot(CompoundTag snapshot, java.util.UUID hostUuid) {
@@ -930,6 +1001,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         patched.remove("ReplayRecording");
         // Imported records are practice, never a second application of the source game's statistics.
         patched.remove("PlayerAnalysis");
+        patched.remove(NBT_BLOOD_DRAW_PLAYERS);
         patched.remove("SpectatorMatchParticipants");
         // A record copies a game, not the source table's administration rights.
         patched.store("TableOwner", UUIDUtil.CODEC, owner().orElse(hostUuid));
@@ -1013,6 +1085,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     private void clearMatchState() {
+        settleBloodDraw();
         replay=null; replayRecorder=null; appliedReplayRevision=-1; roundResultDisplay.clear();
         if (playerAnalysis != null) { playerAnalysis.tick(); playerAnalysis.close(); playerAnalysis = null; }
         clearWinPresentation();
@@ -1204,7 +1277,14 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     }
 
     @Override
+    public void preRemoveSideEffects(BlockPos pos, BlockState state) {
+        settleBloodDraw();
+        super.preRemoveSideEffects(pos, state);
+    }
+
+    @Override
     public void setRemoved() {
+        BloodDrawHealth.detach(this);
         if (playerAnalysis != null) { playerAnalysis.tick(); playerAnalysis.close(); }
         finishWinEffect();
         if(driver!=null&&driver.rules().bloodBattle()&&ResultHandReveals.canReveal(driver)){
@@ -1222,6 +1302,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     @Override
     public void clearRemoved() {
         super.clearRemoved();
+        if (bloodDrawActive()) BloodDrawHealth.attach(this, bloodDrawPlayers);
         bindPlayerAnalysis();
         if (!botsSuspended) return;
         botsSuspended = false;
@@ -1279,7 +1360,13 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         boolean animating = resultAnimStage != ResultAnimStage.NONE;
         boolean exchangeWasComplete=exchangeCompleted();
         if (!animating) {
-            driver.advance(SECONDS_PER_TICK);
+            if (bloodDrawActive()) {
+                var players = bloodDrawPlayers;
+                PointPayments.collect(() -> driver.advance(SECONDS_PER_TICK),
+                        (seat, points) -> BloodDrawHealth.pay(sl, players.get(seat), points));
+            } else {
+                driver.advance(SECONDS_PER_TICK);
+            }
             if (playerAnalysis != null) playerAnalysis.tick();
             captureExchange(exchangeWasComplete);
             playAcceptedActionSounds(sl, prevMatch);
@@ -1489,6 +1576,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             if (playerAnalysis != null) playerAnalysis.tick();
             roundResultDisplay.observe(driver.currentPhase());
             driver.advanceRound(next.renchan(), next.nextHonba());
+            if (driver.currentPhase() instanceof MatchPhase.MatchEnded) settleBloodDraw();
             if (playerAnalysis != null) {
                 if (driver.currentPhase() instanceof MatchPhase.MatchEnded) playerAnalysis.tick();
                 else playerAnalysis.nextHand();
@@ -1731,6 +1819,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         }
 
         if (driver != null && replay == null) {
+            if (bloodDrawActive()) out.store(NBT_BLOOD_DRAW_PLAYERS, UUIDUtil.CODEC.listOf(), bloodDrawPlayers);
             DriverNbt.writeDriver(out.child(NBT_DRIVER), driver);
             resultHandReveals.write(out.child("ShownHands"), driver);
             if (winningHandDisplay != null && ResultHandReveals.canReveal(driver)) {
@@ -1756,6 +1845,8 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     @Override
     protected void loadAdditional(ValueInput in) {
         super.loadAdditional(in);
+        BloodDrawHealth.detach(this);
+        bloodDrawPlayers = List.of();
 
         replay=null; replayRecorder=null; appliedReplayRevision=-1; nextArchiveAttempt=0;
         replayArchives.read(in.childOrEmpty("ReplayArchives"));
@@ -1917,6 +2008,12 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
                 }else completedWinSeats.clear();
             }else if(ResultHandReveals.canReveal(driver))completedWinSeats.addAll(finalWinningSeats);
             if(finalResultLabels.isEmpty()&&ResultHandReveals.canReveal(driver))finalResultLabels=WinResultLabels.captureResults(driver);
+            if (driver.match().playerCount() == 4 && !(driver.currentPhase() instanceof MatchPhase.MatchEnded)) {
+                bloodDrawPlayers = in.read(NBT_BLOOD_DRAW_PLAYERS, UUIDUtil.CODEC.listOf())
+                        .filter(ids -> ids.size() == 4 && new HashSet<>(ids).size() == 4)
+                        .map(List::copyOf).orElse(List.of());
+                if (bloodDrawActive() && level instanceof ServerLevel && !isRemoved()) BloodDrawHealth.attach(this, bloodDrawPlayers);
+            }
             playerAnalysis = MatchAnalysisSession.read(in.childOrEmpty("PlayerAnalysis"));
             bindPlayerAnalysis();
             try {

@@ -117,6 +117,8 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
             ruleFamilies(table, host, visitor);
             competitionStarts(table, host);
             bloodBattleOption(table, host, visitor);
+            var fourth = register(server, "MenuFourth", players);
+            bloodDraw(table, List.of(host, visitor, other, fourth));
             readOnly(table, visitor);
             menuSeats(table, host, visitor);
             viewingOptions(table, host, visitor);
@@ -428,6 +430,109 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         }
         table.selectPreset(RuleSetPreset.MAHJONG_SOUL_4P);
         checks.add("all-preset-owner-only-blood-battle-toggle-redstone-gunpowder-icons-and-table-nbt");
+    }
+
+    private static void bloodDraw(MahjongTableBlockEntity table, List<MenuPlayer> players) {
+        var host = players.getFirst();
+        for (int seat = 0; seat < 4; seat++) {
+            var player = players.get(seat);
+            require(table.claimSeat(seat, player.getUUID()), "could not seat blood draw voter");
+            player.setHealth(8);
+            if (seat < 3) { page(player, table, 21); click(player, 14); }
+        }
+        page(host, table, 24);
+        click(host, 18);
+        require(table.hasActiveMatch() && !table.bloodDrawActive() && host.getHealth() == 8, "three votes activated blood draw");
+        table.endGame();
+        for (var player : players) {
+            page(player, table, 21);
+            click(player, 14);
+        }
+        require(table.bloodDrawVoteCount() == 4, "four individual menu votes were not collected");
+        page(host, table, 24);
+        click(host, 18);
+        require(table.bloodDrawActive() && players.stream().allMatch(p -> p.getHealth() == 20), "opening health reset failed");
+
+        var centre = Vec3.atCenterOf(POS);
+        var payer = players.get(2);
+        payer.setHealth(14);
+        payer.setPos(centre.add(0, 32, 0));
+        payer.heal(1);
+        require(payer.getHealth() == 14, "healing at exactly 32 blocks");
+        payer.setPos(centre.add(0, 32.01, 0));
+        payer.heal(1);
+        require(payer.getHealth() == 15, "healing beyond 32 blocks blocked");
+        payer.setPos(centre);
+        payer.setHealth(20);
+        require(payer.getHealth() == 15, "direct health increase after returning to table");
+
+        // Load a genuine last-discard position in South 4. West and North each owe 1,500 for noten.
+        var registries = host.level().registryAccess();
+        var saved = table.saveCustomOnly(registries);
+        require(saved.contains("BloodDrawPlayers") && !table.exportRecordSnapshot(registries).contains("BloodDrawPlayers"),
+                "a portable record copied live player health obligations");
+        // This hand replaces the original game history. Keep its recording local to the fixture.
+        saved.remove("ReplayRecording");
+        var fixture = lastBloodDrawHand(table.driver());
+        var encoded = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, registries);
+        com.riichimahjong.themahjongcompat.DriverNbt.writeDriver(encoded, fixture);
+        saved.put("Driver", encoded.buildResult());
+        table.loadCustomOnly(TagValueInput.create(ProblemReporter.DISCARDING, registries, saved));
+        payer.heal(1);
+        require(table.bloodDrawActive() && payer.getHealth() == 15, "reload healed players or lost healing restriction");
+        var driver = table.driver();
+        driver.submitAction(3, new PlayerAction.Discard(riichiTile(4,3)));
+        var ticker = MahjongTableBlockEntity.<MahjongTableBlockEntity>serverTicker();
+        ticker.tick(host.level(), POS, table.getBlockState(), table);
+        if (driver.currentPhase() instanceof MatchPhase.AwaitingClaims claims) {
+            for (int seat : claims.pendingSeats()) driver.submitAction(seat, PlayerAction.Pass.INSTANCE);
+            ticker.tick(host.level(), POS, table.getBlockState(), table);
+        }
+        require(driver.currentPhase() instanceof MatchPhase.RoundEnded
+                        && driver.currentRound().players().stream().map(TheMahjongPlayer::points).toList()
+                            .equals(List.of(33500, 25000, 18500, 23000)), "unexpected last-hand draw settlement");
+        require(host.getHealth() == 20 && players.get(1).getHealth() == 20 && payer.getHealth() == 13.5f
+                        && players.get(3).getHealth() == 18.5f, "incorrect health charges on table tick");
+
+        // Skip the display delay using the normal saved stage, then accept the final result.
+        var settled = table.saveCustomOnly(registries);
+        settled.putString("ResultAnimStage", "AWAITING_ADVANCE");
+        table.loadCustomOnly(TagValueInput.create(ProblemReporter.DISCARDING, registries, settled));
+        table.advanceRoundAfterResult();
+        require(table.isDriverTerminal() && !table.bloodDrawActive(), "ended match retained healing restriction");
+        require(host.getHealth() == 20 && players.get(1).getHealth() == 20 && payer.getHealth() == 7
+                        && players.get(3).getHealth() == 16.5f, "final deficit or 25,000-point boundary incorrect");
+        table.endGame();
+        payer.heal(1);
+        require(payer.getHealth() == 8 && table.bloodDrawVoteCount() == 0, "end/reset charged twice or retained votes");
+        for (int seat = 0; seat < 4; seat++) table.releaseSeat(seat);
+        checks.add("blood-draw-unanimous-menu-vote-healing-radius-reload-fractional-payments-and-final-deficits");
+    }
+
+    private static TheMahjongDriver lastBloodDrawHand(TheMahjongDriver original) {
+        var players = new ArrayList<TheMahjongPlayer>();
+        var controllers = new ArrayList<MahjongPlayerInterface>();
+        var drawn = riichiTile(4,3);
+        int[] scores = {32000, 23500, 20000, 24500};
+        for (int seat = 0; seat < 4; seat++) {
+            var hand = new ArrayList<TheMahjongTile>();
+            for (int rank = 1; rank <= 9; rank++) hand.add(riichiTile(seat % 3, rank));
+            hand.addAll(Collections.nCopies(3, riichiTile(3, seat + 1)));
+            hand.add(riichiTile(4,1));
+            if (seat >= 2) hand.set(0, riichiTile(4,2));
+            if (seat == 3) hand.add(drawn);
+            players.add(new TheMahjongPlayer(scores[seat], TheMahjongPlayer.RiichiState.NONE, false, hand,
+                    List.of(), List.of(new TheMahjongDiscard(riichiTile(2,4), false)), List.of()));
+            controllers.add(original.playerAt(seat));
+        }
+        var initial = original.currentRound();
+        var round = new TheMahjongRound(TheMahjongTile.Wind.SOUTH, 4, 0, 0, 3, TheMahjongRound.State.TURN,
+                3, -1, TheMahjongRound.ActiveTile.drawn(drawn), List.of(), initial.rinshanTiles(), initial.doraIndicators(),
+                initial.uraDoraIndicators(), 1, players, List.of());
+        var match = new TheMahjongMatch(4, 25000, 30000, 2, TheMahjongMatch.State.IN_ROUND, original.match().tileSet(),
+                original.rules(), List.of(), round);
+        return new TheMahjongDriver(match, controllers, new Random(1),
+                new TheMahjongDriver.Snapshot(new MatchPhase.AwaitingDiscard(3), false, OptionalInt.empty()));
     }
 
     private static void readOnly(MahjongTableBlockEntity table, MenuPlayer visitor) {

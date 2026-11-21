@@ -241,8 +241,8 @@ public class MahjongTableBlock extends BaseMultipartBlock {
         }
         ItemStack stack = new ItemStack(this);
         BlockEntity be = builder.getOptionalParameter(LootContextParams.BLOCK_ENTITY);
-        if (be instanceof MahjongTableBlockEntity && be.getLevel() instanceof ServerLevel sl) {
-            CompoundTag beTag = be.saveCustomOnly(sl.registryAccess());
+        if (be instanceof MahjongTableBlockEntity table && be.getLevel() instanceof ServerLevel sl) {
+            CompoundTag beTag = table.exportRecordSnapshot(sl.registryAccess());
             if (!beTag.isEmpty()) {
                 stack.set(DataComponents.BLOCK_ENTITY_DATA, TypedEntityData.of(be.getType(), beTag));
             }

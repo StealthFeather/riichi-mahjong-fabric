@@ -2,6 +2,8 @@ package com.themahjong.sichuan;
 
 import com.themahjong.*;
 import com.themahjong.driver.*;
+import com.themahjong.compat.PointPayments;
+import com.themahjong.variants.ExchangeTile;
 import com.themahjong.yaku.WinResult;
 import java.util.*;
 
@@ -26,14 +28,21 @@ public final class SichuanState {
         }
     }
     public record Payment(int payer, int receiver, int amount) {}
-    public record Snapshot(Stage stage, int exchangeDirection, List<List<TheMahjongTile>> selections,
-            Set<Integer> confirmed, List<Integer> missingSuits, List<Win> wins, List<Payment> kanPayments,
-            boolean lastDrawRinshan, int pendingKakan, int firstWinCount) {
+    public record Snapshot(Stage stage, int exchangeDirection, Set<Integer> confirmed,
+            List<Integer> missingSuits, List<Win> wins, List<Payment> kanPayments,
+            boolean lastDrawRinshan, int pendingKakan, int firstWinCount, List<List<ExchangeTile>> picks) {
         public Snapshot {
             wins = List.copyOf(wins);
             if (firstWinCount < (wins.isEmpty() ? 0 : 1) || firstWinCount > wins.size())
                 throw new IllegalArgumentException("invalid first Sichuan win count");
         }
+        public Snapshot(Stage stage, int exchangeDirection, List<List<TheMahjongTile>> selections,
+                Set<Integer> confirmed, List<Integer> missingSuits, List<Win> wins, List<Payment> kanPayments,
+                boolean lastDrawRinshan, int pendingKakan, int firstWinCount) {
+            this(stage, exchangeDirection, confirmed, missingSuits, wins, kanPayments, lastDrawRinshan, pendingKakan,
+                    firstWinCount, selections.stream().map(ExchangeTile::firstCopies).toList());
+        }
+        public List<List<TheMahjongTile>> selections() { return picks.stream().map(ExchangeTile::tiles).toList(); }
         /** Older snapshots preserve win order without the boundary between claim windows. */
         public Snapshot(Stage stage, int exchangeDirection, List<List<TheMahjongTile>> selections,
                 Set<Integer> confirmed, List<Integer> missingSuits, List<Win> wins, List<Payment> kanPayments,
@@ -46,7 +55,7 @@ public final class SichuanState {
 
     private Stage stage;
     private final int exchangeDirection;
-    private final List<List<TheMahjongTile>> selections = new ArrayList<>();
+    private final List<List<ExchangeTile>> selections = new ArrayList<>();
     private final Set<Integer> confirmed = new LinkedHashSet<>();
     private final TheMahjongTile.Suit[] missingSuits = new TheMahjongTile.Suit[4];
     private final List<Win> wins = new ArrayList<>();
@@ -67,7 +76,7 @@ public final class SichuanState {
         this(saved.stage() == Stage.EXCHANGE, saved.exchangeDirection());
         stage = saved.stage();
         for (int seat = 0; seat < 4; seat++) {
-            if (seat < saved.selections().size()) selections.get(seat).addAll(saved.selections().get(seat));
+            if (seat < saved.picks().size()) selections.get(seat).addAll(saved.picks().get(seat));
             int suit = seat < saved.missingSuits().size() ? saved.missingSuits().get(seat) : -1;
             if (suit >= 0 && suit < 3) missingSuits[seat] = TheMahjongTile.Suit.values()[suit];
         }
@@ -79,16 +88,17 @@ public final class SichuanState {
 
     public Snapshot snapshot() {
         return new Snapshot(stage, exchangeDirection,
-                selections.stream().map(List::copyOf).toList(), Set.copyOf(confirmed),
+                Set.copyOf(confirmed),
                 Arrays.stream(missingSuits).map(s -> s == null ? -1 : s.ordinal()).toList(),
-                wins, List.copyOf(kanPayments), lastDrawRinshan, pendingKakan, firstWinCount);
+                wins, List.copyOf(kanPayments), lastDrawRinshan, pendingKakan, firstWinCount, selections.stream().map(List::copyOf).toList());
     }
     public Stage stage() { return stage; }
     public long revision() { return revision; }
     public int exchangeDirection() { return exchangeDirection; }
     public boolean pendingExchange(int seat) { return validSeat(seat) && stage == Stage.EXCHANGE && !confirmed.contains(seat); }
     public boolean pendingVoidSuit(int seat) { return validSeat(seat) && stage == Stage.VOID_SUIT && missingSuits[seat] == null; }
-    public List<TheMahjongTile> exchangeSelection(int seat) { return validSeat(seat) ? List.copyOf(selections.get(seat)) : List.of(); }
+    public List<TheMahjongTile> exchangeSelection(int seat) { return ExchangeTile.tiles(exchangePicks(seat)); }
+    public List<ExchangeTile> exchangePicks(int seat) { return validSeat(seat) ? List.copyOf(selections.get(seat)) : List.of(); }
     public TheMahjongTile.Suit voidSuit(int seat) { return validSeat(seat) ? missingSuits[seat] : null; }
     public boolean won(int seat) { return wins.stream().anyMatch(win -> win.seat() == seat); }
     public Set<Integer> winners() { var out = new LinkedHashSet<Integer>(); for (var win : wins) out.add(win.seat()); return Collections.unmodifiableSet(out); }
@@ -103,18 +113,15 @@ public final class SichuanState {
     public boolean selfDrawn(int seat) { return wins.stream().anyMatch(w -> w.seat() == seat && w.selfDrawn()); }
     private static boolean validSeat(int seat) { return seat >= 0 && seat < 4; }
 
-    /** Repeated clicks select separate physical copies; clicking a fully selected kind removes one. */
     public boolean toggleExchangeTile(TheMahjongRound round, int seat, TheMahjongTile tile) {
-        if (!pendingExchange(seat) || tile == null || !tile.suit().isNumber()) return false;
-        var selected = selections.get(seat);
-        long owned = round.players().get(seat).currentHand().stream().filter(tile::equals).count();
-        long picked = selected.stream().filter(tile::equals).count();
-        if (picked > 0 && (picked >= owned || selected.size() == 3)) {
-            selected.remove(tile); revision++; return true;
-        }
-        if (owned == 0 || selected.size() >= 3
-                || !selected.isEmpty() && selected.getFirst().suit() != tile.suit()) return false;
-        selected.add(tile); revision++; return true;
+        if (!pendingExchange(seat)) return false;
+        return toggleExchangeCopy(round, seat, ExchangeTile.byValue(round.players().get(seat).currentHand(), selections.get(seat), tile));
+    }
+    public boolean toggleExchangeCopy(TheMahjongRound round, int seat, ExchangeTile pick) {
+        if (!pendingExchange(seat) || pick == null || !pick.tile().suit().isNumber()) return false;
+        if (!ExchangeTile.toggle(selections.get(seat), round.players().get(seat).currentHand(), pick, true)) return false;
+        revision++;
+        return true;
     }
     public boolean clearExchangeSelection(int seat) {
         if (!pendingExchange(seat) || selections.get(seat).isEmpty()) return false;
@@ -122,9 +129,9 @@ public final class SichuanState {
     }
     public boolean confirmExchange(TheMahjongRound round, int seat) {
         if (!pendingExchange(seat) || selections.get(seat).size() != 3) return false;
-        var hand = new ArrayList<>(round.players().get(seat).currentHand());
-        TheMahjongTile.Suit suit = selections.get(seat).getFirst().suit();
-        for (var tile : selections.get(seat)) if (tile.suit() != suit || !hand.remove(tile)) return false;
+        var hand = round.players().get(seat).currentHand();
+        var suit = selections.get(seat).getFirst().tile().suit();
+        if (selections.get(seat).stream().distinct().filter(pick -> pick.tile().suit() == suit && pick.indexIn(hand) >= 0).count() != 3) return false;
         confirmed.add(seat); revision++; return true;
     }
     public boolean exchangeReady() { return stage == Stage.EXCHANGE && confirmed.size() == 4; }
@@ -133,9 +140,8 @@ public final class SichuanState {
         var players = new ArrayList<>(round.players());
         for (int seat = 0; seat < 4; seat++) {
             var player = players.get(seat);
-            var hand = new ArrayList<>(player.currentHand());
-            for (var tile : selections.get(seat)) if (!hand.remove(tile)) throw new IllegalStateException("exchange selection changed");
-            hand.addAll(selections.get((seat - exchangeDirection + 4) % 4));
+            var hand = ExchangeTile.remaining(player.currentHand(), selections.get(seat));
+            hand.addAll(exchangeSelection((seat - exchangeDirection + 4) % 4));
             players.set(seat, SichuanRules.player(player, player.points(), hand, player.melds(), player.discards()));
         }
         stage = Stage.VOID_SUIT; revision++;
@@ -153,7 +159,7 @@ public final class SichuanState {
         var choice = numberSuits().stream().filter(s -> hand.stream().filter(t -> t.suit() == s).count() >= 3)
                 .min(Comparator.comparingLong(s -> hand.stream().filter(t -> t.suit() == s).count())).orElseThrow();
         selections.get(seat).clear();
-        selections.get(seat).addAll(hand.stream().filter(t -> t.suit() == choice).sorted(TheMahjongTile.DISPLAY_ORDER).limit(3).toList());
+        selections.get(seat).addAll(ExchangeTile.firstCopies(hand.stream().filter(t -> t.suit() == choice).sorted(TheMahjongTile.DISPLAY_ORDER).limit(3).toList()));
         confirmExchange(round, seat);
     }
     public void automaticVoidSuit(TheMahjongRound round, int seat) {
@@ -248,6 +254,7 @@ public final class SichuanState {
         if (action instanceof PlayerAction.DeclareTsumo t) {
             var tile = ((TheMahjongRound.ActiveTile.Drawn)round.activeTile()).tile();
             round = applyDeltas(round, t.result().pointDeltas());
+            PointPayments.fromDeltas(t.result().pointDeltas());
             if (wins.isEmpty()) firstWinCount = 1;
             wins.add(new Win(seat, tile, true, t.result(), seat)); revision++;
             return continueAfterWin(round, seat, rules);
@@ -303,6 +310,7 @@ public final class SichuanState {
                 var action = decisions.get(seat);
                 var result = action instanceof PlayerAction.DeclareRon r ? r.result() : ((PlayerAction.DeclareChankan)action).result();
                 round = applyDeltas(round, result.pointDeltas());
+                PointPayments.fromDeltas(result.pointDeltas());
                 var players = new ArrayList<>(round.players()); var player = players.get(seat);
                 var hand = new ArrayList<>(player.currentHand()); hand.add(phase.heldTile());
                 players.set(seat, SichuanRules.player(player, player.points(), hand, player.melds(), player.discards()));
@@ -363,6 +371,7 @@ public final class SichuanState {
         for (int seat = 0; seat < 4; seat++) if (seat != receiver && !won(seat) && (onlyPayer < 0 || seat == onlyPayer)) {
             deltas.set(seat, deltas.get(seat) - amount); deltas.set(receiver, deltas.get(receiver) + amount);
             kanPayments.add(new Payment(seat, receiver, amount));
+            PointPayments.paid(seat, amount);
         }
         return applyDeltas(round, deltas);
     }
@@ -384,12 +393,14 @@ public final class SichuanState {
             for (int receiver = 0; receiver < 4; receiver++) if (receiver != payer && !pig[receiver] && (pig[payer] || !won(receiver))) {
                 int amount = pig[payer] ? 16000 : ready[payer] == 0 && ready[receiver] > 0 ? ready[receiver] : 0;
                 deltas.set(payer, deltas.get(payer) - amount); deltas.set(receiver, deltas.get(receiver) + amount);
+                PointPayments.paid(payer, amount);
             }
         }
         // A player who is not ready refunds all of their kan income at an exhaustive draw.
         for (var payment : kanPayments) if (!won(payment.receiver()) && ready[payment.receiver()] == 0) {
             deltas.set(payment.receiver(), deltas.get(payment.receiver()) - payment.amount());
             deltas.set(payment.payer(), deltas.get(payment.payer()) + payment.amount());
+            PointPayments.paid(payment.receiver(), payment.amount());
         }
         return applyDeltas(round, deltas);
     }

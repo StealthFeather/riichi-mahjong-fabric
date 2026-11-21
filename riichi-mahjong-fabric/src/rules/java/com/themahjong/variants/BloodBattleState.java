@@ -2,6 +2,7 @@ package com.themahjong.variants;
 
 import com.themahjong.*;
 import com.themahjong.compat.DrawSettlement;
+import com.themahjong.compat.PointPayments;
 import com.themahjong.yaku.WinCalculator;
 import com.themahjong.yaku.WinResult;
 import java.util.*;
@@ -170,12 +171,15 @@ public final class BloodBattleState {
             for (int winner : nagashi) for (int payer : active) if (payer != winner) {
                 int amount = (winner == round.dealerSeat() || payer == round.dealerSeat() ? 4000 : 2000) + round.honba() * 100;
                 deltas[payer] -= amount; deltas[winner] += amount;
+                PointPayments.paid(payer, amount);
             }
         } else {
             int ready = (int)active.stream().filter(seat -> DrawSettlement.inTenpai(round.players().get(seat))).count();
             int noten = active.size() - ready;
-            if (ready > 0 && noten > 0) for (int seat : active)
+            if (ready > 0 && noten > 0) for (int seat : active) {
                 deltas[seat] = DrawSettlement.inTenpai(round.players().get(seat)) ? 3000 / ready : -3000 / noten;
+                PointPayments.paid(seat, -deltas[seat]);
+            }
         }
         var players = new ArrayList<>(round.players());
         for (int seat : active) {

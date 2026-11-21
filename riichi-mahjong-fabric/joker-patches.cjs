@@ -58,9 +58,7 @@ exports.winResultBuilder = source => {
             substituted.set(index, candidate);
             List<HandShape> shapes = HandShape.decomposeForWin(substituted, player.melds(), candidate);
             if (shapes.isEmpty()) continue;
-            boolean uninterrupted = round.players().stream().allMatch(p -> p.melds().isEmpty())
-                    && player.discards().isEmpty();
-            WinContext ctx = WinContext.tsumo(round.dealer(seat), uninterrupted,
+            WinContext ctx = WinContext.tsumo(round.dealer(seat), round.isUninterruptedFirstTurn(seat),
                     player.riichiState(), player.ippatsuEligible(), candidate,
                     round.seatWind(seat), round.roundWind(), round.liveWall().isEmpty(), rinshanDraw);
             WinResult result = finalize(round, rules, seat, seat, physical, player, ctx, shapes);

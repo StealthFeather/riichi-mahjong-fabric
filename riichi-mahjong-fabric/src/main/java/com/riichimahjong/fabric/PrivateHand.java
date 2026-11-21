@@ -32,14 +32,14 @@ final class PrivateHand {
     private int outlinedIndex = -1;
     static Snapshot snapshot(MahjongTableBlockEntity table,int seat){
         var d=table.driver();var r=d.match().currentRound().orElseThrow();
-        int count=table.handDisplayOrder(seat).size();if(d.currentPhase() instanceof MatchPhase.Dealing dealing){double fraction=switch(dealing.stage()){case WALL_BUILDING->0;case DEALING_HANDS->Math.min(1,dealing.elapsed()/dealing.stage().buildDuration());case DORA_FLIP->1;};count=(int)Math.round(count*fraction);}
+        var hand=table.handDisplayOrder(seat);int count=hand.size();if(d.currentPhase() instanceof MatchPhase.Dealing dealing){double fraction=switch(dealing.stage()){case WALL_BUILDING->0;case DEALING_HANDS->Math.min(1,dealing.elapsed()/dealing.stage().buildDuration());case DORA_FLIP->1;};count=(int)Math.round(count*fraction);}
         boolean queued=!ResultHandReveals.canReveal(d)&&d.playerAt(seat) instanceof MahjongTableHumanPlayer h&&h.hasQueued();
         var discards=d.legalActions(seat).stream().filter(a->a instanceof PlayerAction.DiscardWithRiichi).map(a->PublicTable.code(((PlayerAction.DiscardWithRiichi)a).tile())).toList();
         return new Snapshot(d, r, d.currentPhase(),
-                table.handDisplayOrder(seat).stream().limit(count).map(PublicTable::code).toList(),
+                hand.stream().limit(count).map(PublicTable::code).toList(),
                 table.handDisplaySlots(seat).stream().limit(count).toList(), table.handDisplayGapStarts(seat),
                 queued ? List.of() : List.copyOf(table.tableButtonsForSeat(seat)), discards,
-                d.exchangeSelection(seat).stream().map(PublicTable::code).toList(),
+                d.exchangePicks(seat).stream().map(pick -> pick.indexIn(hand)).toList(),
                 d.sichuanState() == null ? DoraTiles.tiles(r, table.displayPhase(), d.rules())
                         : Set.of(),
                 queued, table.hasSeparatedDrawnTile(seat), PublicTable.revealedSeats(table).contains(seat),
@@ -52,14 +52,13 @@ final class PrivateHand {
         // Polymer removes unattached holders from the player's tracking list every tick.
         // ManualAttachment keeps it alive without registering any chunk watchers.
         new ManualAttachment(holder,owner.level(),()->Vec3.atCenterOf(pos));
-        var exchangeMarks=new ArrayList<>(snapshot.exchangeSelection);
         if(!snapshot.revealed)for(int i=0;i<snapshot.hand.size();i++){
             Vec3 at=TableLayout.handAnchor(pos,dir,TableLayout.handAlong(snapshot.handSlots.get(i),snapshot.handGapStarts),false);
             int code = snapshot.hand.get(i);
             var stack = PortViews.tileStack(code, table.driver().sichuanState() != null, snapshot.doraTiles.contains(code));
             var tile = PortViews.displayForViewer(holder, stack, at, TableLayout.TILE_SCALE, PortViews.rotation(dir,false,false), owner);
             handTiles.add(tile);
-            boolean exchangeSelected=exchangeMarks.remove(Integer.valueOf(snapshot.hand.get(i)));
+            boolean exchangeSelected=snapshot.exchangeSelection.contains(i);
             if(exchangeSelected || snapshot.buttons.stream().anyMatch(b->b instanceof MahjongTableHumanPlayer.TableButton.RiichiToggle r&&r.active())&&snapshot.riichiDiscards.contains(snapshot.hand.get(i))){
                 var mark=new TextDisplayElement(Component.literal("▼").withStyle(ChatFormatting.GREEN));mark.setOverridePos(at.add(0,.15*TableLayout.TILE_ENLARGEMENT,0));mark.setScale(new Vector3f(.18f*TableLayout.TILE_ENLARGEMENT));mark.setBillboardMode(Display.BillboardConstraints.CENTER);mark.setVisibilityPredicate(p->p==owner);holder.addElement(mark);
             }

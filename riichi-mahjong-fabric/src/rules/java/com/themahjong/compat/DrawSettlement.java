@@ -30,6 +30,7 @@ public final class DrawSettlement {
         for (int seat = 0; seat < players.size(); seat++) {
             var player = players.get(seat);
             int delta = ready.get(seat) ? 3000 / tenpai : -3000 / noten;
+            PointPayments.paid(seat, -delta);
             settled.add(new TheMahjongPlayer(player.points() + delta,
                     player.riichiState(), player.ippatsuEligible(),
                     player.currentHand(), player.melds(), player.discards(),

@@ -18,6 +18,10 @@ module.exports=function patchDriver(source){
          '        commitPendingRiichi();\n        round = currentRound(); // Preserve the accepted deposit when a declaration discard is called.\n\n        for (int offset');
  replace('        claimDecisions.remove(seat);',
          '        // Keep an already accepted claim when its human controller leaves.');
+ // A combined multi-ron settlement can pay and charge the same seat (responsibility).
+ // Record each accepted result only after the engine commits their combined score.
+ replace('        round = round.resolveRons();\n        match = matchWithRound(round);',
+         '        round = round.resolveRons();\n        match = matchWithRound(round);\n        for (var win : results) com.themahjong.compat.PointPayments.fromDeltas(win.pointDeltas());');
  // Preserve display metadata at the exact accepted action, including multiple actions in one advance().
  replace('    private boolean animationsEnabled;',
          `    private boolean animationsEnabled;
@@ -98,6 +102,26 @@ module.exports=function patchDriver(source){
 };
 
 module.exports.round=function patchRound(source){
+ const declaration='    public TheMahjongRound declareRiichiIntent(TheMahjongRuleSet rules) {';
+ if(source.split(declaration).length!==2)throw Error('Upstream round patch no longer matches: riichi intent');
+ source=source.replace(declaration,`    public boolean isUninterruptedFirstTurn(int seat) {
+        return players.get(seat).discards().isEmpty()
+                && players.stream().allMatch(player -> player.melds().isEmpty() && player.kitaCount() == 0);
+    }
+
+`+declaration);
+ const doubleRiichi=`        boolean noMeldsAnyPlayer = players.stream().allMatch(p -> p.melds().isEmpty());
+        TheMahjongPlayer.RiichiState newState = (player.discards().isEmpty() && noMeldsAnyPlayer)`;
+ if(source.split(doubleRiichi).length!==3)throw Error('Upstream round patch expected both riichi declarations');
+ source=source.replaceAll(doubleRiichi,'        TheMahjongPlayer.RiichiState newState = isUninterruptedFirstTurn(currentTurnSeat)');
+ const insertAfter=(anchor,statement)=>{
+  if(source.split(anchor).length!==2)throw Error('Upstream payment patch no longer matches: '+anchor);
+  source=source.replace(anchor,anchor+'\n'+statement);
+ };
+ insertAfter('                deltas[i] -= pays;',
+             '                com.themahjong.compat.PointPayments.paid(i, pays);');
+ insertAfter('        requireYakuPresent(result, "declareWin");',
+             '        com.themahjong.compat.PointPayments.fromDeltas(result.pointDeltas());');
  const from=`        List<TheMahjongPlayer> newPlayers = players;
         if (rules.nagashiManganAllowed()) {`;
  const to=`        List<TheMahjongPlayer> newPlayers = players;
@@ -131,6 +155,12 @@ module.exports.tile=require('./joker-patches.cjs').tile;
 module.exports.handShape=require('./joker-patches.cjs').handShape;
 module.exports.furiten=require('./joker-patches.cjs').furiten;
 module.exports.winCalculator=source=>require('./competition-patches.cjs').winCalculator(require('./riichi-blood-patches.cjs').winCalculator(require('./joker-patches.cjs').winCalculator(source)));
-module.exports.winResultBuilder=source=>require('./competition-patches.cjs').winResultBuilder(require('./joker-patches.cjs').winResultBuilder(source));
+module.exports.winResultBuilder=source=>{
+ const firstTurn=`round.players().stream().allMatch(p -> p.melds().isEmpty())
+                && player.discards().isEmpty()`;
+ if(source.split(firstTurn).length!==3)throw Error('Upstream scoring patch expected first-turn checks for ron and tsumo');
+ source=source.replaceAll(firstTurn,'round.isUninterruptedFirstTurn(seat)');
+ return require('./competition-patches.cjs').winResultBuilder(require('./joker-patches.cjs').winResultBuilder(source));
+};
 
 module.exports.meld=require('./competition-patches.cjs').meld;

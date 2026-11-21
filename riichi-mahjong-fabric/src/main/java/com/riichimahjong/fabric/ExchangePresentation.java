@@ -4,6 +4,7 @@ import com.themahjong.TheMahjongTile;
 import com.themahjong.driver.TheMahjongDriver;
 import com.themahjong.sichuan.SichuanState;
 import com.themahjong.variants.Jokers;
+import com.themahjong.variants.ExchangeTile;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -54,16 +55,16 @@ public final class ExchangePresentation {
         if(driver==null || pending(driver) || driver.match().currentRound().isEmpty()) return null;
         boolean sichuan=driver.sichuanState()!=null;
         int count=driver.match().playerCount(), direction;
-        List<List<TheMahjongTile>> selections;
+        List<List<ExchangeTile>> selections;
         if(sichuan) {
             var saved=driver.sichuanState().snapshot();
             if(!driver.rules().exchangeThree() || saved.stage()==SichuanState.Stage.EXCHANGE
                     || saved.confirmed().size()!=count) return null;
-            direction=saved.exchangeDirection(); selections=saved.selections();
+            direction=saved.exchangeDirection(); selections=saved.picks();
         } else {
             var state=driver.exchangeState();
             if(state==null || !state.complete()) return null;
-            var saved=state.snapshot(); direction=saved.direction(); selections=saved.selections();
+            var saved=state.snapshot(); direction=saved.direction(); selections=saved.picks();
         }
         return create(count,direction,sichuan,driver.rules().jokersEnabled(),selections,
                 driver.currentRound().players().stream().map(player->player.currentHand()).toList());
@@ -71,7 +72,7 @@ public final class ExchangePresentation {
 
     /** Reconstruct pre-exchange hands from the accepted selections and final hand, preserving duplicates. */
     static Session create(int count,int direction,boolean sichuan,boolean jokers,
-            List<List<TheMahjongTile>> selections,List<List<TheMahjongTile>> acceptedHands) {
+            List<List<ExchangeTile>> selections,List<List<TheMahjongTile>> acceptedHands) {
         if(count<3 || count>4 || direction<1 || direction>=count || selections.size()!=count
                 || acceptedHands.size()!=count) throw new IllegalArgumentException("invalid exchange presentation");
         var before=new ArrayList<List<TheMahjongTile>>();
@@ -81,8 +82,8 @@ public final class ExchangePresentation {
                 throw new IllegalArgumentException("exchange must precede the first draw");
             var hand=new ArrayList<>(acceptedHands.get(seat));
             for(var incoming:selections.get(Math.floorMod(seat-direction,count)))
-                if(!hand.remove(incoming)) throw new IllegalArgumentException("accepted exchange lost an incoming tile");
-            hand.addAll(selections.get(seat));
+                if(!hand.remove(incoming.tile())) throw new IllegalArgumentException("accepted exchange lost an incoming tile");
+            hand.addAll(ExchangeTile.tiles(selections.get(seat)));
             before.add(order(hand,sichuan,jokers)); after.add(order(acceptedHands.get(seat),sichuan,jokers));
         }
         var selectedSlots=new ArrayList<List<Integer>>();
@@ -90,16 +91,14 @@ public final class ExchangePresentation {
         var flights=new ArrayList<Flight>();
         // Reserve incoming identities first so equal stationary copies cannot consume their target slots.
         for(int seat=0;seat<count;seat++) {
-            var remaining=new ArrayList<>(selections.get(seat));
             var indices=new ArrayList<Integer>();
             int target=(seat+direction)%count;
-            for(int index=0;index<13;index++) {
-                var tile=before.get(seat).get(index);
-                if(!remaining.remove(tile)) continue;
+            for (var pick : selections.get(seat)) {
+                int index = pick.indexIn(before.get(seat));
+                if (index < 0 || indices.contains(index)) throw new IllegalArgumentException("exchange selection no longer owned");
                 indices.add(index);
-                flights.add(new Flight(seat,index,target,take(after.get(target),usedAfter[target],tile),tile,true));
+                flights.add(new Flight(seat,index,target,take(after.get(target),usedAfter[target],pick.tile()),pick.tile(),true));
             }
-            if(!remaining.isEmpty() || indices.size()!=3) throw new IllegalArgumentException("exchange selection no longer owned");
             selectedSlots.add(List.copyOf(indices));
         }
         for(int seat=0;seat<count;seat++) for(int index=0;index<13;index++) {

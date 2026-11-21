@@ -10,6 +10,7 @@ import com.themahjong.yaku.NonYakuman;
 import com.themahjong.yaku.WinResult;
 import com.themahjong.yaku.Yakuman;
 import com.themahjong.sichuan.SichuanState;
+import com.themahjong.variants.ExchangeTile;
 import java.util.HashMap;
 
 import com.mojang.serialization.Codec;
@@ -56,7 +57,7 @@ public final class DriverNbt {
             for (int seat = 0; seat < snapshot.playerCount(); seat++) {
                 var selection = selections.addChild();
                 selection.putBoolean("confirmed", snapshot.confirmed().contains(seat));
-                MatchNbt.writeTileList(selection, "tiles", snapshot.selections().get(seat));
+                writeExchangeTiles(selection, snapshot.picks().get(seat));
             }
         }
         if (driver.bloodBattleState() != null) {
@@ -116,16 +117,16 @@ public final class DriverNbt {
         }
         if (!match.ruleSet().sichuan() && match.ruleSet().exchangeThree()) {
             in.child("exchange").ifPresent(exchange -> {
-                var selections = new ArrayList<List<TheMahjongTile>>();
+                var selections = new ArrayList<List<ExchangeTile>>();
                 var confirmed = new LinkedHashSet<Integer>();
                 for (var entry : exchange.childrenListOrEmpty("selections")) {
                     int seat = selections.size();
                     if (entry.getBooleanOr("confirmed", false)) confirmed.add(seat);
-                    selections.add(MatchNbt.readTileList(entry, "tiles"));
+                    selections.add(readExchangeTiles(entry));
                 }
                 driver.restoreExchangeState(new com.themahjong.variants.ExchangeThreeState.Snapshot(
                         exchange.getIntOr("playerCount", match.playerCount()), exchange.getIntOr("direction", 1),
-                        selections, confirmed, exchange.getBooleanOr("complete", false)));
+                        confirmed, exchange.getBooleanOr("complete", false), selections));
             });
         }
         if (match.ruleSet().bloodBattle() && !match.ruleSet().sichuan()) {
@@ -149,6 +150,26 @@ public final class DriverNbt {
         return driver;
     }
 
+    private static void writeExchangeTiles(ValueOutput selection, List<ExchangeTile> picks) {
+        var tiles = selection.childrenList("tiles");
+        for (var pick : picks) {
+            var entry = tiles.addChild();
+            MatchNbt.writeTile(entry, pick.tile());
+            entry.putInt("copy", pick.copy());
+        }
+    }
+
+    private static List<ExchangeTile> readExchangeTiles(ValueInput selection) {
+        var picks = new ArrayList<ExchangeTile>();
+        for (var entry : selection.childrenListOrEmpty("tiles")) {
+            var tile = MatchNbt.readTile(entry);
+            // Before copy numbers were saved, the markers always occupied the first matching tiles.
+            int copy = entry.getInt("copy").orElseGet(() -> (int) picks.stream().filter(p -> p.tile().equals(tile)).count());
+            picks.add(new ExchangeTile(tile, copy));
+        }
+        return picks;
+    }
+
     private static void writeSichuan(ValueOutput out, SichuanState state) {
         var snapshot = state.snapshot();
         out.putString("stage", snapshot.stage().name());
@@ -161,7 +182,7 @@ public final class DriverNbt {
             var selection = selections.addChild();
             selection.putBoolean("confirmed", snapshot.confirmed().contains(seat));
             selection.putInt("missingSuit", snapshot.missingSuits().get(seat));
-            MatchNbt.writeTileList(selection, "tiles", snapshot.selections().get(seat));
+            writeExchangeTiles(selection, snapshot.picks().get(seat));
         }
         var wins = out.childrenList("wins");
         for (var win : snapshot.wins()) {
@@ -180,13 +201,13 @@ public final class DriverNbt {
 
     private static SichuanState.Snapshot readSichuan(ValueInput in) {
         var stage = SichuanState.Stage.valueOf(in.getStringOr("stage", "VOID_SUIT"));
-        var selections = new ArrayList<List<TheMahjongTile>>();
+        var selections = new ArrayList<List<ExchangeTile>>();
         var confirmed = new LinkedHashSet<Integer>(); var missingSuits = new ArrayList<Integer>();
         for (var entry : in.childrenListOrEmpty("selections")) {
             int seat = selections.size();
             if (entry.getBooleanOr("confirmed", false)) confirmed.add(seat);
             missingSuits.add(entry.getIntOr("missingSuit", -1));
-            selections.add(MatchNbt.readTileList(entry, "tiles"));
+            selections.add(readExchangeTiles(entry));
         }
         var wins = new ArrayList<SichuanState.Win>();
         for (var entry : in.childrenListOrEmpty("wins")) {
@@ -203,9 +224,9 @@ public final class DriverNbt {
             payments.add(new SichuanState.Payment(entry.getIntOr("payer", 0),
                     entry.getIntOr("receiver", 0), entry.getIntOr("amount", 0)));
         }
-        return new SichuanState.Snapshot(stage, in.getIntOr("exchangeDirection", 1), selections,
+        return new SichuanState.Snapshot(stage, in.getIntOr("exchangeDirection", 1),
                 confirmed, missingSuits, wins, payments, in.getBooleanOr("lastDrawRinshan", false),
-                in.getIntOr("pendingKakan", -1), in.getIntOr("firstWinCount", wins.isEmpty() ? 0 : 1));
+                in.getIntOr("pendingKakan", -1), in.getIntOr("firstWinCount", wins.isEmpty() ? 0 : 1), selections);
     }
 
     public static void writePhase(ValueOutput out, MatchPhase phase) {

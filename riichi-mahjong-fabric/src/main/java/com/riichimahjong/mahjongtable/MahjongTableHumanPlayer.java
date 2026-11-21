@@ -260,7 +260,7 @@ public class MahjongTableHumanPlayer extends MahjongHumanPlayer {
             if (idx < 0 || idx >= hand.size()) return;
             if (driver.pendingExchange(seatIndex)
                     && !(driver.currentPhase() instanceof MatchPhase.Dealing)) {
-                driver.toggleExchangeTile(seatIndex, hand.get(idx));
+                driver.toggleExchangeSlot(seatIndex, idx);
             } else tryDiscard(sender, hand.get(idx), driver, seatIndex, confirmDiscard ? idx : -1);
         } else if (ss.area() == InteractKey.SeatSlot.AREA_BUTTON) {
             List<TableButton> buttons = tableButtons(driver, seatIndex, riichiPending);

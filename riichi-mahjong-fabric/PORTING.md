@@ -1,6 +1,6 @@
 # Timory Mahjong Fabric 服务端移植
 
-当前测试版本为 **Timory Mahjong 0.5.3-beta.3**。右键中心风盘打开五项牌桌菜单，在「个人设置」选择出牌方式、立直皮肤及胡牌效果。[版本说明](docs/0.5.3-beta.3.md)
+当前测试版本为 **Timory Mahjong 0.5.5 Beta**。右键中心风盘打开五项牌桌菜单，在「个人设置」选择出牌方式、立直皮肤及胡牌效果。[版本说明](docs/0.5.5-beta.md)
 
 目标环境为 Minecraft 26.3、Fabric Loader 0.19.5、Fabric API 0.163.0、Java 25。客户端使用原版 26.3，接受合并后的 TimoryResource，不安装此 Mod。
 

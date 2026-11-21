@@ -16,6 +16,7 @@ public final class RiichiMahjong implements ModInitializer {
         ModMobEffects.MOB_EFFECTS.flush();ModEntities.ENTITY_TYPES.flush();
         ModRecipeSerializers.RECIPE_SERIALIZERS.flush();ModRecipeTypes.RECIPE_TYPES.flush();
         com.riichimahjong.mahjongtable.MahjongTableBlock.registerEvents();
+        com.riichimahjong.mahjongtable.BloodDrawHealth.register();
         com.riichimahjong.mahjongaltar.MahjongAltarBlockEntity.registerEvents();
         PortViews.register();PortMenus.register();
         net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents.SERVER_STARTED.register(
