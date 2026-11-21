@@ -29,6 +29,8 @@ git -C projects/timory-resource-pack pull --ff-only origin main
 
 四位玩家入座后，在 `/mahjong menu` 的「玩法设置」中各自点击「抽血模式」，全票同意后，桌主照常开局。抽血按实际支付点数计算，立直供托免扣血。[抽血规则与本版修复](docs/0.5.5-beta.md)
 
+标准四麻进行中，管理员可输入 `/mahjong shanten Alice 0 Bob 2`，分别指定同桌玩家下一局的起手向听数。支持 0～6 向听，每次最多指定四人。[指令用法](docs/0.5.5-beta.md#指定下一局起手向听数)
+
 每位玩家可在「个人设置」直接选择唤魔尖牙、末影人搬牌、监守者尖啸或直接摊牌。接口和时间线见 [胡牌特效开发说明](docs/win-effects.md)。
 
 需要 Minecraft 26.3、Fabric Loader 0.19.5、Fabric API 0.163.0+26.3、Java 25；Kobalab 电将和回放分析使用 Node.js 22+，Mortal 使用独立的本地推理程序。Polymer 和固定版本 AI 源码已内嵌。玩家使用原版客户端并接受包含麻将资产的 TimoryResource。

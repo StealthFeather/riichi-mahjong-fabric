@@ -28,6 +28,7 @@ import net.minecraft.world.item.component.ItemLore;
 public final class PortMenus {
     public static void register(){
         DiscardPreference.register();
+        StartingShantenCommand.trackLoadedTables();
         CommandRegistrationCallback.EVENT.register((d,access,env)->{
             var root=Commands.literal("mahjong").executes(c->{c.getSource().sendSuccess(()->Component.literal("右键牌桌中心风盘或输入 /mahjong menu 打开牌桌菜单。点击「牌桌座次」入座；在「牌桌操作」中开局、观战、继续下一局；在「个人设置」中切换出牌方式与特效。/mahjong join 接回座位，/mahjong leave 离座，/mahjong stats 查看个人统计。"),false);return 1;});
             root.then(Commands.literal("join").executes(c->{var p=c.getSource().getPlayerOrException();return TableSeating.joinNearest(p,nearest(p))?1:0;}).then(Commands.argument("seat",IntegerArgumentType.integer(1,4)).executes(c->{var p=c.getSource().getPlayerOrException();return TableSeating.join(p,nearest(p),IntegerArgumentType.getInteger(c,"seat")-1)?1:0;})));
@@ -36,6 +37,7 @@ public final class PortMenus {
             root.then(Commands.literal("next").executes(c->{var p=c.getSource().getPlayerOrException();var t=nearest(p);if(t.seatOfPlayer(p.getUUID()).isPresent())t.advanceRoundAfterResult();return 1;}));
             root.then(Commands.literal("leave").executes(c->{var p=c.getSource().getPlayerOrException();return TableSeating.leave(p,nearest(p))?1:0;}));
             root.then(Commands.literal("stats").executes(c->{AnalysisMenus.open(c.getSource().getPlayerOrException());return 1;}));
+            root.then(StartingShantenCommand.command());
             root.then(Commands.literal("give").requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS)).executes(c->{items(c.getSource().getPlayerOrException(),0);return 1;}));
             d.register(root);
             d.register(Commands.literal("riichi_action").then(Commands.argument("token",StringArgumentType.word()).executes(c->{try{PrivateHand.run(c.getSource().getPlayerOrException(),UUID.fromString(StringArgumentType.getString(c,"token")));}catch(IllegalArgumentException ignored){}return 1;})));
