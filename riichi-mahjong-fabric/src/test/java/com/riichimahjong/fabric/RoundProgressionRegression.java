@@ -78,15 +78,11 @@ public final class RoundProgressionRegression {
     }
 
     private static void advanceAndCheck(TheMahjongDriver driver,boolean renchan,int honba) {
-        advanceAndCheck(driver,renchan,honba,Map.of());
-    }
-
-    private static void advanceAndCheck(TheMahjongDriver driver,boolean renchan,int honba,Map<Integer,Integer> targets) {
         check(driver.currentPhase() instanceof MatchPhase.RoundEnded,"fixture did not end a round");
         var ended=driver.currentRound();var policy=RoundProgression.next(driver);
         check(policy.renchan()==renchan,"incorrect renchan for dealer "+ended.dealerSeat());
         check(policy.nextHonba()==honba,"incorrect next honba: "+policy.nextHonba());
-        driver.advanceRound(policy.renchan(),policy.nextHonba(),targets);
+        driver.advanceRound(policy.renchan(),policy.nextHonba());
         check(driver.currentPhase() instanceof MatchPhase.AwaitingDraw,"next round did not start");
         var next=driver.currentRound();int count=next.players().size();
         int dealer=renchan ? ended.dealerSeat() : (ended.dealerSeat()+1)%count;
@@ -101,31 +97,6 @@ public final class RoundProgressionRegression {
         check(points(next).equals(points(ended)),"next hand erased or reapplied settlement");
         check(driver.match().completedRounds().getLast().equals(ended),"history lost settled round");
         check(!driver.abortiveDraw() && !driver.snapshot().abortiveDraw(),"abortive marker leaked into next hand");
-    }
-
-    private static void specifiedDeals() {
-        for (boolean renchan : List.of(true, false)) {
-            int dealer = 3;
-            var players = new ArrayList<TheMahjongPlayer>();
-            for (int seat = 0; seat < 4; seat++) players.add(fixture(seat == dealer ? renchan : !renchan, true));
-            players.set(dealer, addTile(players.get(dealer), SPARE));
-            var driver = rig(players, dealer, dealer, List.of(), SPARE, TheMahjongRuleSet.mahjongSoul());
-            act(driver, dealer, new PlayerAction.Discard(SPARE));
-            passClaims(driver);
-            var observed = new ArrayList<TheMahjongRound>();
-            driver.setStateObserver(state -> observed.add(state.currentRound()));
-            advanceAndCheck(driver, renchan, 3, Map.of(2, 0, 1, 6));
-            var next = driver.currentRound();
-            check(observed.equals(List.of(next)), "replay observed an intermediate deal");
-            check(next.players().stream().allMatch(p -> p.currentHand().size() == 13), "incorrect opening hand size");
-            check(DrawSettlement.inTenpai(next.players().get(2)) && !DrawSettlement.inTenpai(next.players().get(1)),
-                    "scheduled next hand did not reach the requested players");
-            var tile = next.liveWall().getFirst();
-            act(driver, next.dealerSeat(), PlayerAction.Draw.INSTANCE);
-            check(driver.currentRound().activeTile().equals(TheMahjongRound.ActiveTile.drawn(tile))
-                    && driver.currentRound().players().get(next.dealerSeat()).currentHand().size() == 14,
-                    "dealer did not take the ordinary first draw");
-        }
     }
 
     private static void exhaustiveDraws() {
@@ -257,8 +228,6 @@ public final class RoundProgressionRegression {
     }
 
     public static void main(String[] args) {
-        specifiedDeals();
-        System.out.println("PASS: targeted deals on dealer repeat and wind rotation preserve points, deposits, history and the first draw");
         exhaustiveDraws();
         System.out.println("PASS: all 3p/4p readiness distributions and dealer seats advance with correct dealer, hand, wind, honba, scores and deposits");
         wins();

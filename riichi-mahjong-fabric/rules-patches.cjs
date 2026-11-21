@@ -96,14 +96,8 @@ module.exports=function patchDriver(source){
          `        if (round.state() == TheMahjongRound.State.ENDED) {
             abortiveDraw = true;
             phase = new MatchPhase.RoundEnded(List.of());`);
- replace('    public void advanceRound(boolean renchan, int nextHonba) {',
-         `    public void advanceRound(boolean renchan, int nextHonba) {
-        advanceRound(renchan, nextHonba, Map.of());
-    }
-
-    public void advanceRound(boolean renchan, int nextHonba, Map<Integer, Integer> shantenTargets) {`);
  replace('        match = match.advanceRound(random, renchan, nextHonba);',
-         '        match = match.advanceRound(random, renchan, nextHonba, shantenTargets);\n        abortiveDraw = false;');
+         '        match = match.advanceRound(random, renchan, nextHonba);\n        abortiveDraw = false;');
  return require('./analysis-patches.cjs')(require('./competition-patches.cjs').driver(require('./riichi-blood-patches.cjs')(require('./exchange-patches.cjs')(require('./joker-patches.cjs').driver(require('./sichuan-patches.cjs').driver(source))))));
 };
 
@@ -156,22 +150,7 @@ module.exports.round=function patchRound(source){
 module.exports.ruleSet=source=>require('./competition-patches.cjs').ruleSet(require('./sichuan-patches.cjs').ruleSet(source));
 module.exports.nonYakuman=require('./sichuan-patches.cjs').nonYakuman;
 
-module.exports.match=source=>{
- const advance='    public TheMahjongMatch advanceRound(Random random, boolean renchan, int nextHonba) {';
- const deal='        TheMahjongRound nextRound = TheMahjongRound.start(';
- if(source.split(advance).length!==2||source.split(deal).length!==2)
-  throw Error('Upstream match patch no longer matches: next round deal');
- source=source.replace(advance,advance+`
-        return advanceRound(random, renchan, nextHonba, java.util.Map.of());
-    }
-
-    public TheMahjongMatch advanceRound(Random random, boolean renchan, int nextHonba,
-            java.util.Map<Integer, Integer> shantenTargets) {`);
- source=source.replace(deal,`        if (!shantenTargets.isEmpty())
-            wall = com.themahjong.compat.StartingShantenDeal.arrange(wall, shantenTargets, random);
-`+deal);
- return require('./competition-patches.cjs').match(require('./sichuan-patches.cjs').match(source));
-};
+module.exports.match=source=>require('./competition-patches.cjs').match(require('./sichuan-patches.cjs').match(source));
 module.exports.tile=require('./joker-patches.cjs').tile;
 module.exports.handShape=require('./joker-patches.cjs').handShape;
 module.exports.furiten=require('./joker-patches.cjs').furiten;

@@ -1,6 +1,6 @@
 # Timory Mahjong
 
-Timory Mahjong 0.5.5 Beta 是 Minecraft 26.3 Fabric 服务端麻将模组。玩家使用原版客户端并接受 TimoryResource 资源包。
+Timory Mahjong 0.5.5 正式版是 Minecraft 26.3 Fabric 服务端麻将模组。玩家使用原版客户端并接受 TimoryResource 资源包。
 
 支持雀魂、天凤、WRC、川麻、公式战和 M-League，可选择东风场或南风场。换三张、赖子和血战到底可独立开启。四位玩家还可在「玩法设置」各自同意，为下一场开启抽血模式。玩家可在牌桌菜单入座、观战和调整对局设置，输入 `/mahjong stats` 查看个人对局统计。
 
@@ -12,4 +12,4 @@ Timory Mahjong 0.5.5 Beta 是 Minecraft 26.3 Fabric 服务端麻将模组。玩�
 
 服务端需要 Minecraft 26.3、Fabric API、Java 25 及 Node.js 22+；玩家无需安装客户端 Mod。
 
-详细规则、统计、构建和许可信息见 [项目说明](riichi-mahjong-fabric/README.md)、[0.5.5 Beta 更新说明](riichi-mahjong-fabric/docs/0.5.5-beta.md) 和 [构建说明](riichi-mahjong-fabric/BUILDING.md)。
+详细规则、统计、构建和许可信息见 [项目说明](riichi-mahjong-fabric/README.md)、[0.5.5 正式版更新说明](riichi-mahjong-fabric/docs/0.5.5.md) 和 [构建说明](riichi-mahjong-fabric/BUILDING.md)。

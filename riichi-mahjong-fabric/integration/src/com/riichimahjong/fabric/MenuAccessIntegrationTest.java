@@ -2,7 +2,6 @@ package com.riichimahjong.fabric;
 
 import com.google.gson.GsonBuilder;
 import com.mojang.authlib.GameProfile;
-import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.riichimahjong.ai.AiRuntime;
 import com.riichimahjong.analysis.AnalysisMode;
 import com.riichimahjong.analysis.PlayerAnalysisStore;
@@ -14,7 +13,6 @@ import com.riichimahjong.mahjongtable.RuleSetPreset;
 import com.riichimahjong.mahjongtable.MahjongTableHumanPlayer;
 import com.riichimahjong.mahjongtable.MahjongTableHumanPlayer.TableButton;
 import com.riichimahjong.mahjongtable.MatchLength;
-import com.riichimahjong.replay.ReplayRecord;
 import com.riichimahjong.cuterenderer.InteractKey;
 import com.themahjong.TheMahjongDiscard;
 import com.themahjong.TheMahjongMatch;
@@ -27,7 +25,6 @@ import com.themahjong.driver.PlayerAction;
 import com.themahjong.variants.ExchangeThreeState;
 import com.themahjong.variants.Jokers;
 import com.themahjong.yaku.Furiten;
-import com.themahjong.yaku.ShantenCalculator;
 import com.riichimahjong.registry.ModBlocks;
 import com.themahjong.TheMahjongTile;
 import eu.pb4.polymer.virtualentity.api.ElementHolder;
@@ -39,7 +36,6 @@ import java.util.*;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.commands.Commands;
-import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.nbt.CompoundTag;
@@ -123,7 +119,6 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
             bloodBattleOption(table, host, visitor);
             var fourth = register(server, "MenuFourth", players);
             bloodDraw(table, List.of(host, visitor, other, fourth));
-            nextHandShanten(server, table, List.of(host, visitor, other, fourth));
             readOnly(table, visitor);
             menuSeats(table, host, visitor);
             viewingOptions(table, host, visitor);
@@ -457,8 +452,6 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         page(host, table, 24);
         click(host, 18);
         require(table.bloodDrawActive() && players.stream().allMatch(p -> p.getHealth() == 20), "opening health reset failed");
-        require(!shantenCommand(host.level().getServer().createCommandSourceStack(), "MenuOwner 0"),
-                "an active blood draw match accepted a shanten target");
 
         var centre = Vec3.atCenterOf(POS);
         var payer = players.get(2);
@@ -514,98 +507,6 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         require(payer.getHealth() == 8 && table.bloodDrawVoteCount() == 0, "end/reset charged twice or retained votes");
         for (int seat = 0; seat < 4; seat++) table.releaseSeat(seat);
         checks.add("blood-draw-unanimous-menu-vote-healing-radius-reload-fractional-payments-and-final-deficits");
-    }
-
-    private static boolean shantenCommand(CommandSourceStack source, String arguments) {
-        try {
-            return source.getServer().getCommands().getDispatcher().execute("mahjong shanten " + arguments, source) > 0;
-        } catch (CommandSyntaxException rejected) {
-            return false;
-        }
-    }
-
-    private static void nextHandShanten(MinecraftServer server, MahjongTableBlockEntity table, List<MenuPlayer> players) {
-        var admin = server.createCommandSourceStack();
-        var registries = server.registryAccess();
-        for (int seat = 0; seat < players.size(); seat++)
-            require(table.claimSeat(seat, players.get(seat).getUUID()), "could not seat shanten test player");
-        require(!shantenCommand(admin, "MenuOwner 0"), "shanten command accepted an idle table");
-        require(table.tryStartMatch(831L) == MahjongTableBlockEntity.StartMatchResult.STARTED, "shanten match did not start");
-        var original = table.driver().currentRound();
-        require(!shantenCommand(players.getFirst().createCommandSourceStack(), "MenuOwner 0"),
-                "a non-operator table owner could change the next deal");
-        require(shantenCommand(admin, "MenuOwner 5 MenuVisitor 2 MenuOther 4 MenuFourth 6"),
-                "four-seat shanten command did not succeed");
-        var before = table.saveCustomOnly(registries).get("NextShantenTargets");
-        require(before != null && !shantenCommand(admin, "MenuOwner 3 MenuOwner 0")
-                        && !shantenCommand(admin, "MenuOwner 3 MenuVisitor 7")
-                        && before.equals(table.saveCustomOnly(registries).get("NextShantenTargets")),
-                "invalid command did not reject all changes");
-        require(shantenCommand(admin, "MenuFourth clear") && table.nextShantenTargets().equals(Map.of(
-                        players.get(0).getUUID(), 5, players.get(1).getUUID(), 2, players.get(2).getUUID(), 4)),
-                "clearing a player did not remove exactly one target");
-        require(shantenCommand(admin, "MenuOwner 0"), "overwriting one target failed");
-        require(shantenCommand(admin, "MenuFourth 6"), "could not schedule a cleared player again");
-        require(table.driver().currentRound() == original, "a command changed the active hand");
-        var saved = table.saveCustomOnly(registries);
-        require(saved.contains("NextShantenTargets") && !table.exportRecordSnapshot(registries).contains("NextShantenTargets"),
-                "pending targets did not stay private to the table save");
-        table.loadCustomOnly(TagValueInput.create(ProblemReporter.DISCARDING, registries, saved));
-        playToExhaustiveDraw(table.driver());
-        var previous = table.driver().currentRound();
-        var scores = previous.players().stream().map(TheMahjongPlayer::points).toList();
-        var progression = RoundProgression.next(table.driver());
-        var result = table.saveCustomOnly(registries);
-        result.putString("ResultAnimStage", "AWAITING_ADVANCE");
-        table.loadCustomOnly(TagValueInput.create(ProblemReporter.DISCARDING, registries, result));
-        table.advanceRoundAfterResult();
-        var round = table.driver().currentRound();
-        var hands = round.players().stream().map(TheMahjongPlayer::currentHand).toList();
-        require(hands.stream().allMatch(hand -> hand.size() == 13)
-                        && hands.stream().map(ShantenCalculator::shanten).toList().equals(List.of(0, 2, 4, 6)),
-                "actual thirteen-tile hands did not match their players' targets after reload");
-        require(round.honba() == progression.nextHonba() && round.riichiSticks() == previous.riichiSticks()
-                        && round.dealerSeat() == (progression.renchan() ? previous.dealerSeat() : (previous.dealerSeat() + 1) % 4)
-                        && round.players().stream().map(TheMahjongPlayer::points).toList().equals(scores),
-                "targeted deal changed dealer, honba, deposits or scores");
-        require(!table.saveCustomOnly(registries).contains("NextShantenTargets"), "targets survived the deal");
-        var wallHead = round.liveWall().getFirst();
-        for (int tick = 0; tick < 8 && table.driver().currentPhase() instanceof MatchPhase.Dealing; tick++)
-            table.driver().advance(2);
-        if (table.driver().currentPhase() instanceof MatchPhase.AwaitingDraw draw)
-            submit(table.driver(), draw.seat(), PlayerAction.Draw.INSTANCE);
-        var afterDraw = table.driver().currentRound();
-        require(afterDraw.activeTile() instanceof TheMahjongRound.ActiveTile.Drawn drawn && drawn.tile().equals(wallHead)
-                        && afterDraw.players().get(round.dealerSeat()).currentHand().size() == 14,
-                "dealer did not take the first tile of the live wall normally");
-        var record = ReplayRecord.fromNbt(table.saveCustomOnly(registries).getCompoundOrEmpty("ReplayRecording"));
-        var frame = record.frames().stream().filter(f -> f.roundIndex() == 1).findFirst().orElseThrow();
-        require(frame.restore(registries).currentRound().players().stream().map(TheMahjongPlayer::currentHand).toList().equals(hands),
-                "first recorded frame of the next hand has different starting tiles");
-        require(shantenCommand(admin, "MenuFourth 0"), "could not schedule the subsequent hand");
-        table.endGame();
-        require(!table.saveCustomOnly(registries).contains("NextShantenTargets"), "ending a match kept its pending targets");
-        for (int seat = 0; seat < 4; seat++) table.releaseSeat(seat);
-        checks.add("next-hand-shanten-operator-command-batch-overwrite-clear-and-atomic-rejection");
-        checks.add("next-hand-shanten-per-player-reload-once-normal-first-draw-and-replay");
-    }
-
-    private static void playToExhaustiveDraw(TheMahjongDriver driver) {
-        for (int turn = 0; turn < 300 && !(driver.currentPhase() instanceof MatchPhase.RoundEnded); turn++) {
-            switch (driver.currentPhase()) {
-                case MatchPhase.AwaitingDraw draw -> driver.submitAction(draw.seat(), PlayerAction.Draw.INSTANCE);
-                case MatchPhase.AwaitingDiscard discard -> {
-                    var drawn = (TheMahjongRound.ActiveTile.Drawn) driver.currentRound().activeTile();
-                    driver.submitAction(discard.seat(), new PlayerAction.Discard(drawn.tile()));
-                }
-                case MatchPhase.AwaitingClaims claims -> {
-                    for (int seat : claims.pendingSeats()) driver.submitAction(seat, PlayerAction.Pass.INSTANCE);
-                }
-                default -> { }
-            }
-            driver.advance(2);
-        }
-        require(driver.currentPhase() instanceof MatchPhase.RoundEnded, "test hand did not reach its result");
     }
 
     private static TheMahjongDriver lastBloodDrawHand(TheMahjongDriver original) {
@@ -694,6 +595,19 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
         var driverField = MahjongTableBlockEntity.class.getDeclaredField("driver");
         driverField.setAccessible(true);
         driverField.set(table, driver);
+        var server = player.level().getServer();
+        var commands = server.getCommands().getDispatcher().getRoot().getChild("mahjong");
+        require(commands != null && commands.getChild("next") != null && commands.getChild("shanten") == null,
+                "the server command tree exposes the suspended starting-shanten command");
+        var saved = table.saveCustomOnly(server.registryAccess());
+        var pending = new CompoundTag();
+        pending.putInt(player.getUUID().toString(), 0);
+        saved.put("NextShantenTargets", pending);
+        table.loadCustomOnly(TagValueInput.create(ProblemReporter.DISCARDING, server.registryAccess(), saved));
+        require(!table.saveCustomOnly(server.registryAccess()).contains("NextShantenTargets"),
+                "pending beta starting-shanten settings survived a stable world reload");
+        driver = table.driver();
+        ended = driver.currentRound();
         var stage = MahjongTableBlockEntity.class.getDeclaredField("resultAnimStage");
         stage.setAccessible(true);
         try {
@@ -719,6 +633,9 @@ public final class MenuAccessIntegrationTest implements ModInitializer {
                             && driver.currentRound() != ended && driver.match().completedRounds().size() == 1,
                     "seated shift-click did not advance directly to the next hand");
             var next = driver.currentRound();
+            require(next.players().stream().allMatch(seat -> seat.currentHand().size() == 13),
+                    "the upgraded table did not deal thirteen tiles to every seat");
+            checks.add("suspended-shanten-command-absent-and-beta-pending-target-discarded-before-next-deal");
             require(MahjongTableBlock.routeWindPlateUse(player, table) && player.opened instanceof PortMenus.Actions
                             && driver.currentRound() == next, "a repeated wind plate click skipped the new hand");
             checks.add("wind-plate-ready-seated-sneak-advances-once-other-clicks-open-menu");

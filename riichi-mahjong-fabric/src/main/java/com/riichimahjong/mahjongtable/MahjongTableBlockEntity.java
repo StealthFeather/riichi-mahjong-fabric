@@ -1,7 +1,6 @@
 // Fabric 26.3 server port of the pinned upstream file; see PORTING.md.
 package com.riichimahjong.mahjongtable;
 
-import com.mojang.serialization.Codec;
 import com.riichimahjong.mahjongcore.MahjongRoundResolvedEvent;
 import com.riichimahjong.mahjongcore.MahjongWinEffects;
 import com.riichimahjong.analysis.MatchAnalysisSession;
@@ -294,10 +293,6 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     private boolean jokersEnabled;
     private boolean bloodBattle;
     private static final String NBT_BLOOD_DRAW_PLAYERS = "BloodDrawPlayers";
-    private static final String NBT_NEXT_SHANTEN = "NextShantenTargets";
-    private static final Codec<Map<UUID, Integer>> SHANTEN_TARGETS_CODEC =
-            Codec.unboundedMap(UUIDUtil.STRING_CODEC, Codec.intRange(0, 6));
-    private final Map<UUID, Integer> nextShantenTargets = new HashMap<>();
     // Original consenting players in seat order, including seats temporarily played by a bot.
     private List<UUID> bloodDrawPlayers = List.of();
 
@@ -551,40 +546,6 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
 
     public boolean hasActiveMatch() { return driver != null; }
 
-    public boolean canScheduleNextShanten() {
-        if (isDriverTerminal() || replay != null || bloodDrawActive() || driver.match().playerCount() != 4) return false;
-        var rules = driver.rules();
-        return !rules.sichuan() && !rules.exchangeThree() && !rules.jokersEnabled() && !rules.bloodBattle();
-    }
-
-    public boolean setNextShanten(Map<UUID, Integer> targets) {
-        if (!canScheduleNextShanten() || targets.isEmpty() || targets.size() > DEFAULT_SEAT_COUNT) return false;
-        for (var entry : targets.entrySet()) {
-            var target = entry.getValue();
-            if (entry.getKey() == null || target == null || target < 0 || target > 6
-                    || seatOfPlayer(entry.getKey()).isEmpty()) return false;
-        }
-        nextShantenTargets.putAll(targets);
-        setChanged();
-        return true;
-    }
-
-    public boolean clearNextShanten(UUID player) {
-        if (nextShantenTargets.remove(player) == null) return false;
-        setChanged();
-        return true;
-    }
-
-    public Map<UUID, Integer> nextShantenTargets() { return Map.copyOf(nextShantenTargets); }
-
-    private Map<Integer, Integer> nextShantenBySeat() {
-        if (nextShantenTargets.isEmpty()) return Map.of();
-        var bySeat = new HashMap<Integer, Integer>();
-        nextShantenTargets.forEach((player, target) ->
-                seatOfPlayer(player).ifPresent(seat -> bySeat.put(seat, target)));
-        return bySeat;
-    }
-
     public OptionalInt seatOfPlayer(UUID uuid) {
         for (int i = 0; i < seats.size(); i++) {
             if (seats.get(i).occupant().filter(uuid::equals).isPresent()) {
@@ -783,7 +744,6 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
             replaceController(seat, buildBot(seat, driver.match().playerCount(), activeRedFives()));
         }
         returningSeats.forget(expectedOccupant, seat);
-        nextShantenTargets.remove(expectedOccupant);
         seats.set(seat, new SeatInfo(seats.get(seat).enabled(), Optional.empty()));
         privateClicks.remove(expectedOccupant);
         matchRevision++;
@@ -1027,7 +987,6 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
     public CompoundTag exportRecordSnapshot(net.minecraft.core.HolderLookup.Provider registries) {
         var snapshot = saveCustomOnly(registries);
         snapshot.remove(NBT_BLOOD_DRAW_PLAYERS);
-        snapshot.remove(NBT_NEXT_SHANTEN);
         return snapshot;
     }
 
@@ -1043,7 +1002,6 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         // Imported records are practice, never a second application of the source game's statistics.
         patched.remove("PlayerAnalysis");
         patched.remove(NBT_BLOOD_DRAW_PLAYERS);
-        patched.remove(NBT_NEXT_SHANTEN);
         patched.remove("SpectatorMatchParticipants");
         // A record copies a game, not the source table's administration rights.
         patched.store("TableOwner", UUIDUtil.CODEC, owner().orElse(hostUuid));
@@ -1128,7 +1086,6 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
 
     private void clearMatchState() {
         settleBloodDraw();
-        nextShantenTargets.clear();
         replay=null; replayRecorder=null; appliedReplayRevision=-1; roundResultDisplay.clear();
         if (playerAnalysis != null) { playerAnalysis.tick(); playerAnalysis.close(); playerAnalysis = null; }
         clearWinPresentation();
@@ -1618,8 +1575,7 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         try {
             if (playerAnalysis != null) playerAnalysis.tick();
             roundResultDisplay.observe(driver.currentPhase());
-            driver.advanceRound(next.renchan(), next.nextHonba(), nextShantenBySeat());
-            nextShantenTargets.clear();
+            driver.advanceRound(next.renchan(), next.nextHonba());
             if (driver.currentPhase() instanceof MatchPhase.MatchEnded) settleBloodDraw();
             if (playerAnalysis != null) {
                 if (driver.currentPhase() instanceof MatchPhase.MatchEnded) playerAnalysis.tick();
@@ -1864,7 +1820,6 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
 
         if (driver != null && replay == null) {
             if (bloodDrawActive()) out.store(NBT_BLOOD_DRAW_PLAYERS, UUIDUtil.CODEC.listOf(), bloodDrawPlayers);
-            if (!nextShantenTargets.isEmpty()) out.store(NBT_NEXT_SHANTEN, SHANTEN_TARGETS_CODEC, nextShantenTargets);
             DriverNbt.writeDriver(out.child(NBT_DRIVER), driver);
             resultHandReveals.write(out.child("ShownHands"), driver);
             if (winningHandDisplay != null && ResultHandReveals.canReveal(driver)) {
@@ -1892,7 +1847,6 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
         super.loadAdditional(in);
         BloodDrawHealth.detach(this);
         bloodDrawPlayers = List.of();
-        nextShantenTargets.clear();
 
         replay=null; replayRecorder=null; appliedReplayRevision=-1; nextArchiveAttempt=0;
         replayArchives.read(in.childOrEmpty("ReplayArchives"));
@@ -2059,13 +2013,6 @@ public class MahjongTableBlockEntity extends BlockEntity implements Container, M
                         .filter(ids -> ids.size() == 4 && new HashSet<>(ids).size() == 4)
                         .map(List::copyOf).orElse(List.of());
                 if (bloodDrawActive() && level instanceof ServerLevel && !isRemoved()) BloodDrawHealth.attach(this, bloodDrawPlayers);
-            }
-            if (canScheduleNextShanten()) {
-                in.read(NBT_NEXT_SHANTEN, SHANTEN_TARGETS_CODEC).ifPresent(saved ->
-                        returningSeats.snapshot().keySet().forEach(player -> {
-                            Integer target = saved.get(player);
-                            if (target != null) nextShantenTargets.put(player, target);
-                        }));
             }
             playerAnalysis = MatchAnalysisSession.read(in.childOrEmpty("PlayerAnalysis"));
             bindPlayerAnalysis();
