@@ -1,1 +1,0 @@
-{"required":true,"package":"com.riichimahjong.mixin","compatibilityLevel":"JAVA_25","mixins":["BloodDrawHealingMixin","DisplayArmorStandAccessor","DisplayMobAccessor","DisplayShulkerAccessor","TableEntityCollisionMixin","TableMiningGameModeMixin"],"injectors":{"defaultRequire":1}}
