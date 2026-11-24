@@ -59,7 +59,7 @@ fs.copyFileSync(p.join(project,'BUILDING.md'),p.join(sources,'BUILDING.md'));
 fs.writeFileSync(p.join(sources,'README.md'),'# 立直麻将源码归档\n\n源码位于 riichi-mahjong-fabric/。请阅读 BUILDING.md 与 PORTING.md；JDK、Minecraft/Polymer 依赖和合并资源包基准需另行准备。\n');
 exec(javaTool('jar'),['--create','--no-manifest','--file',p.join(release,'riichi-mahjong-fabric-sources.zip'),'-C',sources,'.'],{windowsHide:true});
 const manifest={name:'Timory Mahjong',version,channel:version.includes('-')?'prerelease':'stable',upstream:'https://github.com/caxapexac/MinecraftRiichiMahjong',commit:'fe469836ed461d44998819dd3004c8dea01f5be0',minecraft:'26.3',loader:'Fabric',clientModRequired:false,resourcePack:'TimoryResource-26.3.zip',resourcePackSha1:hash(p.join(release,'TimoryResource-26.3.zip'),'sha1'),acceptance:'pending',checks:{compiled:true,packaged:true,gameplayTests:false,protocolTests:false,visualTests:false,rulesTests:true,humanControlTests:true,geometryTests:true},limitations:['原版客户端无法执行客户端 FOV 修改与渲染编辑器；交互采用显示实体、私有 interaction、ActionBar 与原版容器','原版流体使用水投影，客户端占位碰撞无法完全等同原 Mod','能源兼容需服务端具有 Team Reborn Energy API']};
-manifest.baseRelease='0.5.4';
+manifest.baseRelease='0.5.5';
 manifest.ai={...verification.ai,requires:'Node.js >=22 (Kobalab), Python 3.12 and local Mortal worker',runtimeBundled:false,networkServiceRequired:false};
 manifest.checks.serverIntegrationTests=!!verification.serverIntegrationTest;
 manifest.checks.clientMenuVisualTests=!!verification.clientVisualTest;
